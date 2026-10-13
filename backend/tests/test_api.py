@@ -27,11 +27,39 @@ def kpi(client, well, period, user='u_fin'):
 
 def test_w001_august_matches_export_template(client):
     k = kpi(client, 'W001', '2026-08')
-    # 《单井经营情况导出模板》示例井：总成本 13,836,225.50，形象利润 -6,688,396.66（模板为未舍入的浮点值）
-    assert k['total_cost'] == pytest.approx(13836225.50, abs=1)
-    assert k['net_profit'] == pytest.approx(-6688396.66, abs=1)
+    # 《单井经营情况导出模板》示例井：总成本 13,836,225.50，形象利润 -6,688,396.66（模板为未舍入的浮点值）；
+    # 系统每个科目取整到元，百余个科目累计的取整差在几元以内
+    assert k['total_cost'] == pytest.approx(13836225.50, abs=10)
+    assert k['net_profit'] == pytest.approx(-6688396.66, abs=10)
     assert k['gross_margin'] == pytest.approx(k['revenue'] - k['variable'])
     assert k['total_cost'] == pytest.approx(k['fixed'] + k['variable'])
+
+
+def test_money_rounds_half_up_to_whole_yuan():
+    from app.db import money
+    assert [money(x) for x in (2.5, -2.5, 2.675, 0.49, -0.49, 1832104.12)] == [3, -3, 3, 0, 0, 1832104]
+
+
+def test_amounts_are_whole_yuan(client):
+    """金额类数据保留整数：汇总、成本树、事项、溯源公式、导出文件里的金额都是整数元。"""
+    fin = H('u_fin')
+    whole = lambda x: float(x).is_integer()   # noqa: E731
+    for period in ('2026-08', '2026-10'):
+        ov = client.get(f'/api/overview?period={period}', headers=fin).json()
+        assert ov['wells'] and all(whole(w[k]) for w in ov['wells'] for k in ('revenue', 'fixed', 'variable', 'total_cost', 'gross_margin', 'net_profit'))
+        res = client.get(f'/api/wells/W001/result?period={period}', headers=fin).json()
+        assert all(whole(v) for v in res['kpi'].values())
+        assert all(whole(n['amount']) for n in res['tree'])
+    ev = client.get('/api/wells/W001/items/C2-3-30/events?period=2026-10', headers=fin).json()   # 比例计提
+    assert ev['events'] and all(whole(e['amount']) for e in ev['events']) and whole(ev['total'])
+    t = client.get(f"/api/events/{ev['events'][0]['event_id']}/trace", headers=fin).json()
+    assert t['formula'].endswith(' 元') and '.' not in t['formula'].split('=')[-1]
+
+    r = client.get('/api/wells/W001/export.xlsx?period=2026-10', headers=fin)
+    ws = openpyxl.load_workbook(BytesIO(r.content)).active
+    amount_rows = [i for i in range(15, ws.max_row + 1) if isinstance(ws.cell(i, 2).value, (int, float))]
+    assert amount_rows and all(whole(ws.cell(i, 2).value) for i in amount_rows)
+    assert all(ws.cell(i, 2).number_format == '#,##0_ ' for i in amount_rows)
 
 
 def test_export_xlsx_follows_template_rows(client):
@@ -41,13 +69,13 @@ def test_export_xlsx_follows_template_rows(client):
     assert ws.max_row == 174
     labels = {ws.cell(i, 1).value: ws.cell(i, 2).value for i in range(1, 175)}
     assert labels['井号'] == 'W001'
-    assert labels['30.科研计提'] == pytest.approx(7147828.84 * 0.02, abs=0.01)
+    assert labels['30.科研计提'] == pytest.approx(7147828.84 * 0.02, abs=0.5)
 
 
 def test_mud_service_drill_down_and_trace(client):
     ev = client.get('/api/wells/W001/items/C2-1-02-01/events?period=2026-08', headers=H('u_fin')).json()
     assert len(ev['events']) == 5
-    assert ev['total'] == pytest.approx(1832104.12, abs=1)
+    assert ev['total'] == pytest.approx(1832104.12, abs=3)   # 5 笔各取整到元
     t = client.get(f"/api/events/{ev['events'][0]['event_id']}/trace", headers=H('u_fin')).json()
     assert t['clause'] and '进尺' in t['clause']['hit']
     assert t['src_title'] == '来源事实'
@@ -101,9 +129,9 @@ def test_report_flow_generates_events_and_correction_reverses(client):
     after = kpi(client, 'W001', '2026-10')
     mud_price = round(1832104.12 / 4411, 4)
     image_price = round(7147828.84 / 4411, 4)
-    assert after['revenue'] - before['revenue'] == pytest.approx(50 * image_price, abs=0.05)
+    assert after['revenue'] - before['revenue'] == pytest.approx(50 * image_price, abs=0.5)
     assert after['total_cost'] - before['total_cost'] == pytest.approx(
-        50 * mud_price + 13666.6667 + 30 * 400 + 16 * 320 + 46 * 55 + 4.4 * 7650 + 20000 * 0.68 + 50 * image_price * 0.031, abs=0.5)
+        50 * mud_price + 13666.6667 + 30 * 400 + 16 * 320 + 46 * 55 + 4.4 * 7650 + 20000 * 0.68 + 50 * image_price * 0.031, abs=5)
 
     # 审核后更正：进尺 50 → 40，原事项冲销、按新事实重算
     new = client.post(f'/api/reports/{rid}/correct', headers=H('u_team')).json()
@@ -113,7 +141,7 @@ def test_report_flow_generates_events_and_correction_reverses(client):
     out = client.post(f"/api/reports/{new['report_id']}/approve", json={}, headers=H('u_dept')).json()
     assert out['batch']['reversed'] > 0
     final = kpi(client, 'W001', '2026-10')
-    assert final['revenue'] - before['revenue'] == pytest.approx(40 * image_price, abs=0.05)
+    assert final['revenue'] - before['revenue'] == pytest.approx(40 * image_price, abs=0.5)
     old = client.get(f'/api/reports/{rid}', headers=H('u_team')).json()
     assert old['status'] == '已被更正'
 
@@ -229,4 +257,4 @@ def test_legacy_line_keys_still_price(client):
     after = kpi(client, 'W001', '2026-10')['total_cost']
     mud_price = round(1832104.12 / 4411, 4)
     image_price = round(7147828.84 / 4411, 4)
-    assert after - before == pytest.approx(50 * mud_price + 13666.6667 + 10 * 400 + 10 * 55 + 50 * image_price * 0.031, abs=0.5)
+    assert after - before == pytest.approx(50 * mud_price + 13666.6667 + 10 * 400 + 10 * 55 + 50 * image_price * 0.031, abs=5)

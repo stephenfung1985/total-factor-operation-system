@@ -29,7 +29,18 @@ INITIAL_ACCOUNTS = [
     ('gcjsb', 'dept', '技术'),
 ]
 PUBLIC_FIELDS = ('user_id', 'username', 'name', 'role', 'who', 'team_id', 'dept', 'scope_label', 'must_change', 'enabled',
-                 'last_login', 'created_at')
+                 'last_login', 'created_at', 'is_debug')
+
+# 调试账号：登录后可在四个演示身份间切换，用于系统调试；正式上线前由系统管理员停用
+DEBUG_USERNAME = 'test'
+DEBUG_PASSWORD = 'test'
+DEMO_USERS = [   # (user_id, 姓名, 角色, 身份说明, 队伍, 部室, 数据范围)
+    ('u_fin', '经营管理员', 'finance', '企划财务部 · 经营管理', None, None, '全部'),
+    ('u_team', '统计员', 'team', '70101 钻井队 · 统计员', 't1', None, '70101 钻井队'),
+    ('u_dept', '经办人', 'dept', '工程技术部 · 经办人', None, '技术', '工程技术部归口科目'),
+    ('u_admin', '管理员', 'admin', '信息中心 · 管理员', None, None, '无业务数据'),
+]
+DEMO_IDS = [u[0] for u in DEMO_USERS]
 
 
 class AuthError(Exception):
@@ -101,10 +112,21 @@ def create_user(conn, username: str, role: str, scope: str | None, password: str
 
 
 def ensure_initial_accounts(conn) -> None:
-    """建立初始账号（已存在的不动）。"""
+    """建立初始账号、四个演示身份和调试账号（已存在的不动）。"""
     for username, role, scope in INITIAL_ACCOUNTS:
         if not conn.execute('SELECT 1 FROM app_user WHERE username=?', (username,)).fetchone():
             create_user(conn, username, role, scope, INITIAL_PASSWORD)
+    for uid, name, role, who, team_id, dept, scope in DEMO_USERS:
+        if not conn.execute('SELECT 1 FROM app_user WHERE user_id=?', (uid,)).fetchone():
+            if team_id and not conn.execute('SELECT 1 FROM team WHERE team_id=?', (team_id,)).fetchone():
+                team_id = None
+            conn.execute('INSERT INTO app_user (user_id, name, role, who, team_id, dept, scope_label) VALUES (?,?,?,?,?,?,?)',
+                         (uid, name, role, who, team_id, dept, scope))
+    if not conn.execute('SELECT 1 FROM app_user WHERE username=?', (DEBUG_USERNAME,)).fetchone():
+        conn.execute(
+            'INSERT INTO app_user (user_id, name, role, who, scope_label, username, password_hash, must_change, enabled, failed_count, '
+            "created_at, is_debug) VALUES (?, '调试账号', 'finance', '调试账号', '可切换演示身份', ?, ?, 0, 1, 0, ?, 1)",
+            (DEBUG_USERNAME, DEBUG_USERNAME, hash_password(DEBUG_PASSWORD), now()))
 
 
 def login(conn, username: str, password: str) -> tuple[str, dict]:
@@ -123,10 +145,11 @@ def login(conn, username: str, password: str) -> tuple[str, dict]:
         raise AuthError(f'登录名或密码错误；连续输错 {MAX_FAILED} 次将锁定 {LOCK_MINUTES} 分钟' if not locked
                         else f'密码错误次数过多，账号锁定 {LOCK_MINUTES} 分钟')
     token = secrets.token_urlsafe(32)
+    u = dict(u)
     expires = (datetime.now() + timedelta(hours=SESSION_HOURS)).strftime('%Y-%m-%d %H:%M:%S')
     conn.execute('DELETE FROM app_session WHERE expires_at<?', (now(),))
-    conn.execute('INSERT INTO app_session (token_hash, user_id, created_at, expires_at) VALUES (?,?,?,?)',
-                 (_token_hash(token), u['user_id'], now(), expires))
+    conn.execute('INSERT INTO app_session (token_hash, user_id, created_at, expires_at, acting_user_id) VALUES (?,?,?,?,?)',
+                 (_token_hash(token), u['user_id'], now(), expires, DEMO_IDS[0] if u['is_debug'] else None))
     conn.execute('UPDATE app_user SET failed_count=0, locked_until=NULL, last_login=? WHERE user_id=?', (now(), u['user_id']))
     return token, public(dict(conn.execute('SELECT * FROM app_user WHERE user_id=?', (u['user_id'],)).fetchone()))
 
@@ -136,9 +159,38 @@ def _token_hash(token: str) -> str:
 
 
 def user_by_token(conn, token: str) -> dict | None:
-    r = conn.execute('SELECT u.* FROM app_session s JOIN app_user u ON u.user_id=s.user_id WHERE s.token_hash=? AND s.expires_at>? '
-                     'AND u.enabled=1', (_token_hash(token), now())).fetchone()
-    return dict(r) if r else None
+    """按令牌取账号。调试账号返回当前切换到的演示身份，并带上登录账号，便于留痕。"""
+    r = conn.execute('SELECT u.*, s.acting_user_id FROM app_session s JOIN app_user u ON u.user_id=s.user_id WHERE s.token_hash=? '
+                     'AND s.expires_at>? AND u.enabled=1', (_token_hash(token), now())).fetchone()
+    if not r:
+        return None
+    login_user = dict(r)
+    if not login_user.get('is_debug'):
+        return login_user
+    acting = conn.execute('SELECT * FROM app_user WHERE user_id=?', (login_user['acting_user_id'] or DEMO_IDS[0],)).fetchone()
+    if not acting:
+        return None
+    u = dict(acting)
+    u.update(who=f"{u['who']} [调试 {login_user['username']}]", login_user_id=login_user['user_id'],
+             login_username=login_user['username'], debug=True)
+    return u
+
+
+def switch_identity(conn, token: str, user_id: str) -> None:
+    """调试账号切换演示身份。"""
+    r = conn.execute('SELECT u.is_debug FROM app_session s JOIN app_user u ON u.user_id=s.user_id WHERE s.token_hash=? AND s.expires_at>?',
+                     (_token_hash(token), now())).fetchone()
+    if not r or not r['is_debug']:
+        raise AuthError('只有调试账号可以切换身份')
+    if user_id not in DEMO_IDS or not conn.execute('SELECT 1 FROM app_user WHERE user_id=?', (user_id,)).fetchone():
+        raise AuthError('没有这个演示身份')
+    conn.execute('UPDATE app_session SET acting_user_id=? WHERE token_hash=?', (user_id, _token_hash(token)))
+
+
+def demo_identities(conn) -> list[dict]:
+    rows = {r['user_id']: dict(r) for r in conn.execute('SELECT user_id, name, role, who, scope_label FROM app_user WHERE user_id IN (%s)'
+                                                       % ','.join('?' * len(DEMO_IDS)), DEMO_IDS)}
+    return [rows[i] for i in DEMO_IDS if i in rows]
 
 
 def logout(conn, token: str) -> None:

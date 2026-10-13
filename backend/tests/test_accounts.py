@@ -101,3 +101,40 @@ def test_passwords_are_hashed(client):
     stored = [r[0] for r in conn.execute('SELECT password_hash FROM app_user WHERE username IS NOT NULL')]
     conn.close()
     assert stored and all(h.startswith('pbkdf2_sha256$') and INIT not in h for h in stored)
+
+
+# ---------- 调试账号 ----------
+
+def test_debug_account_switches_demo_identities(client):
+    r = login(client, 'test', 'test').json()
+    h = bearer(r['token'])
+    me = r['user']
+    assert me['debug'] and me['user_id'] == 'u_fin' and me['must_change'] == 0 and me['login_username'] == 'test'
+    assert [i['user_id'] for i in me['identities']] == ['u_fin', 'u_team', 'u_dept', 'u_admin']
+    assert '[调试 test]' in me['who']
+    # 切到基层钻井队：数据范围是 70101 队
+    me = client.post('/api/auth/switch', json={'user_id': 'u_team'}, headers=h).json()
+    assert me['role'] == 'team' and me['team_id'] == 't1'
+    assert [w['well_id'] for w in client.get('/api/reports/wells', headers=h).json()] == ['W001']
+    me = client.post('/api/auth/switch', json={'user_id': 'u_admin'}, headers=h).json()
+    assert me['role'] == 'admin' and client.get('/api/overview?period=2026-08', headers=h).status_code == 403
+    assert client.post('/api/auth/switch', json={'user_id': 'admin'}, headers=h).status_code == 400   # 只能切演示身份
+    # 普通账号不能切换
+    fin = bearer(login(client, 'fengxuecheng').json()['token'])
+    assert client.post('/api/auth/switch', json={'user_id': 'u_admin'}, headers=fin).status_code == 400
+
+
+def test_debug_actions_are_traceable_and_account_can_be_disabled(client):
+    h = bearer(login(client, 'test', 'test').json()['token'])
+    client.post('/api/auth/switch', json={'user_id': 'u_dept'}, headers=h)
+    rid = client.get('/api/review/reports', headers=h).json()[0]['report_id']
+    out = client.post(f'/api/reports/{rid}/approve', json={}, headers=h).json()
+    assert out['history'][-1]['operator'].endswith('[调试 test]')
+    # 调试账号改密码改的是 test 自己
+    assert client.post('/api/auth/password', json={'old_password': 'test', 'new_password': 'debug1234'}, headers=h).status_code == 200
+    assert login(client, 'test', 'debug1234').status_code == 200
+    adm = bearer(login(client, 'admin').json()['token'])
+    users = {u['username']: u for u in client.get('/api/admin/users', headers=adm).json()['users']}
+    assert users['test']['is_debug'] == 1
+    client.post('/api/admin/users/test/enable', json={'enabled': False}, headers=adm)
+    assert client.get('/api/me', headers=h).status_code == 401

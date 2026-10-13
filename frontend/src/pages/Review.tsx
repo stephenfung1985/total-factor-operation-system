@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api, type Report, type ReviewRow } from '../api';
 import type { PageProps } from '../App';
-import { Drawer, fmt, Icon, PageHead, Seg, useLoad, useToast } from '../ui';
+import { Drawer, fmt, Icon, PageHead, Seg, useLoad, useToast, yuan } from '../ui';
 
 const COLS = '0.8fr 0.9fr 1.1fr 0.6fr 0.8fr 1.6fr 24px';
 type Tab = '已提交' | '已审核' | '驳回';
@@ -25,7 +25,7 @@ export default function Review({ me }: PageProps) {
     try {
       const r = await api.post<Report>(`/api/reports/${open}/${kind}`, { comment: comment || null });
       toast(kind === 'approve'
-        ? `审核通过，规则引擎生成 ${r.batch?.created ?? 0} 笔、冲销 ${r.batch?.reversed ?? 0} 笔事项，金额变动 ${fmt(r.batch?.amount_change ?? 0)} 元`
+        ? `审核通过，规则引擎生成 ${r.batch?.created ?? 0} 笔、冲销 ${r.batch?.reversed ?? 0} 笔事项，金额变动 ${yuan(r.batch?.amount_change ?? 0)} 元`
         : '已驳回，退回基层队修改');
       setOpen(null);
       setComment('');

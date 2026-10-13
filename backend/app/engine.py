@@ -8,7 +8,7 @@ import calendar
 from collections import defaultdict
 
 from . import report_lines
-from .db import jdump, jload, log, now
+from .db import jdump, jload, log, money, now
 
 ENGINE_VERSION = 'engine-1.0'
 ENGINE_ORIGINS = ('规则计算', '比例计提')
@@ -91,7 +91,7 @@ def match_fact(conn, fact: dict, rules: list[dict]) -> list[tuple[dict, dict]]:
         chosen = exclusive[:1] + [x for x in cand if x[0]['combine_mode'] == '叠加']
         for r, conds in chosen:
             f, notes = factor_of(r, ctx)
-            amount = round(fact['quantity'] * r['unit_price'] * f, 2)
+            amount = money(fact['quantity'] * r['unit_price'] * f)
             hits.append((r, {
                 'quantity': fact['quantity'], 'unit_price': r['unit_price'], 'factor': f, 'amount': amount,
                 'snapshot': {
@@ -151,7 +151,7 @@ def _desired(conn, well_id: str, period: str) -> dict:
         for v in out.values():
             if v['item_code'] == r['base_item_code']:
                 base += v['amount']
-        if abs(base) < 0.005:
+        if money(base) == 0:
             continue
         ctx = well_context(conn, well_id, end)
         conds = rule_conditions(conn, r['rule_id'])
@@ -161,9 +161,9 @@ def _desired(conn, well_id: str, period: str) -> dict:
         out[('ratio', period, r['rule_code'])] = dict(
             event_date=end, team_id=None, item_code=r['item_code'], direction=it['direction'],
             cost_behavior=it['cost_behavior'], owner_dept=it['owner_dept'], origin_type='比例计提', fact_id=None,
-            base_event_ids=jdump(base_ids), rule_id=r['rule_id'], quantity=round(base, 2), unit_price=r['unit_price'],
-            factor=1.0, amount=round(base * r['unit_price'], 2),
-            calc_snapshot={'formula': f"{item[r['base_item_code']]['item_name']} {base:,.2f} 元 × {r['unit_price'] * 100:.2f}%",
+            base_event_ids=jdump(base_ids), rule_id=r['rule_id'], quantity=money(base), unit_price=r['unit_price'],
+            factor=1.0, amount=money(base * r['unit_price']),
+            calc_snapshot={'formula': f"{item[r['base_item_code']]['item_name']} {base:,.0f} 元 × {r['unit_price'] * 100:.2f}%",
                            'base_item': r['base_item_code'], 'conditions': [f"{c['dimension']} {c['operator']} {c['value']}" for c in conds]})
     return out
 
@@ -191,7 +191,7 @@ def recalc(conn, well_ids: list[str], periods: list[str], trigger: str, operator
             for ev in current:
                 k = _key_of(ev)
                 want = desired.get(k)
-                if want and want['rule_id'] == ev['rule_id'] and abs(want['amount'] - ev['amount']) < 0.005:
+                if want and want['rule_id'] == ev['rule_id'] and want['amount'] == ev['amount']:
                     desired.pop(k)
                     continue
                 reverse_event(conn, ev, batch_id)
@@ -208,9 +208,9 @@ def recalc(conn, well_ids: list[str], periods: list[str], trigger: str, operator
                 created += 1
                 change += v['amount']
     conn.execute('UPDATE calc_batch SET finished_at=?, event_count=?, amount_change=? WHERE batch_id=?',
-                 (now(), created + reversed_n, round(change, 2), batch_id))
+                 (now(), created + reversed_n, money(change), batch_id))
     log(conn, '计算批次', batch_id, trigger, operator, f'新增 {created} 笔，冲销 {reversed_n} 笔')
-    return {'batch_id': batch_id, 'created': created, 'reversed': reversed_n, 'amount_change': round(change, 2)}
+    return {'batch_id': batch_id, 'created': created, 'reversed': reversed_n, 'amount_change': money(change)}
 
 
 def reverse_event(conn, ev, batch_id: int) -> None:
@@ -248,7 +248,7 @@ def backtest(conn, rule_id: int, threshold: float = 0.05) -> dict:
         # 没有历史导入金额时，以现行已发布版本算出的金额为对照（如调价新版本）
         samples = conn.execute(
             "SELECT well_id, period, SUM(amount) amt FROM economic_event WHERE item_code=? AND origin_type='规则计算' "
-            'AND rule_id!=? GROUP BY well_id, period HAVING ABS(SUM(amount))>0.005', (rule['item_code'], rule_id)).fetchall()
+            'AND rule_id!=? GROUP BY well_id, period HAVING ABS(SUM(amount))>=0.5', (rule['item_code'], rule_id)).fetchall()
     results = []
     for s in samples:
         facts = [dict(r) for r in conn.execute(
@@ -256,7 +256,7 @@ def backtest(conn, rule_id: int, threshold: float = 0.05) -> dict:
             (s['well_id'], s['period'], rule['fact_type'] or ''))]
         if not facts:
             continue
-        calc_amt = 0.0
+        calc_amt = 0
         for f in facts:
             for r, c in match_fact(conn, f, [rule]):
                 calc_amt += c['amount']
@@ -264,8 +264,8 @@ def backtest(conn, rule_id: int, threshold: float = 0.05) -> dict:
         res = '通过' if abs(dev) <= threshold else '不通过'
         conn.execute(
             'INSERT INTO rule_test (rule_id, well_id, period, expected_amount, calc_amount, deviation_rate, result, tested_at) '
-            'VALUES (?,?,?,?,?,?,?,?)', (rule_id, s['well_id'], s['period'], s['amt'], round(calc_amt, 2), dev, res, now()))
-        results.append({'well_id': s['well_id'], 'period': s['period'], 'expected': s['amt'], 'calc': round(calc_amt, 2),
+            'VALUES (?,?,?,?,?,?,?,?)', (rule_id, s['well_id'], s['period'], money(s['amt']), money(calc_amt), dev, res, now()))
+        results.append({'well_id': s['well_id'], 'period': s['period'], 'expected': money(s['amt']), 'calc': money(calc_amt),
                         'deviation': dev, 'result': res})
     if not results:
         conn.execute(

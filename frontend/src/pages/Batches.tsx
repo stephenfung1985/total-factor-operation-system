@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api';
 import type { PageProps } from '../App';
-import { fmt, PageHead, useLoad, useToast } from '../ui';
+import { PageHead, useLoad, useToast, yuan } from '../ui';
 
 interface Batch {
   batch_id: number; trigger: string; scope: string; engine_version: string; started_at: string; finished_at: string | null;
@@ -17,7 +17,7 @@ export default function Batches(_: PageProps) {
     setBusy(true);
     try {
       const r = await api.post<{ created: number; reversed: number; amount_change: number }>('/api/recalc');
-      toast(`手工重算完成：新增 ${r.created} 笔，冲销 ${r.reversed} 笔，金额变动 ${fmt(r.amount_change)} 元`);
+      toast(`手工重算完成：新增 ${r.created} 笔，冲销 ${r.reversed} 笔，金额变动 ${yuan(r.amount_change)} 元`);
       reload();
     } catch (e) {
       toast((e as Error).message, true);
@@ -46,7 +46,7 @@ export default function Batches(_: PageProps) {
             {data?.map((b) => (
               <div key={b.batch_id} className="grid-row line" style={{ gridTemplateColumns: COLS }}>
                 <span className="bold num">#{b.batch_id}</span><span>{b.trigger}</span><span className="text3">{scope(b.scope)}</span>
-                <span className="r num">{b.event_count}</span><span className={'r num' + (b.amount_change < 0 ? ' neg' : '')}>{fmt(b.amount_change)}</span>
+                <span className="r num">{b.event_count}</span><span className={'r num' + (b.amount_change < 0 ? ' neg' : '')}>{yuan(b.amount_change)}</span>
                 <span className="muted num">{b.started_at.slice(0, 16)}</span><span>{b.operator}</span>
               </div>
             ))}

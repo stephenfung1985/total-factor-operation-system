@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, hasToken, setToken, setUnauthorizedHandler, type Me } from './api';
 import { LoginPage, PasswordModal } from './auth';
-import { Icon, NAV_ICON, ToastHost } from './ui';
+import { Icon, NAV_ICON, Seg, ToastHost } from './ui';
 import Overview from './pages/Overview';
 import DailyReport from './pages/DailyReport';
 import Review from './pages/Review';
@@ -69,6 +69,17 @@ export default function App() {
     const r = readHash();
     if (!screens.includes(r.screen)) setRoute({ screen: screens[0] });
     else setRouteState(r);
+  }, [setRoute]);
+
+  const switchIdentity = useCallback(async (userId: string) => {
+    try {
+      const m = await api.post<Me>('/api/auth/switch', { user_id: userId });
+      setMe(m);
+      const screens = m.nav.flatMap((g) => g.items.map((i) => i.id));
+      setRoute({ screen: screens[0] });
+    } catch (e) {
+      setErr((e as Error).message);
+    }
   }, [setRoute]);
 
   const logout = useCallback(async () => {
@@ -141,10 +152,19 @@ export default function App() {
               <div className="brand-sub">钻井单井经营管控</div>
             </div>
           </div>
+          {me.debug && me.identities && (
+            <div className="role-switch">
+              <span className="tag warn">调试</span>
+              <Seg large label="调试身份" value={me.user_id} onChange={switchIdentity}
+                options={me.identities.map((i) => ({ id: i.user_id, label: i.role_name }))} />
+            </div>
+          )}
           <div className="user-box">
             <span className="user-chip" title={me.who}>
-              <span className="avatar" aria-hidden="true">{(me.name || me.username).slice(0, 1).toUpperCase()}</span>
-              <span><b>{me.name}</b><span className="small muted"> · {me.role_name}</span></span>
+              <span className="avatar" aria-hidden="true">{(me.login_username || me.name || me.username).slice(0, 1).toUpperCase()}</span>
+              {me.debug
+                ? <span><b>{me.login_username}</b><span className="small muted"> · 调试账号</span></span>
+                : <span><b>{me.name}</b><span className="small muted"> · {me.role_name}</span></span>}
             </span>
             <button type="button" className="btn sm" onClick={() => setPwd(true)}>修改密码</button>
             <button type="button" className="btn sm" onClick={logout}>退出</button>
@@ -173,7 +193,7 @@ export default function App() {
               <div className="who">
                 <b>{me.who}</b>
                 <span>数据范围：{me.scope_label}</span>
-                <span>登录名：{me.username}</span>
+                <span>登录名：{me.debug ? `${me.login_username}（调试，当前身份：${me.role_name}）` : me.username}</span>
               </div>
             </aside>
           )}

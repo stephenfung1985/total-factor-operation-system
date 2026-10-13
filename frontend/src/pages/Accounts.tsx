@@ -25,7 +25,7 @@ export default function Accounts({ meId }: { meId: string }) {
   return (
     <section className="card list">
       <div className="card-head center">
-        <h2>账号管理<span className="hint" style={{ fontWeight: 400, marginLeft: 8 }}>{users.length} 个账号</span></h2>
+        <h2>账号管理<span className="hint" style={{ fontWeight: 400, marginLeft: 8 }}>{users.length} 个账号{users.some((u) => u.is_debug && u.enabled) ? ' · 调试账号 test 正式上线前请停用' : ''}</span></h2>
         <button type="button" className="btn primary sm" onClick={() => setCreating(true)}>新建账号</button>
       </div>
       <div className="scroll-x">
@@ -35,7 +35,8 @@ export default function Accounts({ meId }: { meId: string }) {
           </div>
           {users.map((u) => (
             <div key={u.user_id} className="grid-row line" style={{ gridTemplateColumns: COLS, opacity: u.enabled ? 1 : 0.6 }}>
-              <span className="bold">{u.username}</span><span>{u.name}</span><span>{u.role_name}</span><span className="text3">{u.scope_label}</span>
+              <span className="bold">{u.username}{u.is_debug ? <> <span className="tag warn">调试</span></> : null}</span><span>{u.name}</span>
+              <span>{u.is_debug ? '可切换四个演示身份' : u.role_name}</span><span className="text3">{u.scope_label}</span>
               <span>{!u.enabled ? <span className="tag bad">已停用</span> : u.must_change ? <span className="tag warn">待改初始密码</span> : <span className="tag good">正常</span>}</span>
               <span className="muted num small">{u.last_login ? u.last_login.slice(0, 16) : '从未登录'}</span>
               <span className="btn-row" style={{ flexWrap: 'nowrap' }}>

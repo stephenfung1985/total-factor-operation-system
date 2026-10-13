@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { api, type BenchGroup, type Benchmark } from '../api';
 import type { PageProps } from '../App';
-import { fmt, Icon, Kpis, PageHead, periodLabel, useLoad, wan } from '../ui';
+import { fmt, Icon, Kpis, PageHead, periodLabel, useLoad, wan, yuan } from '../ui';
 
 type Dim = 'market' | 'block' | 'team';
 const DIMS: { id: Dim; label: string }[] = [{ id: 'market', label: '市场' }, { id: 'block', label: '区块' }, { id: 'team', label: '队伍' }];
@@ -23,7 +23,7 @@ const val = (g: BenchGroup, m: Metric) => g[m.id] as number | null;
 const unit = (m: Metric) => (m.kind === 'rate' ? '%' : m.kind === 'wan' ? '万元' : '元/米');
 function show(v: number | null | undefined, m: Metric) {
   if (v === null || v === undefined) return '—';
-  return m.kind === 'rate' ? (v * 100).toFixed(1) + '%' : m.kind === 'wan' ? wan(v) : fmt(v, 0);
+  return m.kind === 'rate' ? (v * 100).toFixed(1) + '%' : m.kind === 'wan' ? wan(v) : yuan(v);
 }
 /** 与基准的差：比率用百分点，金额用相对百分比；按“越高 / 越低越好”判断好坏。 */
 function diff(v: number | null, base: number | null, m: Metric) {
@@ -135,7 +135,7 @@ export default function BenchmarkPage({ setRoute }: PageProps) {
             { label: '对比对象', value: String(data.groups.length), unit: `组 · ${scope.well_count} 口井` },
             { label: `${baseName} · 利润率`, value: baseGroup.net_rate === null ? '—' : (baseGroup.net_rate * 100).toFixed(1), unit: '%' },
             { label: `${baseName} · 单井净利润`, value: wan(baseGroup.avg_net), unit: '万元' },
-            { label: `${baseName} · 单位进尺成本`, value: baseGroup.cost_per_m === null ? '—' : fmt(baseGroup.cost_per_m, 0), unit: '元/米' },
+            { label: `${baseName} · 单位进尺成本`, value: baseGroup.cost_per_m === null ? '—' : yuan(baseGroup.cost_per_m), unit: '元/米' },
           ]} />
 
           <section className="card pad" style={{ opacity: stale ? 0.6 : 1 }}>
@@ -263,7 +263,7 @@ function Row({ g, dims, m, base, open, onClick, totalLabel, bench }: {
       <span className="r num muted">{g.net_rate === null ? '—' : (g.net_rate * 100).toFixed(1) + '%'}</span>
       <span className="r num">{wan(g.avg_net)}</span>
       <span className="r num">{g.footage ? fmt(g.footage, 0) : '—'}</span>
-      <span className="r num">{g.cost_per_m === null ? '—' : fmt(g.cost_per_m, 0)}</span>
+      <span className="r num">{g.cost_per_m === null ? '—' : yuan(g.cost_per_m)}</span>
       <span className="r">{bench ? '标杆' : <span className={'tag ' + (d.good === null ? '' : d.good ? 'good' : 'bad')}>{d.text}</span>}</span>
     </>
   );

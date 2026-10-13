@@ -18,10 +18,19 @@ TEMPLATE = Path(__file__).resolve().parent / 'data' / 'export_template.xlsx'
 REPORT_TPL_VERSION = 'DR-2'
 
 
+def whole_yuan_format(ws) -> None:
+    """模板金额列原为两位小数（0.00）或无千分位的整数，金额一律保留整数，统一成千分位整数；井深、比率等其他格式不动。"""
+    for r in range(1, ws.max_row + 1):
+        c = ws.cell(r, 2)
+        if c.number_format in ('0.00_ ', '0_ '):
+            c.number_format = '#,##0_ '
+
+
 def well_sheet(conn, well_id: str, period: str) -> bytes:
     rows = analysis.export_rows(conn, well_id, period)
     wb = openpyxl.load_workbook(TEMPLATE)
     ws = wb.active
+    whole_yuan_format(ws)
     if ws.max_row != len(rows):
         raise ValueError(f'导出模板行数 {ws.max_row} 与系统成本树 {len(rows)} 行不一致，请先同步模板')
     for i, r in enumerate(rows, start=1):

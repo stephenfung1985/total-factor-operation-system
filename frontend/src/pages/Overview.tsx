@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, download, type ExportRow, type ItemEvents, type Overview as OV, type ResultImport, type Trace, type TreeNode, type WellResult } from '../api';
 import type { PageProps } from '../App';
-import { Drawer, fmt, Icon, Kpis, Modal, PageHead, pct, periodLabel, useLoad, useToast, wan, type Crumb } from '../ui';
+import { Drawer, fmt, Icon, Kpis, Modal, PageHead, pct, periodLabel, useLoad, useToast, wan, yuan, type Crumb } from '../ui';
 
 const WELL_COLS = '0.8fr 0.8fr 0.8fr 1.2fr 0.6fr 1fr 1fr 1fr 0.8fr 1fr 0.8fr 1fr 24px';
 const DEPT_COLS = '0.8fr 0.8fr 0.8fr 1.2fr 0.6fr 1fr 1fr 1fr 1fr 24px';
@@ -200,7 +200,7 @@ function Level1({ well, period, crumbs, picker, dept, open }: {
               <div className="card-head"><h2>收入</h2></div>
               {[['合同收入', data.kpi.contract], ['形象收入', data.kpi.revenue]].map(([k, v]) => (
                 <div key={k as string} className="row-line" style={{ padding: '0 24px', borderTop: '1px solid var(--sep2)', borderBottom: 'none', fontSize: 14 }}>
-                  <span>{k}</span><span className="bold num">{fmt(v as number)} 元</span>
+                  <span>{k}</span><span className="bold num">{yuan(v as number)} 元</span>
                 </div>
               ))}
             </section>
@@ -210,7 +210,7 @@ function Level1({ well, period, crumbs, picker, dept, open }: {
             <div className="card-head center">
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <h2>成本构成</h2>
-                <div className="hint">总成本 {fmt(data.kpi.total_cost)} 元 = 固定成本 + 变动成本；未发生的项目同样列出</div>
+                <div className="hint">总成本 {yuan(data.kpi.total_cost)} 元 = 固定成本 + 变动成本；未发生的项目同样列出</div>
               </div>
               <div className="seg">
                 <button type="button" className="on" onClick={() => setCollapsed({})}>全部展开</button>
@@ -245,7 +245,7 @@ function TreeRow({ n, total, folded, toggle, open }: { n: TreeNode; total: numbe
         <span className="muted" style={{ fontWeight: 400 }}>{n.code}</span>
         <span style={{ fontWeight: 400 }}>{top ? '' : n.dept}</span>
         <span className="text3" style={{ fontWeight: 400 }}>{top ? '' : n.calc_type}</span>
-        <span className="r num">{fmt(n.amount)}</span>
+        <span className="r num">{yuan(n.amount)}</span>
         <span className="r num muted" style={{ fontWeight: 400 }}>{share}</span><span />
       </button>
     );
@@ -256,7 +256,7 @@ function TreeRow({ n, total, folded, toggle, open }: { n: TreeNode; total: numbe
     <>
       <span style={{ paddingLeft: 20 }}><span className="tree-name" style={indent}>{n.name}{ruled && <span className="tag info">规则</span>}</span></span>
       <span className="muted">{n.code}</span><span>{n.dept}</span><span className={live ? 'text3' : ''}>{n.calc_type}</span>
-      <span className={'r num' + (live ? '' : '')} style={{ fontWeight: live ? 500 : 400 }}>{fmt(n.amount)}</span>
+      <span className={'r num' + (live ? '' : '')} style={{ fontWeight: live ? 500 : 400 }}>{yuan(n.amount)}</span>
       <span className="r num muted" style={live ? undefined : { fontSize: 12 }}>{live ? share : '未发生'}</span>
     </>
   );
@@ -288,7 +288,7 @@ function ExportDrawer({ open, onClose, well, period }: { open: boolean; onClose:
       setBusy(false);
     }
   };
-  const val = (v: ExportRow['v']) => (typeof v === 'number' ? fmt(v) : v ?? '');
+  const val = (x: ExportRow) => (typeof x.v === 'number' ? (x.k.endsWith('（米）') ? fmt(x.v) : yuan(x.v)) : x.v ?? '');
   return (
     <Drawer open={open} onClose={onClose} wide label="导出预览"
       head={<>
@@ -306,7 +306,7 @@ function ExportDrawer({ open, onClose, well, period }: { open: boolean; onClose:
           <div key={i} className={'exp-row ' + x.kind}>
             <span className="no">{i + 1}</span>
             <span style={{ paddingLeft: (x.level - 1) * 14 }}>{x.k}</span>
-            <span className="r num">{x.kind === 'section' ? '' : val(x.v)}</span>
+            <span className="r num">{x.kind === 'section' ? '' : val(x)}</span>
           </div>
         ))}
       </div>
@@ -326,7 +326,7 @@ function Level2({ well, item, period, crumbs, picker }: { well: string; item: st
         <>
           <section className="card chips">
             {[['科目', data.item.code + ' ' + name], ['成本性态', data.item.behavior === '固定' ? '固定成本' : '变动成本'], ['归口', data.item.dept || '—'],
-              ['计价类型', data.item.calc_type || '—'], ['总表列', data.item.col || '—'], ['本期合计', fmt(data.total) + ' 元']].map(([k, v]) => (
+              ['计价类型', data.item.calc_type || '—'], ['总表列', data.item.col || '—'], ['本期合计', yuan(data.total) + ' 元']].map(([k, v]) => (
               <span key={k} className="chip"><span>{k}</span> {v}</span>
             ))}
           </section>
@@ -347,7 +347,7 @@ function Level2({ well, item, period, crumbs, picker }: { well: string; item: st
                     aria-label={`查看 ${e.date} 这笔事项的溯源`} onClick={() => setTrace(e.event_id)}>
                     <span className="num">{e.date}{e.status !== '有效' && <> <span className={'tag ' + (e.reversal_of ? 'bad' : 'warn')}>{e.reversal_of ? '冲销' : '已冲销'}</span></>}</span>
                     <span className="r num">{e.qty}</span><span className="r num">{e.price}</span><span className="r num">{e.factor}</span>
-                    <span className={'r num bold' + (e.amount < 0 ? ' neg' : '')}>{fmt(e.amount)}</span>
+                    <span className={'r num bold' + (e.amount < 0 ? ' neg' : '')}>{yuan(e.amount)}</span>
                     <span className="text3">{e.rule}</span><span className="text3">{e.source}</span>
                     {Icon.chevron()}
                   </button>
@@ -369,7 +369,7 @@ function TraceDrawer({ id, onClose }: { id: number | null; onClose: () => void }
     <Drawer open={id !== null} onClose={onClose} label="事项溯源"
       head={<>
         <div className="hint">{t?.title ?? '加载中…'}</div>
-        <div className={'num' + (t && t.amount < 0 ? ' neg' : '')} style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.02em' }}>{t ? fmt(t.amount) + ' 元' : ''}</div>
+        <div className={'num' + (t && t.amount < 0 ? ' neg' : '')} style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.02em' }}>{t ? yuan(t.amount) + ' 元' : ''}</div>
       </>}>
       {t && (
         <>

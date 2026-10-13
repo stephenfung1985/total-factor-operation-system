@@ -13,8 +13,8 @@ from io import BytesIO
 import openpyxl
 
 from . import engine
-from .db import log, now
-from .excel import TEMPLATE
+from .db import log, money, now
+from .excel import TEMPLATE, whole_yuan_format
 from .wellinfo import SECTIONS
 
 HEAD_ROWS = 18
@@ -34,6 +34,7 @@ def template_labels() -> list[str]:
 def blank_template() -> bytes:
     wb = openpyxl.load_workbook(TEMPLATE)
     ws = wb.active
+    whole_yuan_format(ws)
     for r in range(1, ws.max_row + 1):
         ws.cell(r, 2).value = None
     ws.title = '井号-年月'
@@ -135,7 +136,7 @@ def check(conn, sheet: dict, labels: list[str], items: list[dict], seen: set) ->
             warns.append(f'{it["item_name"]} 合计 {amounts.get(it["item_code"], 0):,.2f} 与明细合计 {calc[it["item_code"]]:,.2f} 不一致，按明细导入')
     for rr in conn.execute("SELECT DISTINCT r.item_code, i.item_name, r.unit_price FROM economic_rule r JOIN cost_item i "
                            "ON i.item_code=r.item_code WHERE r.status='已发布' AND r.calc_order=3"):
-        if revenue and abs(amounts.get(rr['item_code'], 0.0)) < 0.005:
+        if revenue and money(amounts.get(rr['item_code'], 0.0)) == 0:
             warns.append(f'{rr["item_name"]} 为 0，导入后按已发布规则计提（形象收入 × {rr["unit_price"] * 100:g}%）')
     total = calc.get('C1', 0) + calc.get('C2', 0)
     tc = _num(head.get('总成本（元）'))
@@ -163,14 +164,15 @@ def check(conn, sheet: dict, labels: list[str], items: list[dict], seen: set) ->
         if engine_n and not imported_n:
             blocks.append(f'{wid} {period} 已有规则计算的经济事项，历史数据只能导入系统上线前的期间')
 
-    new = {c: round(v, 2) for c, v in amounts.items() if abs(v) >= 0.005 and _leaf(items, c)}
-    if abs(revenue) >= 0.005:
-        new['R02'] = round(revenue, 2)
+    new = {c: money(v) for c, v in amounts.items() if _leaf(items, c) and money(v) != 0}   # 入库按整数元
+    if money(revenue) != 0:
+        new['R02'] = money(revenue)
+    cost_in = sum(v for c, v in new.items() if c != 'R02')   # 预览合计 = 入库后各末级科目之和
     old = {}
     if wid and period:
         for r in conn.execute("SELECT item_code, SUM(amount) a FROM economic_event WHERE well_id=? AND period=? AND origin_type='历史导入' "
                               "AND status='有效' GROUP BY item_code", (wid, period)):
-            old[r['item_code']] = round(r['a'], 2)
+            old[r['item_code']] = money(r['a'])
     if blocks:
         action = '阻断'
     elif old and old == new:
@@ -180,8 +182,8 @@ def check(conn, sheet: dict, labels: list[str], items: list[dict], seen: set) ->
     else:
         action = '导入'
     return {'sheet': sheet['sheet'], 'well_id': wid, 'period': period, 'team_no': team_no, 'new_well': bool(wid) and not well,
-            'new_team': bool(team_no) and not team, 'revenue': round(revenue, 2), 'total_cost': round(total, 2),
-            'net_profit': round(revenue - total, 2), 'action': action, 'blocks': blocks, 'warns': warns,
+            'new_team': bool(team_no) and not team, 'revenue': new.get('R02', 0), 'total_cost': cost_in,
+            'net_profit': new.get('R02', 0) - cost_in, 'action': action, 'blocks': blocks, 'warns': warns,
             '_head': head, '_new': new, '_team': dict(team) if team else None}
 
 
@@ -229,7 +231,7 @@ def _write(conn, r: dict, filename: str, batch_id: int, user: dict) -> None:
     if phase.isdigit() and 1 <= int(phase) <= 5:
         phase = SECTIONS[int(phase) - 1]
     depth = _num(head.get('实际井深（米）')) or 0
-    contract = _num(head.get('合同收入（元）')) or 0
+    contract = money(_num(head.get('合同收入（元）')) or 0)
     if r['new_well']:
         conn.execute("INSERT INTO well VALUES (?,?,?,?,?,?,?,?,?,?, '正钻')",
                      (wid, _s(head.get('市场分布')) or '—', _s(head.get('区块')) or '—', _s(head.get('井别')) or '—',

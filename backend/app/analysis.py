@@ -8,7 +8,7 @@ import re
 from fastapi import HTTPException
 
 from . import auth, engine, wellinfo
-from .db import jload
+from .db import jload, money
 
 def periods(conn) -> list[str]:
     return [r['period'] for r in conn.execute('SELECT DISTINCT period FROM economic_event ORDER BY period DESC')]
@@ -48,15 +48,15 @@ def compute(conn, user: dict | None, well_id: str, period: str) -> dict:
         c = it['item_code']
         if it['is_leaf']:
             visible[c] = user is None or auth.item_visible(user, it)
-            total[c] = round(amt.get(c, 0.0), 2) if visible[c] else 0.0
+            total[c] = money(amt.get(c, 0)) if visible[c] else 0
         else:
             kids = [k for k in children.get(c, []) if visible.get(k)]
             visible[c] = bool(kids)
-            total[c] = round(sum(total[k] for k in kids), 2)
+            total[c] = sum(total[k] for k in kids)
     show_rev = user is None or user['role'] != 'dept'
     w = conn.execute('SELECT * FROM well WHERE well_id=?', (well_id,)).fetchone()
-    rev = total.get('R02', 0.0) if show_rev else 0.0
-    fixed, vari = total.get('C1', 0.0), total.get('C2', 0.0)
+    rev = total.get('R02', 0) if show_rev else 0
+    fixed, vari = total.get('C1', 0), total.get('C2', 0)
     tree = [{
         'code': it['item_code'], 'name': it['item_name'], 'level': it['level'], 'is_leaf': bool(it['is_leaf']),
         'parent': it['parent_code'], 'dept': it['owner_dept'], 'calc_type': it['calc_type'], 'col': it['report_col'],
@@ -64,8 +64,8 @@ def compute(conn, user: dict | None, well_id: str, period: str) -> dict:
     } for it in items if visible[it['item_code']] and it['direction'] == '成本']
     return {
         'tree': tree, 'by': by, 'total': total,
-        'kpi': {'revenue': rev, 'contract': (w['contract_amount'] if show_rev else 0.0), 'fixed': fixed, 'variable': vari,
-                'total_cost': round(fixed + vari, 2), 'gross_margin': round(rev - vari, 2), 'net_profit': round(rev - fixed - vari, 2)},
+        'kpi': {'revenue': rev, 'contract': (money(w['contract_amount']) if show_rev else 0), 'fixed': fixed, 'variable': vari,
+                'total_cost': fixed + vari, 'gross_margin': rev - vari, 'net_profit': rev - fixed - vari},
         'show_revenue': show_rev,
     }
 
@@ -95,7 +95,7 @@ def overview(conn, user: dict, period: str) -> dict:
         rows.append({'well_id': wid, 'block': info['block'], 'well_type': info['well_type'], 'team': info['team'],
                      'phase': info['phase'], 'remark': remark(conn, wid, period), **k})
     keys = ('revenue', 'fixed', 'variable', 'total_cost', 'gross_margin', 'net_profit')
-    sums = {k: round(sum(r[k] for r in rows), 2) for k in keys}
+    sums = {k: sum(r[k] for r in rows) for k in keys}
     return {'period': period, 'wells': rows, 'sum': sums, 'show_revenue': user['role'] != 'dept', 'scope': user['scope_label']}
 
 
@@ -147,7 +147,7 @@ def item_events(conn, user: dict, well_id: str, code: str, period: str) -> dict:
     for e in evs:
         unit = e['fact_unit'] or ('元' if e['origin_type'] == '比例计提' else '')
         if e['origin_type'] == '比例计提':
-            qty, price = f"{e['quantity']:,.2f} 元", f"{e['unit_price'] * 100:.2f}%"
+            qty, price = f"{e['quantity']:,.0f} 元", f"{e['unit_price'] * 100:.2f}%"
         elif e['quantity'] is not None:
             qty, price = f"{engine.fmt_qty(e['quantity'])} {unit}", f"{e['unit_price']:,.4f}"
         else:
@@ -160,7 +160,7 @@ def item_events(conn, user: dict, well_id: str, code: str, period: str) -> dict:
         })
     return {'item': {'code': it['item_code'], 'name': it['item_name'], 'behavior': it['cost_behavior'], 'dept': it['owner_dept'],
                      'calc_type': it['calc_type'], 'col': it['report_col']},
-            'events': rows, 'total': round(sum(r['amount'] for r in rows), 2)}
+            'events': rows, 'total': money(sum(r['amount'] for r in rows))}
 
 
 def trace(conn, user: dict, event_id: int) -> dict:
@@ -180,7 +180,7 @@ def trace(conn, user: dict, event_id: int) -> dict:
         out['note'] = f"本笔已被冲销（冲销记录 #{rev['event_id']}，计算批次 {rev['batch_id']}）" if rev else '本笔已被冲销'
     if e['rule_id']:
         r = conn.execute('SELECT * FROM economic_rule WHERE rule_id=?', (e['rule_id'],)).fetchone()
-        out['formula'] = f"{snap.get('formula', '')} = {e['amount']:,.2f} 元"
+        out['formula'] = f"{snap.get('formula', '')} = {e['amount']:,.0f} 元"
         out['rule_lines'] = [
             {'k': '规则', 'v': f"{r['rule_code']} · v{r['version']} · {r['status']}"},
             {'k': '计价方式', 'v': f"{it['calc_type'] or ''} · {r['pricing_method']}"},
@@ -216,7 +216,7 @@ def trace(conn, user: dict, event_id: int) -> dict:
         ]
     elif e['origin_type'] == '比例计提':
         out['src_title'] = '基数事项'
-        out['src_lines'] = [{'k': '基数', 'v': f"形象收入 · {e['period']}"}, {'k': '金额', 'v': f"{e['quantity']:,.2f} 元"},
+        out['src_lines'] = [{'k': '基数', 'v': f"形象收入 · {e['period']}"}, {'k': '金额', 'v': f"{e['quantity']:,.0f} 元"},
                             {'k': '联动', 'v': '收入变动时本笔一并冲销重算'}]
     else:
         out['src_lines'] = [{'k': '来源', 'v': e['source_note'] or '—'}, {'k': '总表列', 'v': it['report_col'] or '—'},
@@ -235,7 +235,7 @@ def export_rows(conn, well_id: str, period: str) -> list[dict]:
             ('队长', info['captain']), ('钻机类型', info['rig_type']), ('甲方单位', info['client']), ('区块', info['block']),
             ('井别', info['well_category']), ('井型', info['well_type']), ('开次', info['phase']),
             ('设计井深（米）', info['design_depth']), ('实际井深（米）', info['actual_depth']),
-            ('合同收入（元）', info['contract_amount']), ('形象收入（元）', k['revenue']),
+            ('合同收入（元）', money(info['contract_amount'])), ('形象收入（元）', k['revenue']),
             ('形象利润（元）', k['net_profit']), ('总成本（元）', k['total_cost'])]
     out = [{'k': a, 'v': b, 'kind': 'bold' if a == '总成本（元）' else 'plain', 'level': 1} for a, b in rows]
     for n in r['tree']:
@@ -297,7 +297,7 @@ def benchmark(conn, period: str, dims: list[str], filters: dict[str, list[str]] 
                 'AND substr(fact_date,1,7)=?', (wid, p)).fetchone()['q']
             rows.append({'well_id': wid, 'period': p, 'market': info['market'], 'block': info['block'], 'team': info['team'],
                          'remark': remark(conn, wid, p), 'footage': footage,
-                         'cost_with_footage': k['total_cost'] if footage else 0.0, **k})
+                         'cost_with_footage': k['total_cost'] if footage else 0, **k})
 
     def keep(row, skip=None):
         return all(not vals or row[d] in vals for d, vals in filters.items() if d != skip)

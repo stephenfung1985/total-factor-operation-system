@@ -1,0 +1,1053 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>全要素经营管理系统 v3.0</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased}
+.theme-light{--bg:#F5F5F7;--card:#FFFFFF;--fill:#F5F5F7;--fill2:#E8E8ED;--sep:#E5E5EA;--sep2:#F2F2F7;--text:#1D1D1F;--text2:#6E6E73;--text3:#424245;--mute:#AEAEB2;--border:#D2D2D7;--side:#FBFBFD;--sel:#F0F5FF;--warnbg:#FFF4DB;--warn:#8A5300;--infobg:#E5F0FF;--info:#0058B0;--mark:#FFE58F;--good:#1B7F3A;--bad:#C1121F;color-scheme:light}
+.theme-dark{--bg:#000000;--card:#1C1C1E;--fill:#2C2C2E;--fill2:#3A3A3C;--sep:#38383A;--sep2:#2C2C2E;--text:#F5F5F7;--text2:#A1A1A6;--text3:#D1D1D6;--mute:#6E6E73;--border:#48484A;--side:#161617;--sel:#0A2A4D;--warnbg:#3A2E12;--warn:#F2C14E;--infobg:#0A2A4D;--info:#7DB8FF;--mark:#6B5A1E;--good:#30D158;--bad:#FF6961;color-scheme:dark}
+a{color:#0066CC}a:hover{color:#004C99}
+button{font-family:inherit}
+input{font-family:inherit}
+</style>
+</helmet>
+<div class="{{themeClass}}" style="min-height: 100vh; display: flex; flex-direction: column; background: var(--bg); color: var(--text)">
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; padding: 12px 24px; background: var(--side); border-bottom: 1px solid var(--sep)">
+<div style="display: flex; align-items: center; gap: 10px">
+<div style="width: 32px; height: 32px; border-radius: 9px; background: var(--text); display: flex; align-items: center; justify-content: center; flex-shrink: 0">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="color: var(--side)" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 3v18"></path><path d="M7 7h10"></path><path d="M8.5 11h7"></path><path d="M10 15h4"></path></svg>
+</div>
+<div style="display: flex; flex-direction: column; gap: 1px">
+<div style="font-size: 16px; font-weight: 600; letter-spacing: -0.01em">全要素经营管理系统 v3.0</div>
+<div style="font-size: 12px; color: var(--text2)">钻井单井经营管控</div>
+</div>
+</div>
+<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+<span style="font-size: 12px; color: var(--text2)">当前角色</span>
+<div role="group" aria-label="当前角色" style="display: flex; flex-wrap: wrap; gap: 2px; padding: 3px; border-radius: 11px; background: var(--fill2)">
+<sc-for list="{{roles}}" as="r" hint-placeholder-count="4">
+<sc-if value="{{r.active}}" hint-placeholder-val="{{false}}">
+<button type="button" aria-pressed="true" onClick="{{r.pick}}" style="min-height: 36px; padding: 0 16px; border: none; border-radius: 8px; background: var(--card); color: var(--text); font-size: 13px; font-weight: 600; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); cursor: pointer">{{r.name}}</button>
+</sc-if>
+<sc-if value="{{r.inactive}}" hint-placeholder-val="{{true}}">
+<button type="button" aria-pressed="false" onClick="{{r.pick}}" style="min-height: 36px; padding: 0 16px; border: none; border-radius: 8px; background: transparent; color: var(--text); font-size: 13px; cursor: pointer">{{r.name}}</button>
+</sc-if>
+</sc-for>
+</div>
+</div>
+<button type="button" onClick="{{toggleTheme}}" aria-label="{{themeLabel}}" title="{{themeLabel}}" style="margin-left: auto; width: 40px; height: 40px; border: 1px solid var(--border); border-radius: 20px; background: var(--card); color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer">
+<sc-if value="{{isLight}}" hint-placeholder-val="{{true}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"></path></svg></sc-if>
+<sc-if value="{{isDark}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="M4.9 4.9l1.4 1.4"></path><path d="M17.7 17.7l1.4 1.4"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="M4.9 19.1l1.4-1.4"></path><path d="M17.7 6.3l1.4-1.4"></path></svg></sc-if>
+</button>
+</header>
+<div style="flex: 1; display: flex; flex-wrap: wrap; align-items: stretch">
+
+
+
+<aside style="flex: 1 1 220px; box-sizing: border-box; padding: 20px 14px; background: var(--side); border-right: 1px solid var(--sep); display: flex; flex-direction: column; gap: 24px">
+<nav aria-label="主导航" style="display: flex; flex-direction: column; gap: 20px">
+<sc-for list="{{navGroups}}" as="g" hint-placeholder-count="2">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<div style="font-size: 12px; color: var(--text2); padding: 0 10px 6px">{{g.label}}</div>
+<sc-for list="{{g.items}}" as="it" hint-placeholder-count="1">
+<sc-if value="{{it.active}}" hint-placeholder-val="{{false}}">
+<button type="button" onClick="{{it.go}}" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px; border: none; border-radius: 9px; background: var(--fill2); color: var(--text); font-size: 14px; font-weight: 600; text-align: left; cursor: pointer">
+<span style="display: flex; color: {{accent}}">
+<sc-if value="{{it.iconReport}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l4 4v14H7z"></path><path d="M14 3v4h4"></path><path d="M10 12h5"></path><path d="M10 16h5"></path></svg></sc-if>
+<sc-if value="{{it.iconOverview}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20V11"></path><path d="M11 20V5"></path><path d="M17 20v-6"></path><path d="M3 20h18"></path></svg></sc-if>
+<sc-if value="{{it.iconRules}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h10a4 4 0 0 1 4 4v12H9a4 4 0 0 1-4-4z"></path><path d="M9 9h6"></path><path d="M9 13h6"></path></svg></sc-if>
+<sc-if value="{{it.iconPerm}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"></path><path d="M9 12l2 2 4-4"></path></svg></sc-if>
+<sc-if value="{{it.iconWell}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l5 18"></path><path d="M12 3L7 21"></path><path d="M9 13h6"></path><path d="M4 21h16"></path></svg></sc-if>
+<sc-if value="{{it.iconMaster}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="3"></ellipse><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6"></path><path d="M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"></path></svg></sc-if>
+</span>
+<span style="flex: 1">{{it.label}}</span>
+<sc-if value="{{it.hasBadge}}" hint-placeholder-val="{{false}}"><span style="min-width: 20px; height: 20px; padding: 0 6px; box-sizing: border-box; border-radius: 10px; background: {{accent}}; color: #FFFFFF; font-size: 12px; display: flex; align-items: center; justify-content: center">{{it.badge}}</span></sc-if>
+</button>
+</sc-if>
+<sc-if value="{{it.inactive}}" hint-placeholder-val="{{true}}">
+<button type="button" onClick="{{it.go}}" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px; border: none; border-radius: 9px; background: transparent; color: var(--text); font-size: 14px; text-align: left; cursor: pointer">
+<span style="display: flex; color: var(--text2)">
+<sc-if value="{{it.iconReport}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l4 4v14H7z"></path><path d="M14 3v4h4"></path><path d="M10 12h5"></path><path d="M10 16h5"></path></svg></sc-if>
+<sc-if value="{{it.iconOverview}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20V11"></path><path d="M11 20V5"></path><path d="M17 20v-6"></path><path d="M3 20h18"></path></svg></sc-if>
+<sc-if value="{{it.iconRules}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h10a4 4 0 0 1 4 4v12H9a4 4 0 0 1-4-4z"></path><path d="M9 9h6"></path><path d="M9 13h6"></path></svg></sc-if>
+<sc-if value="{{it.iconPerm}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"></path><path d="M9 12l2 2 4-4"></path></svg></sc-if>
+<sc-if value="{{it.iconWell}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l5 18"></path><path d="M12 3L7 21"></path><path d="M9 13h6"></path><path d="M4 21h16"></path></svg></sc-if>
+<sc-if value="{{it.iconMaster}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="3"></ellipse><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6"></path><path d="M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"></path></svg></sc-if>
+</span>
+<span style="flex: 1">{{it.label}}</span>
+<sc-if value="{{it.hasBadge}}" hint-placeholder-val="{{false}}"><span style="min-width: 20px; height: 20px; padding: 0 6px; box-sizing: border-box; border-radius: 10px; background: var(--fill2); color: var(--text); font-size: 12px; display: flex; align-items: center; justify-content: center">{{it.badge}}</span></sc-if>
+</button>
+</sc-if>
+</sc-for>
+</div>
+</sc-for>
+</nav>
+
+<div style="margin-top: auto; padding: 12px 10px; border-top: 1px solid var(--sep); display: flex; flex-direction: column; gap: 4px">
+<div style="font-size: 13px; font-weight: 500">{{roleWho}}</div>
+<div style="font-size: 12px; color: var(--text2)">数据范围：{{roleScope}}</div>
+<div style="font-size: 12px; color: var(--text2)">界面数据均为示例</div>
+</div>
+</aside>
+
+<main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 32px 40px 56px">
+<div style="max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px">
+
+<header style="display: flex; flex-direction: column; gap: 10px">
+<sc-if value="{{showCrumbs}}" hint-placeholder-val="{{true}}">
+<nav aria-label="下钻路径" style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; color: var(--text2)">
+<sc-for list="{{crumbs}}" as="c" hint-placeholder-count="2">
+<sc-if value="{{c.showSep}}" hint-placeholder-val="{{false}}"><span aria-hidden="true" style="color: var(--mute)">›</span></sc-if>
+<sc-if value="{{c.isLink}}" hint-placeholder-val="{{true}}"><button type="button" onClick="{{c.go}}" style="border: none; background: none; padding: 4px 2px; font-size: 13px; color: {{accent}}; cursor: pointer">{{c.label}}</button></sc-if>
+<sc-if value="{{c.isCurrent}}" hint-placeholder-val="{{false}}"><span style="padding: 4px 2px; color: var(--text); font-weight: 500">{{c.label}}</span></sc-if>
+</sc-for>
+</nav>
+</sc-if>
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 32px; line-height: 38px; font-weight: 700; letter-spacing: -0.02em">{{pageTitle}}</h1>
+<div style="font-size: 14px; color: var(--text2)">{{pageSub}}</div>
+</div>
+<div style="display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 980px; background: var(--card); border: 1px solid var(--sep); font-size: 13px; color: var(--text)">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="color: var(--text2)" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"></rect><path d="M3 10h18"></path><path d="M8 3v4"></path><path d="M16 3v4"></path></svg>
+<span>{{periodS}}</span>
+</div>
+</div>
+</header>
+
+<sc-if value="{{isOverview}}" hint-placeholder-val="{{true}}">
+
+<sc-if value="{{level0}}" hint-placeholder-val="{{true}}">
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px">
+<sc-for list="{{kpis}}" as="k" hint-placeholder-count="6">
+<div style="background: var(--card); border-radius: 16px; padding: 20px 22px; display: flex; flex-direction: column; gap: 8px">
+<div style="font-size: 13px; color: var(--text2)">{{k.label}}</div>
+<div style="display: flex; align-items: baseline; gap: 4px"><span style="font-size: 30px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums">{{k.value}}</span><span style="font-size: 13px; color: var(--text2)">{{k.unit}}</span></div>
+</div>
+</sc-for>
+</div>
+<section style="background: var(--card); border-radius: 16px; padding: 8px 0 8px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; padding: 16px 24px 12px">
+<h2 style="margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.01em">单井经营结果</h2>
+<div style="font-size: 13px; color: var(--text2)">点击任一口井，下钻到收入与成本科目</div>
+</div>
+<div style="overflow-x: auto">
+<div style="min-width: 1000px">
+<div style="display: grid; grid-template-columns: 0.8fr 0.8fr 0.8fr 1.2fr 0.6fr 1fr 1fr 1fr 0.8fr 1fr 0.8fr 24px; gap: 12px; padding: 10px 24px; font-size: 12px; color: var(--text2); border-bottom: 1px solid var(--sep)">
+<span>井号</span><span>区块</span><span>井型</span><span>队伍</span><span>开次</span><span style="text-align: right">形象收入（万元）</span><span style="text-align: right">总成本（万元）</span><span style="text-align: right">毛益额（万元）</span><span style="text-align: right">毛益率</span><span style="text-align: right">{{netLabel}}（万元）</span><span style="text-align: right">{{rateLabel}}</span><span></span>
+</div>
+<sc-for list="{{wellRows}}" as="w" hint-placeholder-count="4">
+<button type="button" onClick="{{w.open}}" aria-label="下钻到 {{w.id}}" style="width: 100%; display: grid; grid-template-columns: 0.8fr 0.8fr 0.8fr 1.2fr 0.6fr 1fr 1fr 1fr 0.8fr 1fr 0.8fr 24px; gap: 12px; align-items: center; min-height: 52px; padding: 0 24px; border: none; border-bottom: 1px solid var(--sep2); background: var(--card); color: var(--text); font-size: 14px; text-align: left; cursor: pointer">
+<span style="font-weight: 600">{{w.id}}</span><span>{{w.block}}</span><span>{{w.type}}</span><span>{{w.team}}</span><span>{{w.phase}}</span>
+<span style="text-align: right; font-variant-numeric: tabular-nums">{{w.revS}}</span>
+<span style="text-align: right; font-variant-numeric: tabular-nums">{{w.costS}}</span>
+<span style="text-align: right; font-variant-numeric: tabular-nums; font-weight: 600">{{w.gmS}}</span>
+<span style="text-align: right; font-variant-numeric: tabular-nums; color: var(--text2)">{{w.gmRateS}}</span>
+<span style="text-align: right; font-variant-numeric: tabular-nums; font-weight: 600">{{w.netS}}</span>
+<span style="text-align: right; font-variant-numeric: tabular-nums; color: var(--text2)">{{w.rateS}}</span>
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="color: var(--mute)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+</button>
+</sc-for>
+</div>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{level1}}" hint-placeholder-val="{{false}}">
+<section style="background: var(--card); border-radius: 16px; padding: 22px 24px; display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 16px">
+<div style="flex: 1 1 560px; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px 20px">
+<sc-for list="{{wellInfo}}" as="wi" hint-placeholder-count="11">
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: var(--text2)">{{wi.k}}</span><span style="font-size: 14px">{{wi.v}}</span></div>
+</sc-for>
+</div>
+<sc-if value="{{canExport}}" hint-placeholder-val="{{true}}">
+<button type="button" onClick="{{openExport}}" style="display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 18px; border: none; border-radius: 12px; background: {{accent}}; color: #FFFFFF; font-size: 14px; font-weight: 600; cursor: pointer">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"></path><path d="M7 10l5 5 5-5"></path><path d="M5 20h14"></path></svg>
+导出单井经营情况
+</button>
+</sc-if>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; border-top: 1px solid var(--sep2); padding-top: 18px">
+<sc-for list="{{wellKpis}}" as="k" hint-placeholder-count="8">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="font-size: 13px; color: var(--text2)">{{k.label}}</div>
+<div style="display: flex; align-items: baseline; gap: 4px"><span style="font-size: 26px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums">{{k.value}}</span><span style="font-size: 13px; color: var(--text2)">{{k.unit}}</span></div>
+</div>
+</sc-for>
+</div>
+</section>
+
+<sc-if value="{{showRev}}" hint-placeholder-val="{{true}}">
+<section style="background: var(--card); border-radius: 16px; padding: 8px 0">
+<div style="padding: 16px 24px 12px"><h2 style="margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.01em">收入</h2></div>
+<sc-for list="{{revRows}}" as="rv" hint-placeholder-count="2">
+<div style="display: flex; justify-content: space-between; align-items: center; min-height: 48px; padding: 0 24px; border-top: 1px solid var(--sep2); font-size: 14px">
+<span>{{rv.name}}</span><span style="font-weight: 600; font-variant-numeric: tabular-nums">{{rv.amtS}} 元</span>
+</div>
+</sc-for>
+</section>
+</sc-if>
+
+<section style="background: var(--card); border-radius: 16px; padding: 8px 0">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 24px 12px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h2 style="margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.01em">成本构成</h2>
+<div style="font-size: 13px; color: var(--text2)">总成本 {{costTotalS}} 元 = 固定成本 + 变动成本；未发生的项目同样列出</div>
+</div>
+<div style="display: flex; gap: 2px; padding: 3px; border-radius: 11px; background: var(--fill2)">
+<button type="button" onClick="{{expandAll}}" style="min-height: 34px; padding: 0 14px; border: none; border-radius: 8px; background: var(--card); color: var(--text); font-size: 13px; cursor: pointer">全部展开</button>
+<button type="button" onClick="{{collapseTo2}}" style="min-height: 34px; padding: 0 14px; border: none; border-radius: 8px; background: transparent; color: var(--text); font-size: 13px; cursor: pointer">收起到二级</button>
+</div>
+</div>
+<div style="overflow-x: auto">
+<div style="min-width: 900px">
+<div style="display: grid; grid-template-columns: minmax(0, 2.4fr) 1fr 0.6fr 1.1fr 1.1fr 0.7fr 24px; gap: 12px; padding: 10px 24px; font-size: 12px; color: var(--text2); border-bottom: 1px solid var(--sep)">
+<span>项目</span><span>编码</span><span>归口</span><span>计价类型</span><span style="text-align: right">金额（元）</span><span style="text-align: right">占总成本</span><span></span>
+</div>
+<sc-for list="{{costRows}}" as="r" hint-placeholder-count="12">
+<sc-if value="{{r.groupTop}}" hint-placeholder-val="{{false}}">
+<button type="button" onClick="{{r.toggle}}" aria-expanded="{{r.ariaExp}}" style="width: 100%; display: grid; grid-template-columns: minmax(0, 2.4fr) 1fr 0.6fr 1.1fr 1.1fr 0.7fr 24px; gap: 12px; align-items: center; min-height: 50px; padding: 0 24px; border: none; border-bottom: 1px solid var(--sep); background: var(--fill); color: var(--text); font-size: 15px; font-weight: 600; text-align: left; cursor: pointer">
+<span style="display: flex; align-items: center; gap: 6px; {{r.indent}}">
+<sc-if value="{{r.expanded}}" hint-placeholder-val="{{true}}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="color: var(--text2)" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></sc-if>
+<sc-if value="{{r.folded}}" hint-placeholder-val="{{false}}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="color: var(--text2)" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></sc-if>
+{{r.name}}</span>
+<span style="font-weight: 400; color: var(--text2)">{{r.code}}</span><span></span><span></span>
+<span style="text-align: right; font-variant-numeric: tabular-nums">{{r.amtS}}</span>
+<span style="text-align: right; font-variant-numeric: tabular-nums; font-weight: 400; color: var(--text2)">{{r.pctS}}</span><span></span>
+</button>
+</sc-if>
+<sc-if value="{{r.groupSub}}" hint-placeholder-val="{{false}}">
+<button type="button" onClick="{{r.toggle}}" aria-expanded="{{r.ariaExp}}" style="width: 100%; display: grid; grid-template-columns: minmax(0, 2.4fr) 1fr 0.6fr 1.1fr 1.1fr 0.7fr 24px; gap: 12px; align-items: center; min-height: 46px; padding: 0 24px; border: none; border-bottom: 1px solid var(--sep2); background: var(--card); color: var(--text); font-size: 14px; font-weight: 600; text-align: left; cursor: pointer">
+<span style="display: flex; align-items: center; gap: 6px; {{r.indent}}">
+<sc-if value="{{r.expanded}}" hint-placeholder-val="{{true}}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="color: var(--text2)" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></sc-if>
+<sc-if value="{{r.folded}}" hint-placeholder-val="{{false}}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="color: var(--text2)" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></sc-if>
+{{r.name}}</span>
+<span style="font-weight: 400; color: var(--text2)">{{r.code}}</span>
+<span style="font-weight: 400">{{r.dept}}</span>
+<span style="font-weight: 400; color: var(--text3)">{{r.ptype}}</span>
+<span style="text-align: right; font-variant-numeric: tabular-nums">{{r.amtS}}</span>
+<span style="text-align: right; font-variant-numeric: tabular-nums; font-weight: 400; color: var(--text2)">{{r.pctS}}</span><span></span>
+</button>
+</sc-if>
+<sc-if value="{{r.leafLive}}" hint-placeholder-val="{{true}}">
+<button type="button" onClick="{{r.open}}" aria-label="下钻到 {{r.name}}" style="width: 100%; display: grid; grid-template-columns: minmax(0, 2.4fr) 1fr 0.6fr 1.1fr 1.1fr 0.7fr 24px; gap: 12px; align-items: center; min-height: 44px; padding: 0 24px; border: none; border-bottom: 1px solid var(--sep2); background: var(--card); color: var(--text); font-size: 14px; text-align: left; cursor: pointer">
+<span style="padding-left: 20px"><span style="{{r.indent}}">{{r.name}}</span></span>
+<span style="color: var(--text2)">{{r.code}}</span>
+<span>{{r.dept}}</span>
+<span style="color: var(--text3)">{{r.ptype}}</span>
+<span style="text-align: right; font-variant-numeric: tabular-nums; font-weight: 500">{{r.amtS}}</span>
+<span style="text-align: right; font-variant-numeric: tabular-nums; color: var(--text2)">{{r.pctS}}</span>
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="color: var(--mute)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+</button>
+</sc-if>
+<sc-if value="{{r.leafZero}}" hint-placeholder-val="{{false}}">
+<div style="display: grid; grid-template-columns: minmax(0, 2.4fr) 1fr 0.6fr 1.1fr 1.1fr 0.7fr 24px; gap: 12px; align-items: center; min-height: 44px; padding: 0 24px; border-bottom: 1px solid var(--sep2); font-size: 14px; color: var(--text2)">
+<span style="padding-left: 20px"><span style="{{r.indent}}">{{r.name}}</span></span>
+<span>{{r.code}}</span>
+<span>{{r.dept}}</span>
+<span>{{r.ptype}}</span>
+<span style="text-align: right; font-variant-numeric: tabular-nums">{{r.amtS}}</span>
+<span style="text-align: right; font-size: 12px">未发生</span><span></span>
+</div>
+</sc-if>
+</sc-for>
+</div>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{level2}}" hint-placeholder-val="{{false}}">
+<section style="background: var(--card); border-radius: 16px; padding: 22px 24px; display: flex; flex-wrap: wrap; gap: 8px">
+<sc-for list="{{itemChips}}" as="ch" hint-placeholder-count="4">
+<span style="padding: 6px 12px; border-radius: 980px; background: var(--fill); font-size: 13px"><span style="color: var(--text2)">{{ch.k}}</span> {{ch.v}}</span>
+</sc-for>
+</section>
+<section style="background: var(--card); border-radius: 16px; padding: 8px 0">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; padding: 16px 24px 12px">
+<h2 style="margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.01em">经济事项</h2>
+<div style="font-size: 13px; color: var(--text2)">点击任一笔，查看计算过程、规则、条款原文与来源事实</div>
+</div>
+<div style="overflow-x: auto">
+<div style="min-width: 820px">
+<div style="display: grid; grid-template-columns: 1fr 0.9fr 1fr 0.6fr 1.1fr 1.2fr 1.5fr 24px; gap: 12px; padding: 10px 24px; font-size: 12px; color: var(--text2); border-bottom: 1px solid var(--sep)">
+<span>归属日期</span><span style="text-align: right">数量</span><span style="text-align: right">单价（元）</span><span style="text-align: right">系数</span><span style="text-align: right">金额（元）</span><span>规则版本</span><span>来源</span><span></span>
+</div>
+<sc-for list="{{eventRows}}" as="e" hint-placeholder-count="5">
+<button type="button" onClick="{{e.open}}" aria-label="查看 {{e.date}} 这笔事项的溯源" style="width: 100%; display: grid; grid-template-columns: 1fr 0.9fr 1fr 0.6fr 1.1fr 1.2fr 1.5fr 24px; gap: 12px; align-items: center; min-height: 52px; padding: 0 24px; border: none; border-bottom: 1px solid var(--sep2); background: var(--card); color: var(--text); font-size: 14px; text-align: left; cursor: pointer">
+<span style="font-variant-numeric: tabular-nums">{{e.date}}</span>
+<span style="text-align: right; font-variant-numeric: tabular-nums">{{e.qtyS}}</span>
+<span style="text-align: right; font-variant-numeric: tabular-nums">{{e.priceS}}</span>
+<span style="text-align: right; font-variant-numeric: tabular-nums">{{e.fS}}</span>
+<span style="text-align: right; font-variant-numeric: tabular-nums; font-weight: 600">{{e.amtS}}</span>
+<span style="color: var(--text3)">{{e.ruleS}}</span>
+<span style="color: var(--text3)">{{e.srcS}}</span>
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="color: var(--mute)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+</button>
+</sc-for>
+</div>
+</div>
+</section>
+</sc-if>
+
+</sc-if>
+
+<sc-if value="{{isReport}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+<div style="flex: 2 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+
+<section style="background: var(--card); border-radius: 16px; padding: 20px 24px; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap">
+<h2 style="margin: 0; font-size: 17px; font-weight: 600">表头</h2>
+<span style="font-size: 12px; color: var(--text2)">选定井号后自动带出，不可手改</span>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 14px">
+<sc-for list="{{reportHead}}" as="h" hint-placeholder-count="6">
+<div style="display: flex; flex-direction: column; gap: 4px"><span style="font-size: 12px; color: var(--text2)">{{h.k}}</span><span style="font-size: 15px; font-weight: 500">{{h.v}}</span></div>
+</sc-for>
+</div>
+</section>
+
+<section style="background: var(--card); border-radius: 16px; padding: 20px 24px; display: flex; flex-direction: column; gap: 14px">
+<h2 style="margin: 0; font-size: 17px; font-weight: 600">进尺与井深</h2>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; align-items: end">
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--text2)">起始井深（米）<input type="number" value="{{depthStartV}}" onChange="{{onDepthStart}}" style="height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; border: 1px solid var(--border); font-size: 15px; color: var(--text); background: var(--card)"></label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--text2)">结束井深（米）<input type="number" value="{{depthEndV}}" onChange="{{onDepthEnd}}" style="height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; border: 1px solid var(--border); font-size: 15px; color: var(--text); background: var(--card)"></label>
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; color: var(--text2)">进尺（自动计算）</span><span style="height: 44px; display: flex; align-items: center; padding: 0 12px; border-radius: 10px; background: var(--fill); font-size: 15px; font-weight: 600">{{footageS}} 米</span></div>
+</div>
+</section>
+
+<section style="background: var(--card); border-radius: 16px; padding: 20px 24px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap">
+<h2 style="margin: 0; font-size: 17px; font-weight: 600">工况时间</h2>
+<span style="font-size: 12px; color: var(--text2)">井深、工况可由钻井日报接口预填，基层只做确认</span>
+</div>
+<sc-for list="{{hourRows}}" as="hr" hint-placeholder-count="5">
+<label style="display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; border-bottom: 1px solid var(--sep2); font-size: 15px">
+<span>{{hr.name}}</span>
+<span style="display: flex; align-items: center; gap: 8px"><input type="number" step="0.5" value="{{hr.val}}" onChange="{{hr.onChange}}" style="width: 96px; height: 40px; box-sizing: border-box; padding: 0 10px; border-radius: 10px; border: 1px solid var(--border); font-size: 15px; text-align: right; color: var(--text); background: var(--card)"><span style="font-size: 13px; color: var(--text2)">小时</span></span>
+</label>
+</sc-for>
+<sc-if value="{{totalOk}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; justify-content: space-between; align-items: center; padding-top: 6px; font-size: 14px"><span style="color: var(--text2)">合计</span><span style="color: var(--good); font-weight: 600">{{totalS}} 小时 · 校验通过</span></div>
+</sc-if>
+<sc-if value="{{totalBad}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; justify-content: space-between; align-items: center; padding-top: 6px; font-size: 14px"><span style="color: var(--text2)">合计</span><span style="color: var(--bad); font-weight: 600">{{totalS}} 小时 · 必须等于 24 小时</span></div>
+</sc-if>
+</section>
+
+<section style="background: var(--card); border-radius: 16px; padding: 20px 24px; display: flex; flex-direction: column; gap: 6px">
+<h2 style="margin: 0 0 6px; font-size: 17px; font-weight: 600">材料、外包服务与出勤</h2>
+<sc-for list="{{otherRows}}" as="o" hint-placeholder-count="4">
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; min-height: 48px; border-bottom: 1px solid var(--sep2); font-size: 15px">
+<span style="display: flex; flex-direction: column; gap: 2px"><span>{{o.name}}</span><span style="font-size: 12px; color: var(--text2)">{{o.src}}</span></span>
+<span style="display: flex; align-items: center; gap: 10px"><span style="font-weight: 600; font-variant-numeric: tabular-nums">{{o.qty}}</span><span style="padding: 3px 8px; border-radius: 6px; background: var(--fill); font-size: 12px; color: var(--text3)">{{o.tag}}</span></span>
+</div>
+</sc-for>
+</section>
+</div>
+
+<aside style="flex: 1 1 280px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+<section style="background: var(--card); border-radius: 16px; padding: 20px 22px; display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font-size: 17px; font-weight: 600">校验结果</h2>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+<div style="padding: 12px 14px; border-radius: 12px; background: var(--fill); display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: var(--text2)">阻断</span><span style="font-size: 24px; font-weight: 600">{{blockCount}}</span></div>
+<div style="padding: 12px 14px; border-radius: 12px; background: var(--fill); display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: var(--text2)">警告</span><span style="font-size: 24px; font-weight: 600">1</span></div>
+</div>
+<sc-for list="{{checkMsgs}}" as="m" hint-placeholder-count="2">
+<div style="font-size: 13px; line-height: 19px; color: var(--text3)">· {{m.text}}</div>
+</sc-for>
+<sc-if value="{{canSubmit}}" hint-placeholder-val="{{true}}">
+<button type="button" style="min-height: 44px; border: none; border-radius: 12px; background: {{accent}}; color: #FFFFFF; font-size: 15px; font-weight: 600; cursor: pointer">提交日报</button>
+</sc-if>
+<sc-if value="{{cannotSubmit}}" hint-placeholder-val="{{false}}">
+<button type="button" disabled="{{true}}" style="min-height: 44px; border: none; border-radius: 12px; background: var(--fill2); color: var(--text2); font-size: 15px; font-weight: 600">存在阻断项，不能提交</button>
+</sc-if>
+<button type="button" style="min-height: 44px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--text); font-size: 15px; cursor: pointer">保存草稿</button>
+</section>
+<section style="background: var(--card); border-radius: 16px; padding: 20px 22px; display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-size: 17px; font-weight: 600">Excel 模板</h2>
+<div style="font-size: 13px; line-height: 19px; color: var(--text2)">按井号和日期区间导出，离线填好后导入；导入先存为草稿，校验与线上一致。</div>
+<div style="display: flex; gap: 8px; flex-wrap: wrap">
+<button type="button" style="flex: 1 1 120px; min-height: 44px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: {{accent}}; font-size: 14px; cursor: pointer">导出模板</button>
+<button type="button" style="flex: 1 1 120px; min-height: 44px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: {{accent}}; font-size: 14px; cursor: pointer">导入 Excel</button>
+</div>
+</section>
+</aside>
+</div>
+</sc-if>
+
+<sc-if value="{{isRules}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+<sc-for list="{{steps}}" as="st" hint-placeholder-count="5">
+<sc-if value="{{st.showSep}}" hint-placeholder-val="{{false}}"><span aria-hidden="true" style="color: var(--mute)">›</span></sc-if>
+<sc-if value="{{st.current}}" hint-placeholder-val="{{false}}"><span style="padding: 6px 12px; border-radius: 980px; background: {{accent}}; color: #FFFFFF; font-size: 13px; font-weight: 500">{{st.name}}</span></sc-if>
+<sc-if value="{{st.other}}" hint-placeholder-val="{{true}}"><span style="padding: 6px 12px; border-radius: 980px; background: var(--card); color: var(--text2); font-size: 13px">{{st.name}}</span></sc-if>
+</sc-for>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+<section style="flex: 1 1 260px; min-width: 0; background: var(--card); border-radius: 16px; padding: 12px; display: flex; flex-direction: column; gap: 4px">
+<div style="padding: 8px 10px; font-size: 13px; color: var(--text2)">{{queueTitle}}</div>
+<sc-for list="{{drafts}}" as="d" hint-placeholder-count="3">
+<sc-if value="{{d.selected}}" hint-placeholder-val="{{false}}">
+<button type="button" onClick="{{d.pick}}" style="display: flex; flex-direction: column; gap: 4px; padding: 12px; border: none; border-radius: 12px; background: var(--sel); text-align: left; cursor: pointer; color: var(--text)">
+<span style="font-size: 15px; font-weight: 600">{{d.name}}</span>
+<span style="font-size: 12px; color: var(--text3)">{{d.doc}} · {{d.no}}</span>
+<span style="font-size: 12px; color: var(--text3)">{{d.confS}}</span>
+</button>
+</sc-if>
+<sc-if value="{{d.unselected}}" hint-placeholder-val="{{true}}">
+<button type="button" onClick="{{d.pick}}" style="display: flex; flex-direction: column; gap: 4px; padding: 12px; border: none; border-radius: 12px; background: var(--card); text-align: left; cursor: pointer; color: var(--text)">
+<span style="font-size: 15px; font-weight: 500">{{d.name}}</span>
+<span style="font-size: 12px; color: var(--text2)">{{d.doc}} · {{d.no}}</span>
+<span style="font-size: 12px; color: var(--text2)">{{d.confS}}</span>
+</button>
+</sc-if>
+</sc-for>
+</section>
+<div style="flex: 3 1 560px; min-width: 0; display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+<section style="flex: 1 1 300px; min-width: 0; background: var(--card); border-radius: 16px; padding: 20px 22px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: baseline">
+<h2 style="margin: 0; font-size: 17px; font-weight: 600">合同原文</h2>
+<span style="font-size: 12px; color: var(--text2)">{{rd.no}} · {{rd.page}}</span>
+</div>
+<div style="font-size: 13px; color: var(--text2)">{{rd.doc}}</div>
+<p style="margin: 0; padding: 16px; border-radius: 12px; background: var(--fill); font-size: 15px; line-height: 26px">{{rd.pre}}<mark style="background: var(--mark); color: var(--text); padding: 1px 3px; border-radius: 4px">{{rd.hit}}</mark>{{rd.post}}</p>
+<div style="font-size: 12px; color: var(--text2)">高亮部分为 AI 提取依据；原件指纹已校验</div>
+</section>
+<section style="flex: 1 1 300px; min-width: 0; background: var(--card); border-radius: 16px; padding: 20px 22px; display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: baseline; padding-bottom: 8px">
+<h2 style="margin: 0; font-size: 17px; font-weight: 600">规则草稿</h2>
+<span style="font-size: 12px; color: var(--text2)">AI 提取 · 黄色为需逐字核对的字段</span>
+</div>
+<sc-for list="{{rd.fields}}" as="f" hint-placeholder-count="7">
+<sc-if value="{{f.flag}}" hint-placeholder-val="{{false}}">
+<div style="display: grid; grid-template-columns: 76px minmax(0, 1fr) 36px; gap: 10px; align-items: center; min-height: 44px; padding: 6px 10px; border-radius: 10px; background: var(--warnbg); font-size: 14px">
+<span style="color: var(--text2); font-size: 13px">{{f.label}}</span><span>{{f.value}}</span><span style="font-size: 12px; color: var(--warn); text-align: right">{{f.level}}</span>
+</div>
+</sc-if>
+<sc-if value="{{f.ok}}" hint-placeholder-val="{{true}}">
+<div style="display: grid; grid-template-columns: 76px minmax(0, 1fr) 36px; gap: 10px; align-items: center; min-height: 44px; padding: 6px 10px; border-bottom: 1px solid var(--sep2); font-size: 14px">
+<span style="color: var(--text2); font-size: 13px">{{f.label}}</span><span>{{f.value}}</span><span style="font-size: 12px; color: var(--text2); text-align: right">{{f.level}}</span>
+</div>
+</sc-if>
+</sc-for>
+<sc-if value="{{canEditRule}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; gap: 8px; flex-wrap: wrap; padding-top: 14px">
+<button type="button" style="flex: 1 1 80px; min-height: 44px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--bad); font-size: 14px; cursor: pointer">驳回</button>
+<button type="button" style="flex: 1 1 80px; min-height: 44px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--text); font-size: 14px; cursor: pointer">修改</button>
+<button type="button" style="flex: 1 1 80px; min-height: 44px; border: none; border-radius: 12px; background: {{accent}}; color: #FFFFFF; font-size: 14px; font-weight: 600; cursor: pointer">确认，进入回算</button>
+</div>
+</sc-if>
+<sc-if value="{{readOnlyRule}}" hint-placeholder-val="{{true}}">
+<div style="padding-top: 14px; font-size: 13px; color: var(--text2)">当前角色只读：规则由归口部室确认，部室负责人审批发布</div>
+</sc-if>
+</section>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{isWellInfo}}" hint-placeholder-val="{{false}}">
+<section style="background: var(--card); border-radius: 16px; padding: 8px 0">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 14px 24px 12px">
+<h2 style="margin: 0; font-size: 19px; font-weight: 600">单井列表</h2>
+<button type="button" style="min-height: 40px; padding: 0 16px; border: none; border-radius: 10px; background: {{accent}}; color: #FFFFFF; font-size: 14px; font-weight: 600; cursor: pointer">新增单井</button>
+</div>
+<div style="overflow-x: auto">
+<div style="min-width: 900px">
+<div style="display: grid; grid-template-columns: 0.8fr 0.8fr 0.8fr 0.9fr 1fr 0.6fr 1.2fr 0.8fr; gap: 12px; padding: 10px 24px; font-size: 12px; color: var(--text2); border-bottom: 1px solid var(--sep)">
+<span>井号</span><span>区块</span><span>井型</span><span style="text-align: right">设计井深（米）</span><span>甲方单位</span><span>开次</span><span>当前队伍</span><span>状态</span>
+</div>
+<sc-for list="{{infoRows}}" as="w" hint-placeholder-count="4">
+<sc-if value="{{w.selected}}" hint-placeholder-val="{{false}}">
+<button type="button" onClick="{{w.pick}}" style="width: 100%; display: grid; grid-template-columns: 0.8fr 0.8fr 0.8fr 0.9fr 1fr 0.6fr 1.2fr 0.8fr; gap: 12px; align-items: center; min-height: 52px; padding: 0 24px; border: none; border-bottom: 1px solid var(--sep2); background: var(--sel); color: var(--text); font-size: 14px; text-align: left; cursor: pointer">
+<span style="font-weight: 600">{{w.id}}</span><span>{{w.block}}</span><span>{{w.type}}</span><span style="text-align: right; font-variant-numeric: tabular-nums">{{w.depth}}</span><span>{{w.client}}</span><span>{{w.phase}}</span><span>{{w.team}}</span><span>{{w.status}}</span>
+</button>
+</sc-if>
+<sc-if value="{{w.unselected}}" hint-placeholder-val="{{true}}">
+<button type="button" onClick="{{w.pick}}" style="width: 100%; display: grid; grid-template-columns: 0.8fr 0.8fr 0.8fr 0.9fr 1fr 0.6fr 1.2fr 0.8fr; gap: 12px; align-items: center; min-height: 52px; padding: 0 24px; border: none; border-bottom: 1px solid var(--sep2); background: var(--card); color: var(--text); font-size: 14px; text-align: left; cursor: pointer">
+<span style="font-weight: 600">{{w.id}}</span><span>{{w.block}}</span><span>{{w.type}}</span><span style="text-align: right; font-variant-numeric: tabular-nums">{{w.depth}}</span><span>{{w.client}}</span><span>{{w.phase}}</span><span>{{w.team}}</span><span>{{w.status}}</span>
+</button>
+</sc-if>
+</sc-for>
+</div>
+</div>
+</section>
+<section style="background: var(--card); border-radius: 16px; padding: 20px 24px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px">
+<h2 style="margin: 0; font-size: 17px; font-weight: 600">{{infoSel}} · 开次与施工队伍（按时段）</h2>
+<span style="font-size: 12px; color: var(--text2)">规则适用条件和成本日报表头都从这里取值</span>
+</div>
+<sc-for list="{{infoSegs}}" as="g" hint-placeholder-count="3">
+<div style="display: grid; grid-template-columns: 80px minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: center; min-height: 46px; border-bottom: 1px solid var(--sep2); font-size: 14px">
+<span style="font-weight: 600">{{g.phase}}</span><span>{{g.team}}</span><span style="color: var(--text2); font-variant-numeric: tabular-nums">{{g.range}}</span>
+</div>
+</sc-for>
+</section>
+</sc-if>
+
+<sc-if value="{{isMaster}}" hint-placeholder-val="{{false}}">
+<div role="tablist" aria-label="主数据类别" style="display: inline-flex; flex-wrap: wrap; align-self: flex-start; gap: 2px; padding: 3px; border-radius: 11px; background: var(--fill2)">
+<sc-for list="{{mdTabs}}" as="t" hint-placeholder-count="4">
+<sc-if value="{{t.active}}" hint-placeholder-val="{{false}}"><button type="button" role="tab" aria-selected="true" onClick="{{t.pick}}" style="min-height: 34px; padding: 0 16px; border: none; border-radius: 8px; background: var(--card); color: var(--text); font-size: 13px; font-weight: 600; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); cursor: pointer">{{t.label}}</button></sc-if>
+<sc-if value="{{t.inactive}}" hint-placeholder-val="{{true}}"><button type="button" role="tab" aria-selected="false" onClick="{{t.pick}}" style="min-height: 34px; padding: 0 16px; border: none; border-radius: 8px; background: transparent; color: var(--text); font-size: 13px; cursor: pointer">{{t.label}}</button></sc-if>
+</sc-for>
+</div>
+<section style="background: var(--card); border-radius: 16px; padding: 8px 0">
+<sc-if value="{{mdItems}}" hint-placeholder-val="{{true}}">
+<div style="overflow-x: auto">
+<div style="min-width: 860px">
+<div style="display: grid; grid-template-columns: 0.6fr 1.4fr 0.6fr 0.7fr 0.8fr 1fr 1fr; gap: 12px; padding: 12px 24px; font-size: 12px; color: var(--text2); border-bottom: 1px solid var(--sep)">
+<span>编码</span><span>名称</span><span>方向</span><span>直接 / 间接</span><span>计价来源</span><span>归口部室</span><span>会计科目</span>
+</div>
+<sc-for list="{{itemTree}}" as="r" hint-placeholder-count="9">
+<sc-if value="{{r.isGroup}}" hint-placeholder-val="{{false}}">
+<div style="display: grid; grid-template-columns: 0.6fr 1.4fr 0.6fr 0.7fr 0.8fr 1fr 1fr; gap: 12px; align-items: center; min-height: 44px; padding: 0 24px; background: var(--fill); border-bottom: 1px solid var(--sep2); font-size: 14px; font-weight: 600">
+<span>{{r.code}}</span><span>{{r.name}}</span><span>{{r.dir}}</span><span></span><span></span><span></span><span></span>
+</div>
+</sc-if>
+<sc-if value="{{r.isLeaf}}" hint-placeholder-val="{{true}}">
+<div style="display: grid; grid-template-columns: 0.6fr 1.4fr 0.6fr 0.7fr 0.8fr 1fr 1fr; gap: 12px; align-items: center; min-height: 48px; padding: 0 24px; border-bottom: 1px solid var(--sep2); font-size: 14px">
+<span style="color: var(--text2); font-variant-numeric: tabular-nums">{{r.code}}</span><span style="padding-left: 16px">{{r.name}}</span><span>{{r.dir}}</span><span>{{r.attr}}</span><span>{{r.src}}</span><span>{{r.dept}}</span><span style="color: var(--text2)">{{r.acct}}</span>
+</div>
+</sc-if>
+</sc-for>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{mdTeams}}" hint-placeholder-val="{{false}}">
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 12px 24px; font-size: 12px; color: var(--text2); border-bottom: 1px solid var(--sep)"><span>队伍</span><span>钻机型号</span><span>所属单位</span></div>
+<sc-for list="{{teamRows}}" as="r" hint-placeholder-count="4">
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: center; min-height: 48px; padding: 0 24px; border-bottom: 1px solid var(--sep2); font-size: 14px"><span style="font-weight: 500">{{r.a}}</span><span>{{r.b}}</span><span>{{r.c}}</span></div>
+</sc-for>
+</sc-if>
+<sc-if value="{{mdMaterials}}" hint-placeholder-val="{{false}}">
+<div style="padding: 14px 24px; font-size: 13px; color: var(--text2)">初期直接引用物资系统编码，不重新建设；此处只维护与费用科目的对应关系。</div>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 12px 24px; font-size: 12px; color: var(--text2); border-bottom: 1px solid var(--sep)"><span>物资编码</span><span>名称</span><span>计量单位</span></div>
+<sc-for list="{{materialRows}}" as="r" hint-placeholder-count="2">
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: center; min-height: 48px; padding: 0 24px; border-bottom: 1px solid var(--sep2); font-size: 14px"><span style="color: var(--text2)">{{r.a}}</span><span>{{r.b}}</span><span>{{r.c}}</span></div>
+</sc-for>
+</sc-if>
+<sc-if value="{{mdUnits}}" hint-placeholder-val="{{false}}">
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 12px 24px; font-size: 12px; color: var(--text2); border-bottom: 1px solid var(--sep)"><span>计量单位</span><span>用于</span></div>
+<sc-for list="{{unitRows}}" as="r" hint-placeholder-count="6">
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: center; min-height: 48px; padding: 0 24px; border-bottom: 1px solid var(--sep2); font-size: 14px"><span style="font-weight: 500">{{r.a}}</span><span>{{r.b}}</span></div>
+</sc-for>
+</sc-if>
+</section>
+</sc-if>
+
+<sc-if value="{{isPerm}}" hint-placeholder-val="{{false}}">
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
+<sc-for list="{{scopeCards}}" as="sc" hint-placeholder-count="4">
+<div style="background: var(--card); border-radius: 16px; padding: 18px 20px; display: flex; flex-direction: column; gap: 6px">
+<div style="font-size: 15px; font-weight: 600">{{sc.name}}</div>
+<div style="font-size: 13px; color: var(--text2)">行级数据范围</div>
+<div style="font-size: 14px">{{sc.scope}}</div>
+</div>
+</sc-for>
+</div>
+<section style="background: var(--card); border-radius: 16px; padding: 8px 0">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; padding: 16px 24px 12px">
+<h2 style="margin: 0; font-size: 19px; font-weight: 600">功能权限矩阵</h2>
+<div style="font-size: 13px; color: var(--text2)">编辑 · 审核 · 查看 · 无</div>
+</div>
+<div style="overflow-x: auto">
+<div style="min-width: 760px">
+<div style="display: grid; grid-template-columns: 1.6fr repeat(4, minmax(0, 1fr)); gap: 12px; padding: 10px 24px; font-size: 12px; color: var(--text2); border-bottom: 1px solid var(--sep)">
+<span>功能</span><span>经营总览</span><span>钻井基层队</span><span>专业部室</span><span>系统管理员</span>
+</div>
+<sc-for list="{{permRows}}" as="pr" hint-placeholder-count="8">
+<div style="display: grid; grid-template-columns: 1.6fr repeat(4, minmax(0, 1fr)); gap: 12px; align-items: center; min-height: 50px; padding: 0 24px; border-bottom: 1px solid var(--sep2); font-size: 14px">
+<span style="font-weight: 500">{{pr.name}}</span>
+<sc-for list="{{pr.cells}}" as="cl" hint-placeholder-count="4">
+<span>
+<sc-if value="{{cl.isEdit}}" hint-placeholder-val="{{false}}"><span style="padding: 4px 10px; border-radius: 980px; background: var(--infobg); color: var(--info); font-size: 12px; font-weight: 500">{{cl.text}}</span></sc-if>
+<sc-if value="{{cl.isReview}}" hint-placeholder-val="{{false}}"><span style="padding: 4px 10px; border-radius: 980px; background: var(--warnbg); color: var(--warn); font-size: 12px; font-weight: 500">{{cl.text}}</span></sc-if>
+<sc-if value="{{cl.isView}}" hint-placeholder-val="{{false}}"><span style="padding: 4px 10px; border-radius: 980px; background: var(--sep2); color: var(--text3); font-size: 12px">{{cl.text}}</span></sc-if>
+<sc-if value="{{cl.isNone}}" hint-placeholder-val="{{true}}"><span style="color: var(--mute)">—</span></sc-if>
+</span>
+</sc-for>
+</div>
+</sc-for>
+</div>
+</div>
+</section>
+<section style="background: var(--card); border-radius: 16px; padding: 20px 24px; display: flex; flex-direction: column; gap: 8px">
+<h2 style="margin: 0 0 4px; font-size: 17px; font-weight: 600">硬约束</h2>
+<div style="font-size: 14px; line-height: 22px">任何角色都不能直接修改经济事项，金额只由规则引擎写入。</div>
+<div style="font-size: 14px; line-height: 22px">AI 只生成草稿，不能写入已发布规则表。</div>
+<div style="font-size: 14px; line-height: 22px">系统管理员只管账号与权限，不看业务数据。</div>
+</section>
+</sc-if>
+
+</div>
+</main>
+</div>
+
+<sc-if value="{{exportOpen}}" hint-placeholder-val="{{false}}">
+<button type="button" onClick="{{closeExport}}" aria-label="关闭导出预览" style="position: fixed; inset: 0; border: none; background: rgba(0, 0, 0, 0.2); cursor: pointer"></button>
+<aside aria-label="导出预览" style="position: fixed; top: 0; right: 0; bottom: 0; width: 560px; max-width: 100%; box-sizing: border-box; background: var(--card); box-shadow: 0 0 48px rgba(0, 0, 0, 0.14); display: flex; flex-direction: column">
+<div style="padding: 24px 28px 16px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; border-bottom: 1px solid var(--sep)">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="font-size: 13px; color: var(--text2)">导出预览 · 单井经营情况</div>
+<div style="font-size: 22px; font-weight: 700; letter-spacing: -0.01em">{{exportTitle}}</div>
+<div style="font-size: 12px; color: var(--text2)">共 {{exportCount}} 行，行序与《单井经营情况导出模板》一致</div>
+</div>
+<button type="button" onClick="{{closeExport}}" aria-label="关闭" style="width: 36px; height: 36px; border: none; border-radius: 18px; background: var(--sep2); display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="color: var(--text3)" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg></button>
+</div>
+<div style="flex: 1; overflow-y: auto; padding: 8px 0">
+<div style="display: grid; grid-template-columns: 40px minmax(0, 1fr) 150px; gap: 8px; padding: 6px 28px; font-size: 12px; color: var(--text2)"><span>行</span><span>项目（A 列）</span><span style="text-align: right">金额（B 列）</span></div>
+<sc-for list="{{exportRows}}" as="x" hint-placeholder-count="20">
+<sc-if value="{{x.section}}" hint-placeholder-val="{{false}}">
+<div style="display: grid; grid-template-columns: 40px minmax(0, 1fr) 150px; gap: 8px; align-items: center; min-height: 34px; padding: 0 28px; background: var(--fill); font-size: 13px; font-weight: 600"><span style="color: var(--mute); font-weight: 400">{{x.no}}</span><span>{{x.k}}</span><span></span></div>
+</sc-if>
+<sc-if value="{{x.bold}}" hint-placeholder-val="{{false}}">
+<div style="display: grid; grid-template-columns: 40px minmax(0, 1fr) 150px; gap: 8px; align-items: center; min-height: 32px; padding: 0 28px; border-bottom: 1px solid var(--sep2); font-size: 13px; font-weight: 600"><span style="color: var(--mute); font-weight: 400">{{x.no}}</span><span style="{{x.indent}}">{{x.k}}</span><span style="text-align: right; font-variant-numeric: tabular-nums">{{x.v}}</span></div>
+</sc-if>
+<sc-if value="{{x.plain}}" hint-placeholder-val="{{true}}">
+<div style="display: grid; grid-template-columns: 40px minmax(0, 1fr) 150px; gap: 8px; align-items: center; min-height: 32px; padding: 0 28px; border-bottom: 1px solid var(--sep2); font-size: 13px"><span style="color: var(--mute)">{{x.no}}</span><span style="{{x.indent}}">{{x.k}}</span><span style="text-align: right; font-variant-numeric: tabular-nums">{{x.v}}</span></div>
+</sc-if>
+</sc-for>
+</div>
+<div style="padding: 16px 28px 24px; border-top: 1px solid var(--sep); display: flex; gap: 10px; flex-wrap: wrap">
+<button type="button" style="flex: 1 1 200px; min-height: 44px; border: none; border-radius: 12px; background: {{accent}}; color: #FFFFFF; font-size: 15px; font-weight: 600; cursor: pointer">下载 Excel（按导出模板）</button>
+<button type="button" onClick="{{closeExport}}" style="flex: 0 1 120px; min-height: 44px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--text); font-size: 15px; cursor: pointer">关闭</button>
+</div>
+</aside>
+</sc-if>
+
+<sc-if value="{{traceOpen}}" hint-placeholder-val="{{false}}">
+<button type="button" onClick="{{closeTrace}}" aria-label="关闭溯源面板" style="position: fixed; inset: 0; border: none; background: rgba(0, 0, 0, 0.2); cursor: pointer"></button>
+<aside aria-label="事项溯源" style="position: fixed; top: 0; right: 0; bottom: 0; width: 460px; max-width: 100%; box-sizing: border-box; padding: 28px 28px 40px; background: var(--card); box-shadow: 0 0 48px rgba(0, 0, 0, 0.14); overflow-y: auto; display: flex; flex-direction: column; gap: 22px">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="font-size: 13px; color: var(--text2)">{{tr.title}}</div>
+<div style="font-size: 30px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums">{{tr.amtS}} 元</div>
+</div>
+<button type="button" onClick="{{closeTrace}}" aria-label="关闭" style="width: 36px; height: 36px; border: none; border-radius: 18px; background: var(--sep2); display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="color: var(--text3)" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg></button>
+</div>
+<section style="display: flex; flex-direction: column; gap: 8px">
+<div style="font-size: 12px; color: var(--text2)">计算过程</div>
+<div style="padding: 14px 16px; border-radius: 12px; background: var(--fill); font-size: 15px; font-variant-numeric: tabular-nums">{{tr.formula}}</div>
+</section>
+<section style="display: flex; flex-direction: column; gap: 8px">
+<div style="font-size: 12px; color: var(--text2)">适用规则</div>
+<sc-for list="{{tr.ruleLines}}" as="l" hint-placeholder-count="3">
+<div style="display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 10px; font-size: 14px; line-height: 21px"><span style="color: var(--text2)">{{l.k}}</span><span>{{l.v}}</span></div>
+</sc-for>
+</section>
+<sc-if value="{{tr.hasClause}}" hint-placeholder-val="{{true}}">
+<section style="display: flex; flex-direction: column; gap: 8px">
+<div style="font-size: 12px; color: var(--text2)">条款原文 · {{tr.clauseRef}}</div>
+<p style="margin: 0; padding: 14px 16px; border-radius: 12px; background: var(--fill); font-size: 14px; line-height: 23px">{{tr.pre}}<mark style="background: var(--mark); color: var(--text); padding: 1px 3px; border-radius: 4px">{{tr.hit}}</mark>{{tr.post}}</p>
+</section>
+</sc-if>
+<section style="display: flex; flex-direction: column; gap: 8px">
+<div style="font-size: 12px; color: var(--text2)">{{tr.srcTitle}}</div>
+<sc-for list="{{tr.srcLines}}" as="l" hint-placeholder-count="3">
+<div style="display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 10px; font-size: 14px; line-height: 21px"><span style="color: var(--text2)">{{l.k}}</span><span>{{l.v}}</span></div>
+</sc-for>
+</section>
+</aside>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#0071E3","options":["#0071E3","#1D1D1F","#248A3D","#BF4800"]},"$preview":{"width":1440,"height":960}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { role: 'finance', screen: 'overview', wellId: null, itemCode: null, traceIdx: null, ruleSel: 0, hours: [16, 4, 2, 1.5, 0.5], depthStart: 4312, depthEnd: 4365, collapsed: {}, exportOpen: false, theme: 'light' };
+  }
+
+  fmt(x, d) {
+    const neg = x < 0;
+    const parts = Math.abs(x).toFixed(d).split('.');
+    const i = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return (neg ? '-' : '') + i + (parts[1] ? '.' + parts[1] : '');
+  }
+
+  qtyText(q) {
+    return Number.isInteger(q) ? String(q) : q.toFixed(1);
+  }
+
+  treeData() {
+    if (!this._td) this._td = {"tree":[{"c":"C1","n":"一、固定成本","lv":1,"b":"F","leaf":false},{"c":"C1-01","n":"1.直接人工费","lv":2,"b":"F","p":"C1","leaf":false,"d":"人事","t":"B 人·天","col":"T"},{"c":"C1-01-01","n":"（1）合同化.市场化职工","lv":3,"b":"F","p":"C1-01","a":572781.0,"leaf":true,"d":"人事","t":"B 人·天","col":"T"},{"c":"C1-01-02","n":"（2）第三方用工费用","lv":3,"b":"F","p":"C1-01","a":250800.0,"leaf":true,"d":"人事","t":"B 人·天","col":"T"},{"c":"C1-01-03","n":"（3）其他劳务费用","lv":3,"b":"F","p":"C1-01","a":0.0,"leaf":true,"d":"人事","t":"B 人·天","col":"T"},{"c":"C1-02","n":"2.折旧费","lv":2,"b":"F","p":"C1","leaf":false,"d":"财务","t":"F 按队天","col":"X"},{"c":"C1-02-01","n":"（1）固定资产折旧","lv":3,"b":"F","p":"C1-02","a":12666.38,"leaf":true,"d":"财务","t":"F 按队天","col":"X"},{"c":"C1-02-02","n":"（2）所有权资产折旧","lv":3,"b":"F","p":"C1-02","a":87781.4,"leaf":true,"d":"财务","t":"F 按队天","col":"X"},{"c":"C1-03","n":"3.长摊费","lv":2,"b":"F","p":"C1","leaf":false,"d":"财务","t":"F 按队天","col":"AA"},{"c":"C1-03-01","n":"（1）固控装置摊销","lv":3,"b":"F","p":"C1-03","a":85258.14,"leaf":true,"d":"财务","t":"F 按队天","col":"AA"},{"c":"C1-03-02","n":"（2）野营房摊销","lv":3,"b":"F","p":"C1-03","a":70503.95,"leaf":true,"d":"财务","t":"F 按队天","col":"AA"},{"c":"C1-03-03","n":"（3）其他长期摊销","lv":3,"b":"F","p":"C1-03","a":8402.01,"leaf":true,"d":"财务","t":"F 按队天","col":"AA"},{"c":"C1-04","n":"4.项目部运行费用","lv":2,"b":"F","p":"C1","leaf":false,"d":"市场","t":"B 定额日费(分市场)","col":"AK"},{"c":"C1-04-01","n":"（1）项目人员费用","lv":3,"b":"F","p":"C1-04","a":130875.62,"leaf":true,"d":"市场","t":"B 定额日费(分市场)","col":"AK"},{"c":"C1-04-02","n":"（2）房租水电","lv":3,"b":"F","p":"C1-04","a":5729.28,"leaf":true,"d":"市场","t":"B 定额日费(分市场)","col":"AK"},{"c":"C1-04-03","n":"（3）车辆费用","lv":3,"b":"F","p":"C1-04","a":22580.16,"leaf":true,"d":"市场","t":"B 定额日费(分市场)","col":"AK"},{"c":"C1-04-04","n":"（4）办公费","lv":3,"b":"F","p":"C1-04","a":637.76,"leaf":true,"d":"市场","t":"B 定额日费(分市场)","col":"AK"},{"c":"C1-04-05","n":"（5）其他费用","lv":3,"b":"F","p":"C1-04","a":15166.4,"leaf":true,"d":"市场","t":"B 定额日费(分市场)","col":"AK"},{"c":"C1-05","n":"5.制造费","lv":2,"b":"F","p":"C1","a":437333.33,"leaf":true,"d":"财务","t":"B 定额日费","col":"AQ"},{"c":"C2","n":"二、变动成本","lv":1,"b":"V","leaf":false},{"c":"C2-1","n":"（一）直接材料费","lv":2,"b":"V","p":"C2","leaf":false},{"c":"C2-1-01","n":"1.钻头","lv":3,"b":"V","p":"C2-1","leaf":false,"d":"技术","t":"E/D 出库或服务","col":"AT"},{"c":"C2-1-01-01","n":"（1）钻头采购","lv":4,"b":"V","p":"C2-1-01","a":35419.47,"leaf":true,"d":"技术","t":"E/D 出库或服务","col":"AT"},{"c":"C2-1-01-02","n":"（2）钻头服务","lv":4,"b":"V","p":"C2-1-01","a":0.0,"leaf":true,"d":"技术","t":"E/D 出库或服务","col":"AT"},{"c":"C2-1-01-03","n":"（3）钻头修复","lv":4,"b":"V","p":"C2-1-01","a":143212.43,"leaf":true,"d":"技术","t":"E/D 出库或服务","col":"AT"},{"c":"C2-1-02","n":"2.钻井液","lv":3,"b":"V","p":"C2-1","leaf":false,"d":"技术","t":"D 服务(米/天)","col":"AX"},{"c":"C2-1-02-01","n":"（1）渤钻泥浆服务","lv":4,"b":"V","p":"C2-1-02","a":1832104.12,"leaf":true,"d":"技术","t":"D 服务(米/天)","col":"AX"},{"c":"C2-1-02-02","n":"（2）外部泥浆服务","lv":4,"b":"V","p":"C2-1-02","a":0.0,"leaf":true,"d":"技术","t":"D 服务(米/天)","col":"AX"},{"c":"C2-1-03","n":"3.润滑油","lv":3,"b":"V","p":"C2-1","a":9207.58,"leaf":true,"d":"物资","t":"C 量×价","col":"BA"},{"c":"C2-1-04","n":"4.柴油","lv":3,"b":"V","p":"C2-1","a":129386.68,"leaf":true,"d":"物资","t":"C 量×价","col":"BB"},{"c":"C2-1-05","n":"5.网电费","lv":3,"b":"V","p":"C2-1","leaf":false,"d":"装备","t":"C 量×价","col":"BC"},{"c":"C2-1-05-01","n":"（1）电费","lv":4,"b":"V","p":"C2-1-05","a":734549.27,"leaf":true,"d":"装备","t":"C 量×价","col":"BC"},{"c":"C2-1-05-02","n":"（2）架线费","lv":4,"b":"V","p":"C2-1-05","a":0.0,"leaf":true,"d":"装备","t":"C 量×价","col":"BC"},{"c":"C2-1-06","n":"6.大宗材料","lv":3,"b":"V","p":"C2-1","a":33030.62,"leaf":true,"d":"物资","t":"E 出库","col":"BF"},{"c":"C2-1-07","n":"7.井控","lv":3,"b":"V","p":"C2-1","leaf":false,"d":"安全","t":"F 租赁/摊销","col":"BG"},{"c":"C2-1-07-01","n":"（1）井控摊销","lv":4,"b":"V","p":"C2-1-07","a":0.0,"leaf":true,"d":"安全","t":"F 租赁/摊销","col":"BG"},{"c":"C2-1-07-02","n":"（2）井控工具","lv":4,"b":"V","p":"C2-1-07","a":0.0,"leaf":true,"d":"安全","t":"F 租赁/摊销","col":"BG"},{"c":"C2-1-07-03","n":"（3）井控装置","lv":4,"b":"V","p":"C2-1-07","a":0.0,"leaf":true,"d":"安全","t":"F 租赁/摊销","col":"BG"},{"c":"C2-1-07-04","n":"（4）井控租赁","lv":4,"b":"V","p":"C2-1-07","a":0.0,"leaf":true,"d":"安全","t":"F 租赁/摊销","col":"BG"},{"c":"C2-1-08","n":"8.钻具","lv":3,"b":"V","p":"C2-1","leaf":false,"d":"装备","t":"F 租赁/摊销","col":"BL"},{"c":"C2-1-08-01","n":"（1）钻具摊销","lv":4,"b":"V","p":"C2-1-08","a":0.0,"leaf":true,"d":"装备","t":"F 租赁/摊销","col":"BL"},{"c":"C2-1-08-02","n":"（2）钻具租赁","lv":4,"b":"V","p":"C2-1-08","a":374417.98,"leaf":true,"d":"装备","t":"F 租赁/摊销","col":"BL"},{"c":"C2-1-08-03","n":"（3）钻具损失","lv":4,"b":"V","p":"C2-1-08","a":0.0,"leaf":true,"d":"装备","t":"F 租赁/摊销","col":"BL"},{"c":"C2-1-08-04","n":"（4）钻具修造、加工","lv":4,"b":"V","p":"C2-1-08","a":0.0,"leaf":true,"d":"装备","t":"F 租赁/摊销","col":"BL"},{"c":"C2-2","n":"（二）机械使用费","lv":2,"b":"V","p":"C2","leaf":false},{"c":"C2-2-01","n":"1.修理加工费","lv":3,"b":"V","p":"C2-2","leaf":false,"d":"装备","t":"G 据实","col":"BR"},{"c":"C2-2-01-01","n":"（1）设备修理费","lv":4,"b":"V","p":"C2-2-01","a":0.0,"leaf":true,"d":"装备","t":"G 据实","col":"BR"},{"c":"C2-2-01-02","n":"（2）其他修理费","lv":4,"b":"V","p":"C2-2-01","a":0.0,"leaf":true,"d":"装备","t":"G 据实","col":"BR"},{"c":"C2-2-01-03","n":"（3）外委加工费","lv":4,"b":"V","p":"C2-2-01","a":1331.92,"leaf":true,"d":"装备","t":"G 据实","col":"BR"},{"c":"C2-2-02","n":"2.设备租赁费","lv":3,"b":"V","p":"C2-2","leaf":false,"d":"装备","t":"F 租赁","col":"BV"},{"c":"C2-2-02-01","n":"（1）顶驱","lv":4,"b":"V","p":"C2-2-02","a":0.0,"leaf":true,"d":"装备","t":"F 租赁","col":"BV"},{"c":"C2-2-02-02","n":"（2）网电设备","lv":4,"b":"V","p":"C2-2-02","a":0.0,"leaf":true,"d":"装备","t":"F 租赁","col":"BV"},{"c":"C2-2-02-03","n":"（3）动力外包","lv":4,"b":"V","p":"C2-2-02","a":0.0,"leaf":true,"d":"装备","t":"F 租赁","col":"BV"},{"c":"C2-3","n":"（三）其他直接费用","lv":2,"b":"V","p":"C2","leaf":false},{"c":"C2-3-01","n":"1.运输费","lv":3,"b":"V","p":"C2-3","leaf":false,"d":"市场","t":"D 台班/趟","col":"CA"},{"c":"C2-3-01-01","n":"（1）钻机搬迁费","lv":4,"b":"V","p":"C2-3-01","a":0.0,"leaf":true,"d":"市场","t":"D 台班/趟","col":"CA"},{"c":"C2-3-01-02","n":"（2）吊车","lv":4,"b":"V","p":"C2-3-01","a":62169.3,"leaf":true,"d":"市场","t":"D 台班/趟","col":"CA"},{"c":"C2-3-01-03","n":"（3）货车","lv":4,"b":"V","p":"C2-3-01","a":0.0,"leaf":true,"d":"市场","t":"D 台班/趟","col":"CA"},{"c":"C2-3-01-04","n":"（4）机具费","lv":4,"b":"V","p":"C2-3-01","a":23565.0,"leaf":true,"d":"市场","t":"D 台班/趟","col":"CA"},{"c":"C2-3-01-05","n":"（5）生产保障用车","lv":4,"b":"V","p":"C2-3-01","a":8103.8,"leaf":true,"d":"市场","t":"D 台班/趟","col":"CA"},{"c":"C2-3-01-06","n":"（6）其他运费","lv":4,"b":"V","p":"C2-3-01","a":0.0,"leaf":true,"d":"市场","t":"D 台班/趟","col":"CA"},{"c":"C2-3-02","n":"2.环保费用","lv":3,"b":"V","p":"C2-3","leaf":false,"d":"安全","t":"D 量×价","col":"CH"},{"c":"C2-3-02-01","n":"（1）污水处理","lv":4,"b":"V","p":"C2-3-02","a":20191.28,"leaf":true,"d":"安全","t":"D 量×价","col":"CH"},{"c":"C2-3-02-02","n":"（2）垃圾处理","lv":4,"b":"V","p":"C2-3-02","a":4396.0,"leaf":true,"d":"安全","t":"D 量×价","col":"CH"},{"c":"C2-3-02-03","n":"（3）固废处理","lv":4,"b":"V","p":"C2-3-02","a":6903624.18,"leaf":true,"d":"安全","t":"D 量×价","col":"CH"},{"c":"C2-3-02-04","n":"（4）危废处理","lv":4,"b":"V","p":"C2-3-02","a":0.0,"leaf":true,"d":"安全","t":"D 量×价","col":"CH"},{"c":"C2-3-02-05","n":"（5）环评费用","lv":4,"b":"V","p":"C2-3-02","a":0.0,"leaf":true,"d":"安全","t":"D 量×价","col":"CH"},{"c":"C2-3-02-06","n":"（6）完井环保","lv":4,"b":"V","p":"C2-3-02","a":0.0,"leaf":true,"d":"安全","t":"D 量×价","col":"CH"},{"c":"C2-3-02-07","n":"（7）其他环保费","lv":4,"b":"V","p":"C2-3-02","a":0.0,"leaf":true,"d":"安全","t":"D 量×价","col":"CH"},{"c":"C2-3-03","n":"3.检测维保费","lv":3,"b":"V","p":"C2-3","leaf":false,"d":"安全","t":"G 据实","col":"CP"},{"c":"C2-3-03-01","n":"（1）计量器具","lv":4,"b":"V","p":"C2-3-03","a":3840.0,"leaf":true,"d":"安全","t":"G 据实","col":"CP"},{"c":"C2-3-03-02","n":"（2）消防器材","lv":4,"b":"V","p":"C2-3-03","a":0.0,"leaf":true,"d":"安全","t":"G 据实","col":"CP"},{"c":"C2-3-03-03","n":"（3）正压式呼吸器","lv":4,"b":"V","p":"C2-3-03","a":0.0,"leaf":true,"d":"安全","t":"G 据实","col":"CP"},{"c":"C2-3-03-04","n":"（4）安全阀检测","lv":4,"b":"V","p":"C2-3-03","a":0.0,"leaf":true,"d":"安全","t":"G 据实","col":"CP"},{"c":"C2-3-03-05","n":"（5）资质检测费","lv":4,"b":"V","p":"C2-3-03","a":0.0,"leaf":true,"d":"安全","t":"G 据实","col":"CP"},{"c":"C2-3-03-06","n":"（6）设备探伤费","lv":4,"b":"V","p":"C2-3-03","a":0.0,"leaf":true,"d":"安全","t":"G 据实","col":"CP"},{"c":"C2-3-03-07","n":"（7）其他检测费（安全）","lv":4,"b":"V","p":"C2-3-03","a":0.0,"leaf":true,"d":"安全","t":"G 据实","col":"CP"},{"c":"C2-3-04","n":"4.定向井服务费","lv":3,"b":"V","p":"C2-3","a":0.0,"leaf":true,"d":"技术","t":"D 服务(天/米)","col":"CX"},{"c":"C2-3-05","n":"5.提速服务费","lv":3,"b":"V","p":"C2-3","leaf":false,"d":"技术","t":"D 服务(天/米)","col":"CY"},{"c":"C2-3-05-01","n":"（1）扭力冲击器","lv":4,"b":"V","p":"C2-3-05","a":0.0,"leaf":true,"d":"技术","t":"D 服务(天/米)","col":"CY"},{"c":"C2-3-05-02","n":"（2）水力振荡器","lv":4,"b":"V","p":"C2-3-05","a":0.0,"leaf":true,"d":"技术","t":"D 服务(天/米)","col":"CY"},{"c":"C2-3-05-03","n":"（3）垂直钻井","lv":4,"b":"V","p":"C2-3-05","a":0.0,"leaf":true,"d":"技术","t":"D 服务(天/米)","col":"CY"},{"c":"C2-3-05-04","n":"（4）旋转导向","lv":4,"b":"V","p":"C2-3-05","a":0.0,"leaf":true,"d":"技术","t":"D 服务(天/米)","col":"CY"},{"c":"C2-3-05-05","n":"（5）振荡螺杆","lv":4,"b":"V","p":"C2-3-05","a":0.0,"leaf":true,"d":"技术","t":"D 服务(天/米)","col":"CY"},{"c":"C2-3-05-06","n":"（6）其他提速工具","lv":4,"b":"V","p":"C2-3-05","a":19125.0,"leaf":true,"d":"技术","t":"D 服务(天/米)","col":"CY"},{"c":"C2-3-06","n":"6.钻井工具费","lv":3,"b":"V","p":"C2-3","leaf":false,"d":"技术","t":"D 服务/租赁","col":"DF"},{"c":"C2-3-06-01","n":"（1）扩眼工具","lv":4,"b":"V","p":"C2-3-06","a":0.0,"leaf":true,"d":"技术","t":"D 服务/租赁","col":"DF"},{"c":"C2-3-06-02","n":"（2）取芯工具","lv":4,"b":"V","p":"C2-3-06","a":0.0,"leaf":true,"d":"技术","t":"D 服务/租赁","col":"DF"},{"c":"C2-3-06-03","n":"（3）震击器","lv":4,"b":"V","p":"C2-3-06","a":0.0,"leaf":true,"d":"技术","t":"D 服务/租赁","col":"DF"},{"c":"C2-3-06-04","n":"（4）减震器","lv":4,"b":"V","p":"C2-3-06","a":0.0,"leaf":true,"d":"技术","t":"D 服务/租赁","col":"DF"},{"c":"C2-3-06-05","n":"（5）刮壁器","lv":4,"b":"V","p":"C2-3-06","a":22841.0,"leaf":true,"d":"技术","t":"D 服务/租赁","col":"DF"},{"c":"C2-3-06-06","n":"（6）分隔器","lv":4,"b":"V","p":"C2-3-06","a":0.0,"leaf":true,"d":"技术","t":"D 服务/租赁","col":"DF"},{"c":"C2-3-06-07","n":"（7）螺杆","lv":4,"b":"V","p":"C2-3-06","a":51559.96,"leaf":true,"d":"技术","t":"D 服务/租赁","col":"DF"},{"c":"C2-3-06-08","n":"（8）其他钻井工具","lv":4,"b":"V","p":"C2-3-06","a":0.0,"leaf":true,"d":"技术","t":"D 服务/租赁","col":"DF"},{"c":"C2-3-07","n":"7.事故复杂处理费用","lv":3,"b":"V","p":"C2-3","leaf":false,"d":"技术","t":"G 人工计价","col":"DO"},{"c":"C2-3-07-01","n":"（1）打捞服务","lv":4,"b":"V","p":"C2-3-07","a":0.0,"leaf":true,"d":"技术","t":"G 人工计价","col":"DO"},{"c":"C2-3-07-02","n":"（2）测卡服务","lv":4,"b":"V","p":"C2-3-07","a":0.0,"leaf":true,"d":"技术","t":"G 人工计价","col":"DO"},{"c":"C2-3-07-03","n":"（3）爆炸松扣","lv":4,"b":"V","p":"C2-3-07","a":0.0,"leaf":true,"d":"技术","t":"G 人工计价","col":"DO"},{"c":"C2-3-07-04","n":"（4）第三方堵漏","lv":4,"b":"V","p":"C2-3-07","a":0.0,"leaf":true,"d":"技术","t":"G 人工计价","col":"DO"},{"c":"C2-3-07-05","n":"（5）其他事故复杂服务","lv":4,"b":"V","p":"C2-3-07","a":0.0,"leaf":true,"d":"技术","t":"G 人工计价","col":"DO"},{"c":"C2-3-08","n":"8.下套管服务费","lv":3,"b":"V","p":"C2-3","a":143932.87,"leaf":true,"d":"技术","t":"D 井次","col":"DU"},{"c":"C2-3-09","n":"9.口井资料费","lv":3,"b":"V","p":"C2-3","a":0.0,"leaf":true,"d":"技术","t":"G 据实","col":"DV"},{"c":"C2-3-10","n":"10.欠平衡/控压","lv":3,"b":"V","p":"C2-3","a":0.0,"leaf":true,"d":"技术","t":"D 服务","col":"DW"},{"c":"C2-3-11","n":"11.固井","lv":3,"b":"V","p":"C2-3","a":1092507.7,"leaf":true,"d":"技术","t":"D 井次/米","col":"DX"},{"c":"C2-3-12","n":"12.试压","lv":3,"b":"V","p":"C2-3","a":0.0,"leaf":true,"d":"技术","t":"D 井次","col":"DY"},{"c":"C2-3-13","n":"13.录井","lv":3,"b":"V","p":"C2-3","a":0.0,"leaf":true,"d":"技术","t":"D 日费/米","col":"DZ"},{"c":"C2-3-14","n":"14.测井","lv":3,"b":"V","p":"C2-3","a":0.0,"leaf":true,"d":"技术","t":"D 井次/米","col":"EA"},{"c":"C2-3-15","n":"15.钻前费用","lv":3,"b":"V","p":"C2-3","a":0.0,"leaf":true,"d":"市场","t":"D 包干","col":"EB"},{"c":"C2-3-16","n":"16.外协费","lv":3,"b":"V","p":"C2-3","a":0.0,"leaf":true,"d":"市场","t":"G 据实","col":"EC"},{"c":"C2-3-17","n":"17.水费","lv":3,"b":"V","p":"C2-3","leaf":false,"d":"市场/安全","t":"C 量×价","col":"ED"},{"c":"C2-3-17-01","n":"（1）水费（市场）","lv":4,"b":"V","p":"C2-3-17","a":88883.25,"leaf":true,"d":"市场/安全","t":"C 量×价","col":"ED"},{"c":"C2-3-17-02","n":"（2）水费（安全）","lv":4,"b":"V","p":"C2-3-17","a":0.0,"leaf":true,"d":"市场/安全","t":"C 量×价","col":"ED"},{"c":"C2-3-18","n":"18.伙食费","lv":3,"b":"V","p":"C2-3","a":74538.24,"leaf":true,"d":"人事","t":"B 人·天","col":"EG"},{"c":"C2-3-19","n":"19.地区补贴","lv":3,"b":"V","p":"C2-3","a":43520.0,"leaf":true,"d":"人事","t":"B 人·天","col":"EH"},{"c":"C2-3-20","n":"20.倒班路费","lv":3,"b":"V","p":"C2-3","a":0.0,"leaf":true,"d":"人事","t":"B 人次","col":"EI"},{"c":"C2-3-21","n":"21.取证培训费","lv":3,"b":"V","p":"C2-3","a":0.0,"leaf":true,"d":"人事","t":"G 据实","col":"EJ"},{"c":"C2-3-22","n":"22.网络通讯费","lv":3,"b":"V","p":"C2-3","leaf":false,"d":"技术","t":"B 定额日费","col":"EK"},{"c":"C2-3-22-01","n":"（1）微波网络费","lv":4,"b":"V","p":"C2-3-22","a":17526.4,"leaf":true,"d":"技术","t":"B 定额日费","col":"EK"},{"c":"C2-3-22-02","n":"（2）卫星租赁费","lv":4,"b":"V","p":"C2-3-22","a":0.0,"leaf":true,"d":"技术","t":"B 定额日费","col":"EK"},{"c":"C2-3-22-03","n":"（3）运维服务费","lv":4,"b":"V","p":"C2-3-22","a":4160.35,"leaf":true,"d":"技术","t":"B 定额日费","col":"EK"},{"c":"C2-3-22-04","n":"（4）视频传输服务费","lv":4,"b":"V","p":"C2-3-22","a":0.0,"leaf":true,"d":"技术","t":"B 定额日费","col":"EK"},{"c":"C2-3-22-05","n":"（5）钻井井场监控系统施工技术服务费","lv":4,"b":"V","p":"C2-3-22","a":0.0,"leaf":true,"d":"技术","t":"B 定额日费","col":"EK"},{"c":"C2-3-22-06","n":"（6）EISC服务费","lv":4,"b":"V","p":"C2-3-22","a":36983.0,"leaf":true,"d":"技术","t":"B 定额日费","col":"EK"},{"c":"C2-3-22-07","n":"（7）其他通讯费","lv":4,"b":"V","p":"C2-3-22","a":0.0,"leaf":true,"d":"技术","t":"B 定额日费","col":"EK"},{"c":"C2-3-23","n":"23.井下作业","lv":3,"b":"V","p":"C2-3","leaf":false,"d":"技术","t":"D 井次","col":"ES"},{"c":"C2-3-23-01","n":"（1）试油作业","lv":4,"b":"V","p":"C2-3-23","a":0.0,"leaf":true,"d":"技术","t":"D 井次","col":"ES"},{"c":"C2-3-23-02","n":"（2）试气作业","lv":4,"b":"V","p":"C2-3-23","a":0.0,"leaf":true,"d":"技术","t":"D 井次","col":"ES"},{"c":"C2-3-23-03","n":"（3）压裂作业","lv":4,"b":"V","p":"C2-3-23","a":0.0,"leaf":true,"d":"技术","t":"D 井次","col":"ES"},{"c":"C2-3-23-04","n":"（4）其他井下作业","lv":4,"b":"V","p":"C2-3-23","a":0.0,"leaf":true,"d":"技术","t":"D 井次","col":"ES"},{"c":"C2-3-24","n":"24.冬防保温","lv":3,"b":"V","p":"C2-3","leaf":false,"d":"安全","t":"D 包干","col":"EX"},{"c":"C2-3-24-01","n":"（1）自保温","lv":4,"b":"V","p":"C2-3-24","a":0.0,"leaf":true,"d":"安全","t":"D 包干","col":"EX"},{"c":"C2-3-24-02","n":"（2）第三方保温","lv":4,"b":"V","p":"C2-3-24","a":0.0,"leaf":true,"d":"安全","t":"D 包干","col":"EX"},{"c":"C2-3-25","n":"25.泥浆不落地","lv":3,"b":"V","p":"C2-3","leaf":false,"d":"市场/安全","t":"D 方量/天","col":"FA"},{"c":"C2-3-25-01","n":"（1）泥浆不落地（市场）","lv":4,"b":"V","p":"C2-3-25","a":0.0,"leaf":true,"d":"市场/安全","t":"D 方量/天","col":"FA"},{"c":"C2-3-25-02","n":"（2）泥浆不落地（安全）","lv":4,"b":"V","p":"C2-3-25","a":0.0,"leaf":true,"d":"市场/安全","t":"D 方量/天","col":"FA"},{"c":"C2-3-26","n":"26.套管","lv":3,"b":"V","p":"C2-3","a":0.0,"leaf":true,"d":"物资","t":"E 出库","col":"FD"},{"c":"C2-3-27","n":"27.套管头","lv":3,"b":"V","p":"C2-3","a":0.0,"leaf":true,"d":"物资","t":"E 出库","col":"FE"},{"c":"C2-3-28","n":"28.其他费用","lv":3,"b":"V","p":"C2-3","leaf":false,"d":"各部室","t":"G 人工计价","col":"FF"},{"c":"C2-3-28-01","n":"（1）其他费用（市场）","lv":4,"b":"V","p":"C2-3-28","a":0.0,"leaf":true,"d":"各部室","t":"G 人工计价","col":"FF"},{"c":"C2-3-28-02","n":"（2）其他费用（技术）","lv":4,"b":"V","p":"C2-3-28","a":0.0,"leaf":true,"d":"各部室","t":"G 人工计价","col":"FF"},{"c":"C2-3-28-03","n":"（3）其他费用（物资）","lv":4,"b":"V","p":"C2-3-28","a":0.0,"leaf":true,"d":"各部室","t":"G 人工计价","col":"FF"},{"c":"C2-3-28-04","n":"（4）其他费用（装备）","lv":4,"b":"V","p":"C2-3-28","a":0.0,"leaf":true,"d":"各部室","t":"G 人工计价","col":"FF"},{"c":"C2-3-28-05","n":"（5）其他费用（安全）","lv":4,"b":"V","p":"C2-3-28","a":0.0,"leaf":true,"d":"各部室","t":"G 人工计价","col":"FF"},{"c":"C2-3-28-06","n":"（6）其他费用（人事）","lv":4,"b":"V","p":"C2-3-28","a":0.0,"leaf":true,"d":"各部室","t":"G 人工计价","col":"FF"},{"c":"C2-3-29","n":"29.安全计提","lv":3,"b":"V","p":"C2-3","a":57182.63,"leaf":true,"d":"财务","t":"A 比例 0.8%","col":"FM"},{"c":"C2-3-30","n":"30.科研计提","lv":3,"b":"V","p":"C2-3","a":142956.58,"leaf":true,"d":"财务","t":"A 比例 2%","col":"FN"},{"c":"C2-3-31","n":"31.税金","lv":3,"b":"V","p":"C2-3","a":21443.49,"leaf":true,"d":"财务","t":"A 比例 0.3%","col":"FO"}],"rev":{"contract":7147828.84,"image":7147828.84}};
+    return this._td;
+  }
+
+  renderVals() {
+    const s = this.state;
+    const accent = this.props.accent ?? '#0071E3';
+
+    const ROLES = [
+      { id: 'finance', name: '经营总览', who: '企划财务部 · 经营管理', scope: '全部' },
+      { id: 'team', name: '钻井基层队', who: '70101 钻井队 · 统计员', scope: '70101 钻井队' },
+      { id: 'dept', name: '专业部室', who: '工程技术部 · 经办人', scope: '工程技术部归口科目' },
+      { id: 'admin', name: '系统管理员', who: '信息中心 · 管理员', scope: '无业务数据' }
+    ];
+    const NAV = {
+      team: [{ label: '填报', items: [{ id: 'report', label: '成本日报' }] }, { label: '经营', items: [{ id: 'overview', label: '本队单井收支' }] }],
+      dept: [{ label: '规则', items: [{ id: 'rules', label: '规则确认', badge: '3' }] }, { label: '经营', items: [{ id: 'overview', label: '归口科目分析' }] }],
+      finance: [{ label: '经营', items: [{ id: 'overview', label: '经营总览' }] }, { label: '主数据', items: [{ id: 'wellinfo', label: '单井基础信息' }, { id: 'masterdata', label: '主数据维护' }] }, { label: '规则', items: [{ id: 'rules', label: '规则库' }] }],
+      admin: [{ label: '系统', items: [{ id: 'perm', label: '角色与权限' }] }]
+    };
+    const role = ROLES.find((r) => r.id === s.role);
+
+    const roles = ROLES.map((r) => ({
+      name: r.name, active: r.id === s.role, inactive: r.id !== s.role,
+      pick: () => this.setState({ role: r.id, screen: NAV[r.id][0].items[0].id, wellId: null, itemCode: null, traceIdx: null })
+    }));
+
+    let navTitle = '';
+    const navGroups = NAV[s.role].map((g) => ({
+      label: g.label,
+      items: g.items.map((it) => {
+        if (it.id === s.screen) navTitle = it.label;
+        return {
+          label: it.label, active: it.id === s.screen, inactive: it.id !== s.screen,
+          hasBadge: !!it.badge, badge: it.badge || '',
+          iconReport: it.id === 'report', iconOverview: it.id === 'overview', iconRules: it.id === 'rules', iconPerm: it.id === 'perm', iconWell: it.id === 'wellinfo', iconMaster: it.id === 'masterdata',
+          go: () => this.setState({ screen: it.id, wellId: null, itemCode: null, traceIdx: null })
+        };
+      })
+    }));
+
+    const WELLS = [
+      { id: 'W001', block: 'A区块', type: '直井', team: '70101 钻井队', teamId: 't1', phase: '二开', k: 1.0, market: '西北', rig: 'ZJ50D', leader: '[队长]', client: '[甲方单位]', wcat: '开发井', design: 4411, actual: 4411 },
+      { id: 'W002', block: 'A区块', type: '定向井', team: '70102 钻井队', teamId: 't2', phase: '二开', k: 0.82, market: '西北', rig: 'ZJ50D', leader: '[队长]', client: '[甲方单位]', wcat: '开发井', design: 4300, actual: 3620 },
+      { id: 'W003', block: 'B区块', type: '直井', team: '70104 钻井队', teamId: 't4', phase: '二开', k: 0.64, market: '西北', rig: 'ZJ40', leader: '[队长]', client: '[甲方单位]', wcat: '评价井', design: 3200, actual: 2850 },
+      { id: 'W004', block: 'B区块', type: '水平井', team: '70103 钻井队', teamId: 't3', phase: '三开', k: 1.18, market: '西北', rig: 'ZJ70D', leader: '[队长]', client: '[甲方单位]', wcat: '开发井', design: 5900, actual: 5210 }
+    ];
+    const wells = s.role === 'team' ? WELLS.filter((w) => w.teamId === 't1') : WELLS;
+
+    const TD = this.treeData();
+    const TREE = TD.tree;
+    const BY = {};
+    const CHILDREN = {};
+    TREE.forEach((n) => { BY[n.c] = n; if (n.p) { (CHILDREN[n.p] = CHILDREN[n.p] || []).push(n.c); } });
+    const isDept = s.role === 'dept';
+    const visibleNode = {};
+    for (let i = TREE.length - 1; i >= 0; i--) {
+      const n = TREE[i];
+      visibleNode[n.c] = n.leaf ? (!isDept || n.d === '技术') : (CHILDREN[n.c] || []).some((c) => visibleNode[c]);
+    }
+    const MUD = 'C2-1-02-01';
+    const RATIO = { 'C2-3-29': 0.008, 'C2-3-30': 0.02, 'C2-3-31': 0.003 };
+    const RATIO_DOC = {
+      'C2-3-29': ['《[安全生产费用提取办法]》', '第3条', '按形象收入的 0.8% 提取安全生产费用'],
+      'C2-3-30': ['《[科研经费提取办法]》', '第2条', '按形象收入的 2% 提取科研经费'],
+      'C2-3-31': ['《[税金核算口径]》', '第1条', '按形象收入的 0.3% 计提税金']
+    };
+    const MUD_M = [820, 940, 1010, 860, 781];
+    const MUD_DAYS = ['08-06', '08-12', '08-18', '08-24', '08-30'];
+    const MUD_PRICE = BY[MUD].a / 4411;
+    const revOf = (w) => ({ contract: TD.rev.contract * w.k, image: TD.rev.image * w.k });
+    const mudEvents = (w) => MUD_M.map((m, i) => { const q = Math.round(m * w.k); return { i: i, date: '2026-' + MUD_DAYS[i], q: q, amt: BY[MUD].a * w.k * m / 4411 }; });
+    const leafAmt = (w, n) => {
+      if (n.c === MUD) return mudEvents(w).reduce((a, e) => a + e.amt, 0);
+      if (RATIO[n.c]) return revOf(w).image * RATIO[n.c];
+      return (n.a || 0) * w.k;
+    };
+    const calc = (w, all) => {
+      const amt = {};
+      for (let i = TREE.length - 1; i >= 0; i--) {
+        const n = TREE[i];
+        if (!all && !visibleNode[n.c]) continue;
+        amt[n.c] = n.leaf ? leafAmt(w, n) : (CHILDREN[n.c] || []).reduce((a, c) => a + (amt[c] || 0), 0);
+      }
+      const fixed = amt.C1 || 0;
+      const vari = amt.C2 || 0;
+      const r = revOf(w);
+      const rev = (isDept && !all) ? 0 : r.image;
+      return { amt: amt, fixed: fixed, vari: vari, total: fixed + vari, rev: rev, contract: (isDept && !all) ? 0 : r.contract, gm: rev - vari, net: rev - fixed - vari };
+    };
+    const wan = (x) => this.fmt(x / 1e4, 2);
+    const pctText = (a, b) => b > 0 ? (a / b * 100).toFixed(1) : '—';
+    const netLabel = '净利润';
+    const rateLabel = '利润率';
+    const kpiSet = (t, full) => isDept
+      ? [{ label: '归口成本合计', value: wan(t.total), unit: '万元' }, { label: '其中：固定成本', value: wan(t.fixed), unit: '万元' }, { label: '其中：变动成本', value: wan(t.vari), unit: '万元' }]
+      : [{ label: '形象收入', value: wan(t.rev), unit: '万元' }, { label: '总成本', value: wan(t.total), unit: '万元' }]
+        .concat(full ? [{ label: '固定成本', value: wan(t.fixed), unit: '万元' }, { label: '变动成本', value: wan(t.vari), unit: '万元' }] : [])
+        .concat([{ label: '毛益额', value: wan(t.rev - t.vari), unit: '万元' }, { label: '毛益率', value: pctText(t.rev - t.vari, t.rev), unit: '%' },
+          { label: '净利润', value: wan(t.rev - t.total), unit: '万元' }, { label: '利润率', value: pctText(t.rev - t.total, t.rev), unit: '%' }]);
+
+    const sum = { rev: 0, total: 0, fixed: 0, vari: 0 };
+    const wellRows = wells.map((w) => {
+      const t = calc(w, false);
+      sum.rev += t.rev; sum.total += t.total; sum.fixed += t.fixed; sum.vari += t.vari;
+      return {
+        id: w.id, block: w.block, type: w.type, team: w.team, phase: w.phase,
+        revS: isDept ? '—' : wan(t.rev), costS: wan(t.total),
+        gmS: isDept ? '—' : wan(t.gm), gmRateS: isDept ? '—' : pctText(t.gm, t.rev) + '%',
+        netS: isDept ? '—' : wan(t.net), rateS: isDept ? '—' : pctText(t.net, t.rev) + '%',
+        open: () => this.setState({ wellId: w.id, itemCode: null, traceIdx: null, exportOpen: false })
+      };
+    });
+    const kpis = kpiSet(sum, false);
+
+    const well = s.wellId ? WELLS.find((w) => w.id === s.wellId) : null;
+    const leaf = s.itemCode ? BY[s.itemCode] : null;
+    const item = leaf ? { name: leaf.n.replace(/^（\d+）/, '').replace(/^\d+\./, '') } : null;
+    const level0 = !well;
+    const level1 = !!well && !leaf;
+    const level2 = !!well && !!leaf;
+    const canExport = s.role === 'finance' || s.role === 'team';
+
+    let wellInfo = [], wellKpis = [], revRows = [], costRows = [], costTotalS = '', calcW = null;
+    if (well) {
+      calcW = calc(well, false);
+      const t = calcW;
+      wellInfo = [['市场分布', well.market], ['队号', well.team], ['队长', well.leader], ['钻机类型', well.rig], ['甲方单位', well.client], ['区块', well.block],
+        ['井别', well.wcat], ['井型', well.type], ['开次', well.phase], ['设计井深', this.fmt(well.design, 0) + ' 米'], ['实际井深', this.fmt(well.actual, 0) + ' 米']].map((x) => ({ k: x[0], v: x[1] }));
+      wellKpis = kpiSet(t, true);
+      revRows = [{ name: '合同收入', amtS: this.fmt(t.contract, 2) }, { name: '形象收入', amtS: this.fmt(t.rev, 2) }];
+      costTotalS = this.fmt(t.total, 2);
+      const collapsed = s.collapsed || {};
+      const hidden = {};
+      TREE.forEach((n) => {
+        if (!visibleNode[n.c]) return;
+        if (n.p && (hidden[n.p] || collapsed[n.p])) { hidden[n.c] = true; return; }
+        const a = t.amt[n.c] || 0;
+        const isCol = !!collapsed[n.c];
+        costRows.push({
+          name: n.n, code: n.c, dept: n.d || '—', ptype: n.t || '—',
+          amtS: this.fmt(a, 2), pctS: t.total > 0 ? (a / t.total * 100).toFixed(1) + '%' : '—',
+          indent: 'padding-left: ' + ((n.lv - 1) * 20) + 'px',
+          groupTop: !n.leaf && n.lv === 1, groupSub: !n.leaf && n.lv > 1,
+          leafLive: n.leaf && a > 0.005, leafZero: n.leaf && a <= 0.005,
+          expanded: !isCol, folded: isCol, ariaExp: isCol ? 'false' : 'true',
+          toggle: () => { const c = Object.assign({}, this.state.collapsed || {}); if (c[n.c]) { delete c[n.c]; } else { c[n.c] = true; } this.setState({ collapsed: c }); },
+          open: () => this.setState({ itemCode: n.c, traceIdx: null, exportOpen: false })
+        });
+      });
+    }
+    const expandAll = () => this.setState({ collapsed: {} });
+    const collapseTo2 = () => { const c = {}; TREE.forEach((n) => { if (!n.leaf && n.lv >= 2) c[n.c] = true; }); this.setState({ collapsed: c }); };
+
+    let itemChips = [], eventRows = [], evs = [], kind = '';
+    if (well && leaf) {
+      kind = leaf.c === MUD ? 'rule' : (RATIO[leaf.c] ? 'ratio' : 'import');
+      itemChips = [{ k: '科目', v: leaf.c + ' ' + item.name }, { k: '成本性态', v: leaf.b === 'F' ? '固定成本' : '变动成本' }, { k: '归口', v: leaf.d || '—' }, { k: '计价类型', v: leaf.t || '—' }, { k: '总表列', v: leaf.col || '—' }];
+      if (kind === 'rule') {
+        evs = mudEvents(well).map((e) => Object.assign({}, e, { qtyS: e.q + ' 米', priceS: this.fmt(MUD_PRICE, 4), fS: '1.00', ruleS: 'RL-' + leaf.c + ' · v1', srcS: '成本日报 ' + e.date.slice(5) + ' · v1' }));
+      } else if (kind === 'ratio') {
+        const base = revOf(well).image;
+        evs = [{ i: 0, date: '2026-08-31', base: base, amt: base * RATIO[leaf.c], qtyS: this.fmt(base, 2) + ' 元', priceS: (RATIO[leaf.c] * 100).toFixed(2) + '%', fS: '1.00', ruleS: 'RL-' + leaf.c + ' · v1', srcS: '比例计提 · 基数 R02 形象收入' }];
+      } else {
+        evs = [{ i: 0, date: '2026-08', amt: calcW.amt[leaf.c] || 0, qtyS: '—', priceS: '—', fS: '—', ruleS: '待规则回算', srcS: '历史导入 · 总表 ' + (leaf.col || '') + ' 列' }];
+      }
+      eventRows = evs.map((e) => ({ date: e.date, qtyS: e.qtyS, priceS: e.priceS, fS: e.fS, amtS: this.fmt(e.amt, 2), ruleS: e.ruleS, srcS: e.srcS, open: () => this.setState({ traceIdx: e.i }) }));
+    }
+
+    const crumbRoot = navTitle || '经营总览';
+    const crumbs = [{ label: crumbRoot, showSep: false, isLink: !!well, isCurrent: !well, go: () => this.setState({ wellId: null, itemCode: null, traceIdx: null, exportOpen: false }) }];
+    if (well) crumbs.push({ label: well.id, showSep: true, isLink: !!leaf, isCurrent: !leaf, go: () => this.setState({ itemCode: null, traceIdx: null }) });
+    if (leaf) crumbs.push({ label: item.name, showSep: true, isLink: false, isCurrent: true, go: () => {} });
+
+    let tr = null;
+    const ev = (well && leaf && s.traceIdx !== null) ? evs.find((e) => e.i === s.traceIdx) : null;
+    if (ev) {
+      const amtS = this.fmt(ev.amt, 2);
+      const base = { title: well.id + ' · ' + item.name + ' · ' + ev.date, amtS: amtS, hasClause: false, clauseRef: '', pre: '', hit: '', post: '' };
+      if (kind === 'rule') {
+        tr = Object.assign(base, {
+          formula: ev.q + ' 米 × ' + this.fmt(MUD_PRICE, 4) + ' 元/米 × 1.00 = ' + amtS + ' 元',
+          ruleLines: [{ k: '规则', v: 'RL-' + leaf.c + ' · v1 · 已发布' }, { k: '计价方式', v: 'D 服务（按进尺）' }, { k: '适用条件', v: '区块 = ' + well.block + '；开次 = ' + well.phase }, { k: '生效日期', v: '2026-08-01' }],
+          hasClause: true, clauseRef: '《[泥浆技术服务合同]》 第4条 · p.6', hit: '钻井液服务按进尺 x 元/米结算', post: '，以日报进尺为准。',
+          srcTitle: '来源事实',
+          srcLines: [{ k: '成本日报', v: well.id + ' · ' + ev.date + ' · 版本 1' }, { k: '填报', v: well.team + ' · [填报人]' }, { k: '审核', v: '工程技术部 · [审核人] · 已通过' }, { k: '进尺', v: ev.q + ' 米' }]
+        });
+      } else if (kind === 'ratio') {
+        const d = RATIO_DOC[leaf.c];
+        tr = Object.assign(base, {
+          formula: '形象收入 ' + this.fmt(ev.base, 2) + ' 元 × ' + ev.priceS + ' = ' + amtS + ' 元',
+          ruleLines: [{ k: '规则', v: 'RL-' + leaf.c + ' · v1 · 已发布' }, { k: '计价方式', v: 'A 比例计提' }, { k: '基数', v: 'R02 形象收入' }, { k: '计算顺序', v: '收入 → 直接成本 → 比例计提' }],
+          hasClause: true, clauseRef: d[0] + ' ' + d[1], hit: d[2], post: '。',
+          srcTitle: '基数事项',
+          srcLines: [{ k: '基数', v: '形象收入 · 2026-08' }, { k: '金额', v: this.fmt(ev.base, 2) + ' 元' }, { k: '联动', v: '收入变动时本笔一并冲销重算' }]
+        });
+      } else {
+        tr = Object.assign(base, {
+          formula: '历史导入金额，尚未由规则计算',
+          ruleLines: [{ k: '状态', v: '待规则回算' }, { k: '计价类型', v: leaf.t || '—' }, { k: '归口', v: leaf.d || '—' }],
+          srcTitle: '来源',
+          srcLines: [{ k: '来源', v: '全要素经营总表 · 2026-08' }, { k: '总表列', v: leaf.col || '—' }, { k: '批次', v: '历史导入' }]
+        });
+      }
+    }
+
+    let exportRows = [], exportTitle = '';
+    if (well && canExport) {
+      const t = calc(well, true);
+      const r = revOf(well);
+      const f2 = (x) => this.fmt(x, 2);
+      exportTitle = well.id + ' · 2026 年 8 月';
+      const rows = [['井号', well.id, 0], ['年份', '2026', 0], ['月份', '08', 0], ['市场分布', well.market, 0], ['队号', well.team, 0], ['队长', well.leader, 0],
+        ['钻机类型', well.rig, 0], ['甲方单位', well.client, 0], ['区块', well.block, 0], ['井别', well.wcat, 0], ['井型', well.type, 0], ['开次', well.phase, 0],
+        ['设计井深（米）', this.fmt(well.design, 0), 0], ['实际井深（米）', this.fmt(well.actual, 0), 0], ['合同收入（元）', f2(r.contract), 0], ['形象收入（元）', f2(r.image), 0],
+        ['形象利润（元）', f2(r.image - t.total), 0], ['总成本（元）', f2(t.total), 1]];
+      TREE.forEach((n) => rows.push([n.n, f2(t.amt[n.c] || 0), n.lv <= 2 && !n.leaf ? 1 : 0, n.lv]));
+      rows.push(['经营数据', '', 2], ['总收入（元）', f2(r.image), 0], ['总成本（元）', f2(t.total), 0], ['（一）固定成本（元）', f2(t.fixed), 0], ['（二）变动成本（元）', f2(t.vari), 0],
+        ['毛益额（元）', f2(r.image - t.vari), 1], ['毛益率（%）', pctText(r.image - t.vari, r.image) + '%', 0], ['净利润（元）', f2(r.image - t.total), 1], ['利润率（%）', pctText(r.image - t.total, r.image) + '%', 0]);
+      exportRows = rows.map((x, idx) => ({ no: String(idx + 1), k: x[0], v: x[1], bold: x[2] === 1, section: x[2] === 2, plain: x[2] === 0, indent: 'padding-left: ' + (((x[3] || 1) - 1) * 14) + 'px' }));
+    }
+    const exportCount = String(exportRows.length);
+
+    const HOUR_NAMES = ['钻进', '起下钻', '循环', '接单根', '其他'];
+    const hourRows = HOUR_NAMES.map((n, i) => ({
+      name: n, val: String(s.hours[i]),
+      onChange: (e) => { const v = parseFloat(e.target.value); const h = this.state.hours.slice(); h[i] = isNaN(v) ? 0 : v; this.setState({ hours: h }); }
+    }));
+    const total = s.hours.reduce((a, b) => a + b, 0);
+    const totalOk = Math.abs(total - 24) < 1e-6;
+    const footage = s.depthEnd - s.depthStart;
+    const footageOk = footage >= 0;
+    const drillHours = s.hours[0];
+    const drillOk = !(footage > 0 && drillHours <= 0);
+    const checkMsgs = [];
+    if (!totalOk) checkMsgs.push({ text: '阻断：工况合计 ' + total.toFixed(1) + ' 小时，必须等于 24 小时' });
+    if (!footageOk) checkMsgs.push({ text: '阻断：结束井深小于起始井深' });
+    if (!drillOk) checkMsgs.push({ text: '阻断：当天无钻进工况却有进尺' });
+    checkMsgs.push({ text: '警告：泥浆材料用量高于同开次历史水平，审核时重点看' });
+    const blockCount = (totalOk ? 0 : 1) + (footageOk ? 0 : 1) + (drillOk ? 0 : 1);
+
+    const reportHead = [
+      { k: '井号', v: 'W001' }, { k: '日期', v: '2026-10-09' }, { k: '队伍', v: '70101 钻井队' },
+      { k: '区块', v: 'A区块' }, { k: '井型', v: '直井' }, { k: '当前开次', v: '二开' }
+    ];
+    const otherRows = [
+      { name: '泥浆材料', src: '物资系统出库单带入', qty: '4.6 吨', tag: '待确认' },
+      { name: '钻头', src: '物资系统出库单带入', qty: '1 只', tag: '待确认' },
+      { name: '定向服务', src: '签证单已上传，识别数量已预填', qty: '1 天', tag: '附件 1' },
+      { name: '人员出勤', src: '沿用昨日，可修改', qty: '46 工日', tag: '沿用' }
+    ];
+
+    const DRAFTS = [
+      { name: '定向服务日费', doc: '《定向井技术服务合同》', no: '第5.3条', page: 'p.12', confS: '置信度 0.93 · 2 个字段需核对',
+        pre: '定向井技术服务按日计费，', hit: '日费 x 元/天，井深超过 5000 米部分上浮 20%', post: '。',
+        fields: [['科目', 'C05 定向服务费', '高'], ['触发事实', '外包服务 · 服务日', '高'], ['计价方式', '单价', '高'], ['单价', 'x 元/天', '高'], ['适用条件', '井深 > 5000 米时系数 1.2', '中'], ['组合方式', '叠加：基准日费 + 超深上浮', '中'], ['计算粒度', '逐日', '高']] },
+      { name: '钻井日费', doc: '《[甲方钻井主合同]》', no: '第4.2条', page: 'p.8', confS: '置信度 0.88 · 1 个字段需核对',
+        pre: '', hit: '钻井日费按 x 元/天结算', post: '，不足一天按一天计。',
+        fields: [['科目', 'R02 日费收入', '高'], ['触发事实', '日历天', '高'], ['计价方式', '单价', '高'], ['单价', 'x 元/天', '高'], ['适用条件', '开次 = 三开', '中'], ['组合方式', '互斥', '高'], ['计算粒度', '逐日', '高']] },
+      { name: '钻头单井包干', doc: '《钻头采购框架协议》', no: '第3.4条', page: 'p.6', confS: '置信度 0.62 · 3 个字段需核对',
+        pre: '', hit: '水平井钻头费用按单井包干，每口井 x 元', post: '，超出部分由供方承担。',
+        fields: [['科目', 'C03 钻头费', '高'], ['触发事实', '单井（完钻）', '低'], ['计价方式', '包干', '中'], ['单价', 'x 元/井', '高'], ['适用条件', '井型 = 水平井', '高'], ['组合方式', '覆盖单价规则', '低'], ['计算粒度', '按井', '高']] }
+    ];
+    const sel = Math.min(s.ruleSel, DRAFTS.length - 1);
+    const drafts = DRAFTS.map((d, i) => ({ name: d.name, doc: d.doc, no: d.no, confS: d.confS, selected: i === sel, unselected: i !== sel, pick: () => this.setState({ ruleSel: i }) }));
+    const D = DRAFTS[sel];
+    const rd = {
+      doc: D.doc, no: D.no, page: D.page, pre: D.pre, hit: D.hit, post: D.post,
+      fields: D.fields.map((f) => ({ label: f[0], value: f[1], level: f[2], flag: f[2] !== '高', ok: f[2] === '高' }))
+    };
+    const STEP_NAMES = ['草稿', '待确认', '回算中', '待发布', '已发布'];
+    const steps = STEP_NAMES.map((n, i) => ({ name: n, showSep: i > 0, current: i === 1, other: i !== 1 }));
+
+    const ROLE_COLS = ['team', 'dept', 'finance', 'admin'];
+    const PERMS = [
+      ['成本日报填报', ['编辑', '', '查看', '']],
+      ['成本日报审核', ['', '审核', '查看', '']],
+      ['依据文件与规则草稿', ['', '编辑', '查看', '']],
+      ['规则发布审批', ['', '审核', '查看', '']],
+      ['单井基础信息与科目树', ['查看', '查看', '编辑', '']],
+      ['费用池与分摊规则', ['', '', '编辑', '']],
+      ['经营报表与下钻', ['查看', '查看', '查看', '']],
+      ['角色与权限', ['', '', '', '编辑']]
+    ];
+    const permRows = PERMS.map((p) => ({
+      name: p[0],
+      cells: [p[1][2], p[1][0], p[1][1], p[1][3]].map((v) => ({ text: v, isEdit: v === '编辑', isReview: v === '审核', isView: v === '查看', isNone: v === '' }))
+    }));
+    const scopeCards = ROLES.map((r) => ({ name: r.name, scope: r.scope }));
+
+    const isOverview = s.screen === 'overview';
+    const pageTitle = isOverview
+      ? (level2 ? item.name : (level1 ? well.id + ' 单井经营' : navTitle))
+      : navTitle;
+    const SUBS = {
+      overview: level2 ? '规则计算、比例计提与历史导入分别标识来源' : (level1 ? '成本按固定成本、变动成本分级展开，点击末级项目查看明细' : '数据范围：' + role.scope),
+      report: '一井一队一天一张，只报量、不含金额；报量行由规则库自动生成',
+      rules: s.role === 'dept' ? '对照原文逐条确认 AI 提取的规则草稿' : '查看各部室规则的提取与确认状态',
+      perm: '功能权限按角色分配，数据按行控制：基层按队伍，部室按科目归口',
+      wellinfo: '单井井号是唯一身份识别码；队伍、区块、开次等按时段挂在井号下',
+      masterdata: '费用科目树、队伍、物资、计量单位；物资初期引用物资系统编码'
+    };
+
+    const WELL_EXTRA = {
+      W001: { depth: '4,411', status: '施工中', segs: [['一开', '70101 钻井队', '07-20 至 07-26'], ['二开', '70101 钻井队', '07-27 至今']] },
+      W002: { depth: '4,300', status: '施工中', segs: [['一开', '70102 钻井队', '09-10 至 09-14'], ['二开', '70102 钻井队', '09-15 至今']] },
+      W003: { depth: '3,200', status: '施工中', segs: [['一开', '70104 钻井队', '09-20 至 09-23'], ['二开', '70104 钻井队', '09-24 至今']] },
+      W004: { depth: '5,900', status: '施工中', segs: [['一开', '70103 钻井队', '08-28 至 09-02'], ['二开', '70103 钻井队', '09-03 至 09-26'], ['三开', '70103 钻井队', '09-27 至今']] }
+    };
+    const infoSel = s.infoWell || 'W001';
+    const infoRows = WELLS.map((w) => ({
+      id: w.id, block: w.block, type: w.type, depth: this.fmt(w.design, 0), client: '[甲方单位]', phase: w.phase, team: w.team, status: WELL_EXTRA[w.id].status,
+      selected: w.id === infoSel, unselected: w.id !== infoSel,
+      pick: () => this.setState({ infoWell: w.id })
+    }));
+    const infoSegs = WELL_EXTRA[infoSel].segs.map((g) => ({ phase: g[0], team: g[1], range: g[2] }));
+
+    const MD_TABS = [['items', '费用科目树'], ['teams', '队伍'], ['materials', '物资'], ['units', '计量单位']];
+    const mdTab = s.mdTab || 'items';
+    const mdTabs = MD_TABS.map((t) => ({ label: t[1], active: t[0] === mdTab, inactive: t[0] !== mdTab, pick: () => this.setState({ mdTab: t[0] }) }));
+    const ITEM_TREE = [
+      ['R', '收入', '收入', '', '', '', '', 0],
+      ['R01', '进尺收入', '收入', '直接', '规则计算', '工程技术部', '[会计科目]', 1],
+      ['R02', '日费收入', '收入', '直接', '规则计算', '工程技术部', '[会计科目]', 1],
+      ['C', '成本', '成本', '', '', '', '', 0],
+      ['C03', '钻头费', '成本', '直接', '规则计算', '物资装备部', '[会计科目]', 1],
+      ['C04', '泥浆材料费', '成本', '直接', '规则计算', '物资装备部', '[会计科目]', 1],
+      ['C05', '定向服务费', '成本', '直接', '规则计算', '工程技术部', '[会计科目]', 1],
+      ['C06', '人工费', '成本', '直接', '规则计算', '人力资源部', '[会计科目]', 1],
+      ['C09', '基地费用', '成本', '间接', '分摊', '企划财务部', '[会计科目]', 1]
+    ];
+    const itemTree = ITEM_TREE.map((r) => ({ code: r[0], name: r[1], dir: r[2], attr: r[3] || '—', src: r[4] || '—', dept: r[5] || '—', acct: r[6] || '—', isGroup: r[7] === 0, isLeaf: r[7] === 1 }));
+    const teamRows = [['70101 钻井队', '[钻机型号]', '[二级单位]'], ['70102 钻井队', '[钻机型号]', '[二级单位]'], ['70103 钻井队', '[钻机型号]', '[二级单位]'], ['70104 钻井队', '[钻机型号]', '[二级单位]']].map((r) => ({ a: r[0], b: r[1], c: r[2] }));
+    const materialRows = [['[物资编码]', '泥浆材料', '吨'], ['[物资编码]', '钻头', '只']].map((r) => ({ a: r[0], b: r[1], c: r[2] }));
+    const unitRows = [['米', '进尺'], ['天', '日费、服务日'], ['只', '钻头'], ['吨', '泥浆材料'], ['工日', '人工'], ['井队天', '分摊基数']].map((r) => ({ a: r[0], b: r[1] }));
+
+    return {
+      accent: accent,
+      themeClass: s.theme === 'dark' ? 'theme-dark' : 'theme-light', isLight: s.theme !== 'dark', isDark: s.theme === 'dark',
+      themeLabel: s.theme === 'dark' ? '切换到浅色模式' : '切换到深色模式',
+      toggleTheme: () => this.setState({ theme: this.state.theme === 'dark' ? 'light' : 'dark' }),
+      roles: roles, navGroups: navGroups, roleWho: role.who, roleScope: role.scope,
+      showCrumbs: isOverview && !!well, crumbs: crumbs,
+      pageTitle: pageTitle, pageSub: SUBS[s.screen],
+      isOverview: isOverview, isReport: s.screen === 'report', isRules: s.screen === 'rules', isPerm: s.screen === 'perm',
+      level0: level0, level1: level1, level2: level2,
+      kpis: kpis, wellRows: wellRows, netLabel: netLabel, rateLabel: rateLabel,
+      wellInfo: wellInfo, wellKpis: wellKpis, revRows: revRows, showRev: !isDept, costRows: costRows, costTotalS: costTotalS,
+      expandAll: expandAll, collapseTo2: collapseTo2, canExport: canExport,
+      exportOpen: !!s.exportOpen && level1 && canExport, openExport: () => this.setState({ exportOpen: true }), closeExport: () => this.setState({ exportOpen: false }),
+      exportRows: exportRows, exportTitle: exportTitle, exportCount: exportCount, periodS: isOverview ? '2026 年 8 月' : '2026 年 10 月',
+      itemChips: itemChips, eventRows: eventRows,
+      traceOpen: !!tr, tr: tr || { title: '', amtS: '', formula: '', ruleLines: [], hasClause: false, clauseRef: '', pre: '', hit: '', post: '', srcTitle: '', srcLines: [] },
+      closeTrace: () => this.setState({ traceIdx: null }),
+      reportHead: reportHead, hourRows: hourRows, totalS: total.toFixed(1), totalOk: totalOk, totalBad: !totalOk,
+      depthStartV: String(s.depthStart), depthEndV: String(s.depthEnd), footageS: this.fmt(footage, 0),
+      onDepthStart: (e) => { const v = parseFloat(e.target.value); this.setState({ depthStart: isNaN(v) ? 0 : v }); },
+      onDepthEnd: (e) => { const v = parseFloat(e.target.value); this.setState({ depthEnd: isNaN(v) ? 0 : v }); },
+      otherRows: otherRows, checkMsgs: checkMsgs, blockCount: String(blockCount), canSubmit: blockCount === 0, cannotSubmit: blockCount > 0,
+      steps: steps, drafts: drafts, rd: rd, queueTitle: s.role === 'dept' ? '待确认 · 3 条' : '最近提取 · 3 条',
+      canEditRule: s.role === 'dept', readOnlyRule: s.role !== 'dept',
+      permRows: permRows, scopeCards: scopeCards,
+      isWellInfo: s.screen === 'wellinfo', isMaster: s.screen === 'masterdata',
+      infoRows: infoRows, infoSel: infoSel, infoSegs: infoSegs,
+      mdTabs: mdTabs, mdItems: mdTab === 'items', mdTeams: mdTab === 'teams', mdMaterials: mdTab === 'materials', mdUnits: mdTab === 'units',
+      itemTree: itemTree, teamRows: teamRows, materialRows: materialRows, unitRows: unitRows
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,183 @@
+"""账号、密码与登录会话。
+
+密码以 PBKDF2-SHA256 加盐存储，不保存明文；初始密码登录后必须修改。
+连续输错 5 次锁定 15 分钟。会话令牌随机生成，12 小时有效，退出即失效。
+"""
+import hashlib
+import hmac
+import re
+import secrets
+from datetime import datetime, timedelta
+
+from .db import now
+
+ITERATIONS = 200_000
+SESSION_HOURS = 12
+MAX_FAILED = 5
+LOCK_MINUTES = 15
+INITIAL_PASSWORD = '123456'
+DEPTS = {'市场': '市场部', '技术': '工程技术部', '物资': '物资装备部', '装备': '物资装备部', '安全': '安全环保部',
+         '人事': '人力资源部', '财务': '企划财务部'}
+ROLE_WHO = {'finance': '企划财务部', 'admin': '信息中心'}
+
+# 初始账号：(登录名, 角色, 队号 / 归口部室)
+INITIAL_ACCOUNTS = [
+    ('admin', 'admin', None),
+    ('fengxuecheng', 'finance', None),
+    ('jinliuchao', 'finance', None),
+    ('70152', 'team', '70152'),
+    ('gcjsb', 'dept', '技术'),
+]
+PUBLIC_FIELDS = ('user_id', 'username', 'name', 'role', 'who', 'team_id', 'dept', 'scope_label', 'must_change', 'enabled',
+                 'last_login', 'created_at')
+
+
+class AuthError(Exception):
+    pass
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, ITERATIONS)
+    return f'pbkdf2_sha256${ITERATIONS}${salt.hex()}${digest.hex()}'
+
+
+def verify_password(password: str, stored: str | None) -> bool:
+    try:
+        algo, it, salt, digest = (stored or '').split('$')
+        if algo != 'pbkdf2_sha256':
+            return False
+        calc = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), bytes.fromhex(salt), int(it))
+        return hmac.compare_digest(calc.hex(), digest)
+    except ValueError:
+        return False
+
+
+def check_strength(password: str) -> None:
+    if len(password) < 8 or not re.search(r'[A-Za-z]', password) or not re.search(r'\d', password):
+        raise AuthError('新密码至少 8 位，须同时包含字母和数字')
+
+
+def public(user: dict) -> dict:
+    return {k: user.get(k) for k in PUBLIC_FIELDS}
+
+
+def _profile(conn, role: str, username: str, scope: str | None) -> dict:
+    """按角色生成显示名、身份说明与数据范围；基层队按队号挂队伍（不存在则建档）。"""
+    if role == 'team':
+        team = conn.execute('SELECT * FROM team WHERE team_no=?', (scope,)).fetchone()
+        if not team:
+            tid = 'T' + scope
+            conn.execute('INSERT INTO team (team_id, team_no, name) VALUES (?,?,?)', (tid, scope, f'{scope} 钻井队'))
+            team = conn.execute('SELECT * FROM team WHERE team_id=?', (tid,)).fetchone()
+        return {'who': f"{team['name']} · {username}", 'team_id': team['team_id'], 'dept': None, 'scope_label': team['name']}
+    if role == 'dept':
+        if scope not in DEPTS:
+            raise AuthError('请选择归口部室')
+        return {'who': f'{DEPTS[scope]} · {username}', 'team_id': None, 'dept': scope, 'scope_label': f'{DEPTS[scope]}归口科目'}
+    if role == 'finance':
+        return {'who': f'企划财务部 · {username}', 'team_id': None, 'dept': None, 'scope_label': '全部'}
+    if role == 'admin':
+        return {'who': f'信息中心 · {username}', 'team_id': None, 'dept': None, 'scope_label': '无业务数据'}
+    raise AuthError('角色不正确')
+
+
+def create_user(conn, username: str, role: str, scope: str | None, password: str, name: str | None = None,
+                must_change: bool = True) -> dict:
+    username = (username or '').strip()
+    if not re.fullmatch(r'[A-Za-z0-9_.-]{2,32}', username):
+        raise AuthError('登录名为 2–32 位字母、数字、下划线、点或短横线')
+    if conn.execute('SELECT 1 FROM app_user WHERE username=? OR user_id=?', (username, username)).fetchone():
+        raise AuthError(f'登录名 {username} 已存在')
+    if not password:
+        raise AuthError('请设置初始密码')
+    p = _profile(conn, role, username, (scope or '').strip() or None)
+    conn.execute(
+        'INSERT INTO app_user (user_id, name, role, who, team_id, dept, scope_label, username, password_hash, must_change, '
+        'enabled, failed_count, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,1,0,?)',
+        (username, (name or '').strip() or username, role, p['who'], p['team_id'], p['dept'], p['scope_label'], username,
+         hash_password(password), 1 if must_change else 0, now()))
+    return public(dict(conn.execute('SELECT * FROM app_user WHERE user_id=?', (username,)).fetchone()))
+
+
+def ensure_initial_accounts(conn) -> None:
+    """建立初始账号（已存在的不动）。"""
+    for username, role, scope in INITIAL_ACCOUNTS:
+        if not conn.execute('SELECT 1 FROM app_user WHERE username=?', (username,)).fetchone():
+            create_user(conn, username, role, scope, INITIAL_PASSWORD)
+
+
+def login(conn, username: str, password: str) -> tuple[str, dict]:
+    u = conn.execute('SELECT * FROM app_user WHERE username=?', ((username or '').strip(),)).fetchone()
+    if not u or not u['password_hash']:
+        raise AuthError('登录名或密码错误')
+    if not u['enabled']:
+        raise AuthError('账号已停用，请联系系统管理员')
+    if u['locked_until'] and u['locked_until'] > now():
+        raise AuthError(f'密码错误次数过多，账号锁定至 {u["locked_until"][11:16]}')
+    if not verify_password(password or '', u['password_hash']):
+        failed = (u['failed_count'] or 0) + 1
+        locked = (datetime.now() + timedelta(minutes=LOCK_MINUTES)).strftime('%Y-%m-%d %H:%M:%S') if failed >= MAX_FAILED else None
+        conn.execute('UPDATE app_user SET failed_count=?, locked_until=? WHERE user_id=?', (0 if locked else failed, locked, u['user_id']))
+        conn.commit()   # 失败计数必须保存，不随本次请求的异常回滚
+        raise AuthError(f'登录名或密码错误；连续输错 {MAX_FAILED} 次将锁定 {LOCK_MINUTES} 分钟' if not locked
+                        else f'密码错误次数过多，账号锁定 {LOCK_MINUTES} 分钟')
+    token = secrets.token_urlsafe(32)
+    expires = (datetime.now() + timedelta(hours=SESSION_HOURS)).strftime('%Y-%m-%d %H:%M:%S')
+    conn.execute('DELETE FROM app_session WHERE expires_at<?', (now(),))
+    conn.execute('INSERT INTO app_session (token_hash, user_id, created_at, expires_at) VALUES (?,?,?,?)',
+                 (_token_hash(token), u['user_id'], now(), expires))
+    conn.execute('UPDATE app_user SET failed_count=0, locked_until=NULL, last_login=? WHERE user_id=?', (now(), u['user_id']))
+    return token, public(dict(conn.execute('SELECT * FROM app_user WHERE user_id=?', (u['user_id'],)).fetchone()))
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def user_by_token(conn, token: str) -> dict | None:
+    r = conn.execute('SELECT u.* FROM app_session s JOIN app_user u ON u.user_id=s.user_id WHERE s.token_hash=? AND s.expires_at>? '
+                     'AND u.enabled=1', (_token_hash(token), now())).fetchone()
+    return dict(r) if r else None
+
+
+def logout(conn, token: str) -> None:
+    conn.execute('DELETE FROM app_session WHERE token_hash=?', (_token_hash(token),))
+
+
+def change_password(conn, user_id: str, old: str, new: str) -> None:
+    u = conn.execute('SELECT * FROM app_user WHERE user_id=?', (user_id,)).fetchone()
+    if not u or not verify_password(old or '', u['password_hash']):
+        raise AuthError('原密码不正确')
+    if old == new:
+        raise AuthError('新密码不能与原密码相同')
+    check_strength(new or '')
+    conn.execute('UPDATE app_user SET password_hash=?, must_change=0 WHERE user_id=?', (hash_password(new), user_id))
+
+
+def reset_password(conn, user_id: str, password: str) -> None:
+    if not password:
+        raise AuthError('请输入新的初始密码')
+    n = conn.execute('UPDATE app_user SET password_hash=?, must_change=1, failed_count=0, locked_until=NULL WHERE user_id=? '
+                     'AND username IS NOT NULL', (hash_password(password), user_id)).rowcount
+    if not n:
+        raise AuthError('账号不存在')
+    conn.execute('DELETE FROM app_session WHERE user_id=?', (user_id,))
+
+
+def set_enabled(conn, user_id: str, enabled: bool, operator_id: str) -> None:
+    if user_id == operator_id and not enabled:
+        raise AuthError('不能停用自己的账号')
+    if not enabled:
+        admin = conn.execute('SELECT role FROM app_user WHERE user_id=?', (user_id,)).fetchone()
+        others = conn.execute("SELECT COUNT(*) n FROM app_user WHERE role='admin' AND enabled=1 AND username IS NOT NULL AND user_id!=?",
+                              (user_id,)).fetchone()['n']
+        if admin and admin['role'] == 'admin' and not others:
+            raise AuthError('至少保留一个启用的系统管理员')
+    conn.execute('UPDATE app_user SET enabled=? WHERE user_id=?', (1 if enabled else 0, user_id))
+    if not enabled:
+        conn.execute('DELETE FROM app_session WHERE user_id=?', (user_id,))
+
+
+def list_users(conn) -> list[dict]:
+    return [public(dict(r)) for r in conn.execute('SELECT * FROM app_user ORDER BY username IS NULL, role, username')]

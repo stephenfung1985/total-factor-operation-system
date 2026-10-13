@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, type Condition, type RuleDetail, type RuleRow } from '../api';
 import type { PageProps } from '../App';
-import { fmt, Icon, PageHead, Seg, useLoad, useToast } from '../ui';
+import { fmt, Icon, PageHead, Seg, useLoad, useToast, yuan } from '../ui';
 
 const STEPS = ['草稿', '待确认', '回算中', '待发布', '已发布'];
 type Filter = 'todo' | 'published' | 'all';
@@ -100,7 +100,7 @@ export default function Rules({ me }: PageProps) {
                     <span>v{v.version}</span><span>{v.status} · {fmt(v.unit_price, 4)} · {v.valid_from} 起{v.valid_to ? ` 至 ${v.valid_to}` : ''}</span>
                   </button>
                 ))}
-                <div className="kvline"><span>命中</span><span>{d.hits.count} 笔有效事项 · {fmt(d.hits.amount)} 元</span></div>
+                <div className="kvline"><span>命中</span><span>{d.hits.count} 笔有效事项 · {yuan(d.hits.amount)} 元</span></div>
               </div>
             </section>
 
@@ -123,7 +123,7 @@ export default function Rules({ me }: PageProps) {
                       {d.tests.map((t, i) => t.result === '豁免' ? <div key={i} className="msg">无可回算的历史井，走豁免审批</div> : (
                         <div key={i} className="kvline" style={{ gridTemplateColumns: '90px 1fr' }}>
                           <span>{t.well_id} · {t.period}</span>
-                          <span>对照 {fmt(t.expected_amount)} · 回算 {fmt(t.calc_amount)} · 偏差 {((t.deviation_rate || 0) * 100).toFixed(1)}% <span className={'tag ' + (t.result === '通过' ? 'good' : 'bad')}>{t.result}</span></span>
+                          <span>对照 {yuan(t.expected_amount)} · 回算 {yuan(t.calc_amount)} · 偏差 {((t.deviation_rate || 0) * 100).toFixed(1)}% <span className={'tag ' + (t.result === '通过' ? 'good' : 'bad')}>{t.result}</span></span>
                         </div>
                       ))}
                     </div>

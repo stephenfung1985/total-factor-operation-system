@@ -52,16 +52,27 @@ def _auth_error(_req, exc):
     return JSONResponse(status_code=400, content={'detail': str(exc)})
 
 
-def _me(user: dict) -> dict:
-    return {**accounts.public(user), 'role_name': auth.ROLE_NAMES[user['role']], 'nav': auth.NAV[user['role']]}
+def _me(user: dict, conn=None) -> dict:
+    out = {**accounts.public(user), 'role_name': auth.ROLE_NAMES[user['role']], 'nav': auth.NAV[user['role']]}
+    if user.get('debug'):
+        out.update(debug=True, login_username=user['login_username'], must_change=0,
+                   identities=[{**d, 'role_name': auth.ROLE_NAMES[d['role']]} for d in accounts.demo_identities(conn)])
+    return out
+
+
+def _token(authorization: str | None) -> str:
+    if not authorization or not authorization.startswith('Bearer '):
+        raise HTTPException(401, '请先登录')
+    return authorization[7:].strip()
 
 
 @app.post('/api/auth/login')
 def login(body: LoginBody):
     with transaction() as c:
-        token, user = accounts.login(c, body.username, body.password)
-        log(c, '账号', user['user_id'], '登录', user['who'])
-    return {'token': token, 'user': _me(user)}
+        token, _ = accounts.login(c, body.username, body.password)
+        user = accounts.user_by_token(c, token)
+        log(c, '账号', user.get('login_user_id', user['user_id']), '登录', user['who'])
+        return {'token': token, 'user': _me(user, c)}
 
 
 @app.post('/api/auth/logout')
@@ -75,14 +86,31 @@ def logout(authorization: str | None = Header(default=None)):
 @app.post('/api/auth/password')
 def change_password(body: PasswordBody, user=User):
     with transaction() as c:
-        accounts.change_password(c, user['user_id'], body.old_password, body.new_password)
-        log(c, '账号', user['user_id'], '修改密码', user['who'])
+        uid = user.get('login_user_id', user['user_id'])   # 调试账号改的是登录账号自己的密码
+        accounts.change_password(c, uid, body.old_password, body.new_password)
+        log(c, '账号', uid, '修改密码', user['who'])
     return {'ok': True}
+
+
+class SwitchBody(BaseModel):
+    user_id: str
+
+
+@app.post('/api/auth/switch')
+def switch_identity(body: SwitchBody, authorization: str | None = Header(default=None)):
+    """调试账号切换演示身份（经营总览 / 基层钻井队 / 专业部室 / 系统管理员）。"""
+    token = _token(authorization)
+    with transaction() as c:
+        accounts.switch_identity(c, token, body.user_id)
+        user = accounts.user_by_token(c, token)
+        log(c, '账号', user['login_user_id'], '切换调试身份', user['who'])
+        return _me(user, c)
 
 
 @app.get('/api/me')
 def me(user=User):
-    return _me(user)
+    with transaction() as c:
+        return _me(user, c)
 
 
 # ---------- 经营总览与下钻 ----------

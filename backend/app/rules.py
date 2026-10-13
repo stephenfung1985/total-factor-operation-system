@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from fastapi import HTTPException
 
 from . import engine
-from .db import jdump, jload, log, now
+from .db import jdump, jload, log, money, now
 
 STEPS = ['草稿', '待确认', '回算中', '待发布', '已发布']
 EDITABLE = ('草稿', '待确认')
@@ -88,7 +88,7 @@ def detail(conn, user: dict, rule_id: int) -> dict:
         'params': params, 'conditions': conds,
         'fields': [{'label': a, 'value': b, 'level': levels.get(a, '高')} for a, b in fields],
         'clause': clause, 'tests': tests, 'versions': versions, 'logs': logs,
-        'hits': {'count': hits['n'], 'amount': round(hits['a'], 2)},
+        'hits': {'count': hits['n'], 'amount': money(hits['a'])},
         'can_edit': _can_edit(user, r) and r['status'] in EDITABLE,
         'can_confirm': _can_edit(user, r) and r['status'] in EDITABLE,
         'can_publish': _can_edit(user, r) and r['status'] == '待发布',

@@ -4,6 +4,7 @@ import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent
@@ -71,6 +72,8 @@ NEW_COLUMNS = [
     ('app_user', 'locked_until', 'TEXT'),
     ('app_user', 'last_login', 'TEXT'),
     ('app_user', 'created_at', 'TEXT'),
+    ('app_user', 'is_debug', 'INTEGER NOT NULL DEFAULT 0'),
+    ('app_session', 'acting_user_id', 'TEXT'),
 ]
 
 
@@ -84,6 +87,11 @@ def _add_columns(conn) -> None:
 
 def now() -> str:
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+
+def money(x) -> int:
+    """金额一律保留到整数元：四舍五入（0.5 进位，负数对称）。每笔经济事项取整后入库，汇总只是整数相加，口径处处一致。"""
+    return int(Decimal(repr(float(x))).quantize(Decimal(1), rounding=ROUND_HALF_UP))
 
 
 def rows(cur) -> list[dict]:

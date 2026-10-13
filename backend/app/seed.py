@@ -8,7 +8,8 @@ import json
 from pathlib import Path
 
 from . import engine
-from .db import jdump, log
+from .accounts import DEMO_USERS
+from .db import jdump, log, money
 
 DATA = Path(__file__).resolve().parent / 'data' / 'cost_tree.json'
 
@@ -19,12 +20,7 @@ MUD_M = [820, 940, 1010, 860, 781]
 MUD_DAYS = ['08-06', '08-12', '08-18', '08-24', '08-30']
 STD_HOURS = {'钻进': 16, '起下钻': 4, '循环': 2, '接单根': 1.5, '其他': 0.5}
 
-USERS = [
-    ('u_fin', '经营管理员', 'finance', '企划财务部 · 经营管理', None, None, '全部'),
-    ('u_team', '统计员', 'team', '70101 钻井队 · 统计员', 't1', None, '70101 钻井队'),
-    ('u_dept', '经办人', 'dept', '工程技术部 · 经办人', None, '技术', '工程技术部归口科目'),
-    ('u_admin', '管理员', 'admin', '信息中心 · 管理员', None, None, '无业务数据'),
-]
+USERS = DEMO_USERS   # 四个演示身份，调试账号 test 登录后可切换
 TEAMS = [
     ('t1', '70101', '70101 钻井队', 'ZJ50D'), ('t2', '70102', '70102 钻井队', 'ZJ50D'),
     ('t3', '70103', '70103 钻井队', 'ZJ70D'), ('t4', '70104', '70104 钻井队', 'ZJ40'),
@@ -49,7 +45,7 @@ def run(conn) -> None:
     for wid, block, wtype, cat, design, k, segs in WELLS:
         conn.execute(
             "INSERT INTO well VALUES (?, '西北', ?, ?, ?, ?, ?, 0, '[甲方单位]', ?, '正钻')",
-            (wid, block, cat, wtype, len(segs), design, round(rev['contract'] * k, 2)))
+            (wid, block, cat, wtype, len(segs), design, money(rev['contract'] * k)))
     seed_well_info(conn)
 
     _cost_items(conn, tree)
@@ -222,7 +218,7 @@ def _history(conn, tree, rev) -> None:
             conn.execute(
                 "INSERT INTO economic_event (event_date, period, well_id, item_code, direction, cost_behavior, owner_dept, "
                 "origin_type, amount, batch_id, status, source_note) VALUES ('2026-08-31', '2026-08', ?,?,?,?,?, '历史导入', ?,?, '有效', ?)",
-                (wid, code, direction, beh, dept, round(amt, 2), batch, f'全要素经营总表 · 2026-08 · 总表 {col} 列'))
+                (wid, code, direction, beh, dept, money(amt), batch, f'全要素经营总表 · 2026-08 · 总表 {col} 列'))
 
 
 def _report(conn, wid, tid, date, phase, d0, d1, status, lines=None, hours=None, reporter='[填报人]', notes=None):

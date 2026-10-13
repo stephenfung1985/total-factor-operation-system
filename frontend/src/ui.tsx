@@ -6,6 +6,8 @@ export function fmt(x: number | null | undefined, d = 2): string {
   if (x === null || x === undefined || Number.isNaN(x)) return '—';
   return x.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 }
+/** 金额（元）一律保留整数；单价、数量、天数等非金额仍用 fmt。 */
+export const yuan = (x: number | null | undefined) => fmt(x, 0);
 export const wan = (x: number) => fmt(x / 1e4, 2);
 export const pct = (a: number, b: number) => (b > 0 ? ((a / b) * 100).toFixed(1) : '—');
 export const periodLabel = (p: string) => (p ? `${p.slice(0, 4)} 年 ${Number(p.slice(5, 7))} 月` : '');

@@ -87,9 +87,24 @@ def test_reimport_unchanged_then_overwrite(client):
     before = client.get('/api/overview?period=2026-07', headers=FIN).json()['wells'][0]['total_cost']
     _post(client, data2, True)
     after = client.get('/api/overview?period=2026-07', headers=FIN).json()['wells'][0]['total_cost']
-    assert after - before == pytest.approx(200000 - 129386.68, abs=0.05)
+    assert after - before == pytest.approx(200000 - 129386.68, abs=0.5)
     ev = client.get('/api/wells/H002/items/C2-1-04/events?period=2026-07', headers=FIN).json()['events']
     assert sorted(e['status'] for e in ev) == ['冲销', '已冲销', '有效']
+
+
+def test_import_rounds_amounts_to_whole_yuan(client):
+    wb = _sheet_from_export(client, 井号='H003', 月份='07', 队号='70101')
+    ws = wb.active
+    row = next(i for i in range(19, ws.max_row + 1) if ws.cell(i, 1).value == '4.柴油')
+    ws.cell(row, 2).value = 100.5
+    data = _bytes(wb)
+    pre = _post(client, data, False).json()['sheets'][0]
+    assert float(pre['total_cost']).is_integer() and float(pre['revenue']).is_integer()
+    _post(client, data, True)
+    ev = client.get('/api/wells/H003/items/C2-1-04/events?period=2026-07', headers=FIN).json()['events']
+    assert [e['amount'] for e in ev] == [101]
+    ov = client.get('/api/overview?period=2026-07', headers=FIN).json()['wells'][0]
+    assert ov['total_cost'] == pre['total_cost']      # 预览合计与入库后一致
 
 
 def test_import_blocked_for_system_period(client):

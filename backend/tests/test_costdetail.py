@@ -17,7 +17,6 @@ def client(tmp_path, monkeypatch):
 DEPT = {'X-User-Id': 'u_dept'}
 FIN = {'X-User-Id': 'u_fin'}
 TEAM = {'X-User-Id': 'u_team'}
-ADMIN = {'X-User-Id': 'u_admin'}
 DIMS = ['period', 'market', 'block', 'team']
 
 
@@ -35,7 +34,7 @@ def test_dept_scope_and_no_revenue(client):
     assert all('技术' in d.split('/') for d in leaf_depts)               # 部室只含归口科目
 
 
-@pytest.mark.parametrize('h,status', [(TEAM, 403), (ADMIN, 403)])
+@pytest.mark.parametrize('h,status', [(TEAM, 403)])
 def test_other_roles_forbidden(client, h, status):
     assert get(client, h).status_code == status
     assert client.get('/api/cost-detail/export.xlsx', headers=h).status_code == status

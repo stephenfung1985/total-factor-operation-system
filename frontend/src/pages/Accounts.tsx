@@ -4,7 +4,7 @@ import { Modal, useLoad, useToast } from '../ui';
 
 interface Admin { users: AccountRow[]; depts: Record<string, string>; teams: { team_no: string; name: string }[] }
 const COLS = '1fr 1fr 0.9fr 1.4fr 0.8fr 1.1fr 1.6fr';
-const ROLES = [{ id: 'finance', label: '管理层' }, { id: 'team', label: '基层钻井队' }, { id: 'dept', label: '专业部室' }, { id: 'admin', label: '系统管理员' }];
+const ROLES = [{ id: 'finance', label: '管理层' }, { id: 'team', label: '基层钻井队' }, { id: 'dept', label: '专业部室' }];
 
 /** 账号管理：新建、重置密码、停用 / 启用。密码只设置不显示，重置后用户须在首次登录时修改。 */
 export default function Accounts({ meId }: { meId: string }) {
@@ -36,7 +36,7 @@ export default function Accounts({ meId }: { meId: string }) {
           {users.map((u) => (
             <div key={u.user_id} className="grid-row line" style={{ gridTemplateColumns: COLS, opacity: u.enabled ? 1 : 0.6 }}>
               <span className="bold">{u.username}{u.is_debug ? <> <span className="tag warn">调试</span></> : null}</span><span>{u.name}</span>
-              <span>{u.is_debug ? '可切换四个演示身份' : u.role_name}</span><span className="text3">{u.scope_label}</span>
+              <span>{u.is_debug ? '可切换三个演示身份' : u.role_name}</span><span className="text3">{u.scope_label}</span>
               <span>{!u.enabled ? <span className="tag bad">已停用</span> : u.must_change ? <span className="tag warn">待改初始密码</span> : <span className="tag good">正常</span>}</span>
               <span className="muted num small">{u.last_login ? u.last_login.slice(0, 16) : '从未登录'}</span>
               <span className="btn-row" style={{ flexWrap: 'nowrap' }}>

@@ -9,7 +9,7 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS app_user (
   user_id     TEXT PRIMARY KEY,
   name        TEXT NOT NULL,
-  role        TEXT NOT NULL CHECK (role IN ('finance', 'team', 'dept', 'admin')),
+  role        TEXT NOT NULL CHECK (role IN ('finance', 'team', 'dept')),
   who         TEXT NOT NULL,          -- 界面左下角的身份说明
   team_id     TEXT,                   -- 基层队账号：按队伍过滤
   dept        TEXT,                   -- 专业部室账号：按归口部室过滤（市场/技术/物资/装备/安全/人事）

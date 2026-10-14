@@ -97,10 +97,12 @@ def test_dept_sees_only_owned_items_and_no_revenue(client):
     assert client.get('/api/wells/W001/items/C1-05/events?period=2026-08', headers=H('u_dept')).status_code == 404
 
 
-def test_admin_sees_no_business_data(client):
-    assert client.get('/api/overview?period=2026-08', headers=H('u_admin')).status_code == 403
-    assert client.get('/api/admin/permissions', headers=H('u_admin')).status_code == 200
-    assert client.get('/api/admin/permissions', headers=H('u_fin')).status_code == 403
+def test_permissions_page_is_management_only(client):
+    assert client.get('/api/admin/permissions', headers=H('u_fin')).status_code == 200
+    assert client.get('/api/admin/permissions', headers=H('u_team')).status_code == 403
+    assert client.get('/api/admin/permissions', headers=H('u_dept')).status_code == 403
+    nav = client.get('/api/me', headers=H('u_fin')).json()['nav']
+    assert 'perm' in [i['id'] for g in nav for i in g['items']]
 
 
 # ---------- 成本日报 → 审核 → 规则引擎 ----------

@@ -5,6 +5,7 @@
 """
 import hashlib
 import hmac
+import os
 import re
 import secrets
 from datetime import datetime, timedelta
@@ -111,18 +112,38 @@ def create_user(conn, username: str, role: str, scope: str | None, password: str
     return public(dict(conn.execute('SELECT * FROM app_user WHERE user_id=?', (username,)).fetchone()))
 
 
+def is_production() -> bool:
+    """TFOS_PRODUCTION=1 为对外服务模式：不建调试账号、停用已有调试账号、初始密码必须由环境变量给出、禁用演示认证头。"""
+    return os.environ.get('TFOS_PRODUCTION') == '1'
+
+
+def production_check() -> str:
+    """对外服务模式下返回初始密码；配置不合格时抛出 RuntimeError，服务拒绝启动。"""
+    if os.environ.get('TFOS_DEMO_AUTH') == '1':
+        raise RuntimeError('TFOS_PRODUCTION=1 时不得设置 TFOS_DEMO_AUTH（它允许用请求头冒充任何账号）')
+    pwd = os.environ.get('TFOS_INITIAL_PASSWORD', '')
+    if len(pwd) < 8 or not re.search(r'[A-Za-z]', pwd) or not re.search(r'\d', pwd) or pwd == INITIAL_PASSWORD:
+        raise RuntimeError('TFOS_PRODUCTION=1 时必须设置 TFOS_INITIAL_PASSWORD（至少 8 位，含字母和数字，且不能用默认初始密码）')
+    return pwd
+
+
 def ensure_initial_accounts(conn) -> None:
     """建立初始账号、四个演示身份和调试账号（已存在的不动）。"""
+    prod = is_production()
+    initial = production_check() if prod else INITIAL_PASSWORD
     for username, role, scope in INITIAL_ACCOUNTS:
         if not conn.execute('SELECT 1 FROM app_user WHERE username=?', (username,)).fetchone():
-            create_user(conn, username, role, scope, INITIAL_PASSWORD)
+            create_user(conn, username, role, scope, initial)
     for uid, name, role, who, team_id, dept, scope in DEMO_USERS:
         if not conn.execute('SELECT 1 FROM app_user WHERE user_id=?', (uid,)).fetchone():
             if team_id and not conn.execute('SELECT 1 FROM team WHERE team_id=?', (team_id,)).fetchone():
                 team_id = None
             conn.execute('INSERT INTO app_user (user_id, name, role, who, team_id, dept, scope_label) VALUES (?,?,?,?,?,?,?)',
                          (uid, name, role, who, team_id, dept, scope))
-    if not conn.execute('SELECT 1 FROM app_user WHERE username=?', (DEBUG_USERNAME,)).fetchone():
+    if prod:
+        conn.execute('UPDATE app_user SET enabled=0 WHERE is_debug=1')
+        conn.execute('DELETE FROM app_session WHERE user_id IN (SELECT user_id FROM app_user WHERE is_debug=1)')
+    elif not conn.execute('SELECT 1 FROM app_user WHERE username=?', (DEBUG_USERNAME,)).fetchone():
         conn.execute(
             'INSERT INTO app_user (user_id, name, role, who, scope_label, username, password_hash, must_change, enabled, failed_count, '
             "created_at, is_debug) VALUES (?, '调试账号', 'finance', '调试账号', '可切换演示身份', ?, ?, 0, 1, 0, ?, 1)",

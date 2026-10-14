@@ -138,3 +138,31 @@ def test_debug_actions_are_traceable_and_account_can_be_disabled(client):
     assert users['test']['is_debug'] == 1
     client.post('/api/admin/users/test/enable', json={'enabled': False}, headers=adm)
     assert client.get('/api/me', headers=h).status_code == 401
+
+
+def _prod_init(tmp_path, monkeypatch, **env):
+    monkeypatch.setenv('TFOS_DB', str(tmp_path / 'prod.db'))
+    monkeypatch.setenv('TFOS_PRODUCTION', '1')
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    from app.db import init_db
+    init_db()
+
+
+def test_production_refuses_demo_auth_and_weak_password(tmp_path, monkeypatch):
+    with pytest.raises(RuntimeError, match='TFOS_DEMO_AUTH'):
+        _prod_init(tmp_path, monkeypatch, TFOS_INITIAL_PASSWORD='Abcd1234x')   # conftest 已开启 DEMO_AUTH
+    monkeypatch.delenv('TFOS_DEMO_AUTH')
+    for weak in ('', '123456', 'abcdefgh', 'short1'):
+        with pytest.raises(RuntimeError, match='TFOS_INITIAL_PASSWORD'):
+            _prod_init(tmp_path, monkeypatch, TFOS_INITIAL_PASSWORD=weak)
+
+
+def test_production_mode_accounts(tmp_path, monkeypatch):
+    monkeypatch.delenv('TFOS_DEMO_AUTH')
+    _prod_init(tmp_path, monkeypatch, TFOS_INITIAL_PASSWORD='Abcd1234x')
+    from app.main import app
+    c = TestClient(app)
+    assert login(c, 'admin', INIT).status_code == 400          # 默认密码不可用
+    assert login(c, 'admin', 'Abcd1234x').status_code == 200   # 环境变量给定的初始密码
+    assert login(c, 'test', 'test').status_code == 400         # 调试账号不存在或已停用

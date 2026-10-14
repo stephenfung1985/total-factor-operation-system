@@ -96,7 +96,7 @@ export default function WellReg(_: PageProps) {
 
   return (
     <>
-      <PageHead title="基础信息填报" sub="按井登记，随施工进度更新节点与人员；提交后自动汇总到经营总览的单井基础信息"
+      <PageHead title="基础信息" sub="按井登记，随施工进度更新节点与人员；提交后自动汇总到经营总览的单井基础信息"
         right={
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <label className="pill">井号
@@ -214,7 +214,7 @@ export default function WellReg(_: PageProps) {
 
             {/* 四、人员：整数 */}
             <section className="card pad">
-              <div className="sec-head"><h3>四、人员<small>整数</small></h3><span className="small muted">在册人数；人工、伙食、补贴按日报出勤计算</span></div>
+              <div className="sec-head"><h3>四、人员<small>整数</small></h3><span className="small muted">在册人数；人工、伙食、补贴按这里的人员数量核算，不再逐日填出勤</span></div>
               <table className="ftable">
                 <thead><tr><th>用工类型</th><th>人数</th><th>单位</th></tr></thead>
                 <tbody>

@@ -247,7 +247,7 @@ CREATE TABLE IF NOT EXISTS business_fact (
   quantity    REAL NOT NULL,
   unit        TEXT NOT NULL,
   attributes  TEXT NOT NULL DEFAULT '{}',
-  source      TEXT NOT NULL,          -- 基层填报 / 系统接口 / 单据识别
+  source      TEXT NOT NULL,          -- 基层填报 / 系统接口 / 基础信息 / 单据识别
   status      TEXT NOT NULL CHECK (status IN ('已提交', '已审核', '已冲销'))
 );
 

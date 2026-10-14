@@ -43,9 +43,23 @@ if [ "${1:-}" = "frpc" ]; then
   chmod 600 "$AGENTS/com.tfos.frpc.plist"
 fi
 
+# 先卸载并等它真正卸掉再加载：卸载后立刻加载会报 "Bootstrap failed: 5: Input/output error"
+load_service() {
+  local label="com.tfos.$1" plist="$AGENTS/com.tfos.$1.plist" i
+  plutil -lint "$plist" >/dev/null || { echo "$plist 格式不合法" >&2; return 1; }
+  launchctl bootout "gui/$UID_/$label" 2>/dev/null || true
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    launchctl print "gui/$UID_/$label" >/dev/null 2>&1 || break
+    sleep 1
+  done
+  for i in 1 2 3 4 5; do
+    launchctl bootstrap "gui/$UID_" "$plist" 2>/dev/null && return 0
+    sleep 2
+  done
+  launchctl bootstrap "gui/$UID_" "$plist"   # 最后一次不吞错误，让原因显示出来
+}
 for svc in server backup ${1:+frpc}; do
-  launchctl bootout "gui/$UID_/com.tfos.$svc" 2>/dev/null || true
-  launchctl bootstrap "gui/$UID_" "$AGENTS/com.tfos.$svc.plist"
+  load_service "$svc" || { echo "服务 com.tfos.$svc 加载失败。请确认是在 Mac mini 本机的终端里运行（不是 SSH），并查看上面的错误。" >&2; exit 1; }
 done
 sleep 3
 curl -fsS -o /dev/null "http://127.0.0.1:${TFOS_PORT:-8000}/" && echo "服务已启动：http://127.0.0.1:${TFOS_PORT:-8000}/" \

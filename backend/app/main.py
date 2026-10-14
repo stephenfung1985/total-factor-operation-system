@@ -128,7 +128,7 @@ class SwitchBody(BaseModel):
 
 @app.post('/api/auth/switch')
 def switch_identity(body: SwitchBody, authorization: str | None = Header(default=None)):
-    """调试账号切换演示身份（管理层 / 基层钻井队 / 专业部室 / 系统管理员）。"""
+    """调试账号切换演示身份（管理层 / 基层钻井队 / 专业部室）。"""
     token = _token(authorization)
     with transaction() as c:
         accounts.switch_identity(c, token, body.user_id)
@@ -147,7 +147,6 @@ def me(user=User):
 
 @app.get('/api/periods')
 def periods(user=User):
-    auth.business(user)
     with transaction() as c:
         return analysis.periods(c)
 
@@ -290,7 +289,6 @@ def _team_ctx(c, user, well_id):
 @app.get('/api/reports/catalog')
 def report_catalog(user=User):
     """报量项目字典：分段、工况、报量项目，以及不由基层填报的成本项目及原因。"""
-    auth.business(user)
     with transaction() as c:
         return reports.catalog(c)
 
@@ -346,7 +344,6 @@ def _own_report(c, user, rid) -> dict:
         raise HTTPException(404, '日报不存在')
     if user['role'] == 'team' and r['team_id'] != user['team_id']:
         raise HTTPException(404, '日报不存在')
-    auth.business(user)
     return dict(r)
 
 
@@ -537,7 +534,6 @@ def _info_error(_req, exc):
 
 @app.get('/api/wellinfo/options')
 def info_options(user=User):
-    auth.business(user)
     with transaction() as c:
         rigs = sorted(set(wellinfo.RIGS) | {r['rig_type'] for r in c.execute('SELECT rig_type FROM team WHERE rig_type IS NOT NULL')})
         team = dict(c.execute('SELECT team_no, name, captain, rig_type FROM team WHERE team_id=?', (user['team_id'],)).fetchone())             if user['team_id'] else None
@@ -653,7 +649,6 @@ async def info_import(commit: bool = False, file: UploadFile = File(...), user=U
 
 @app.get('/api/master/{kind}')
 def master(kind: str, user=User):
-    auth.business(user)
     q = {
         'items': 'SELECT item_code, item_name, parent_code, level, is_leaf, direction, cost_behavior, calc_type, owner_dept, '
                  'report_col, finance_account FROM cost_item ORDER BY sort_no',
@@ -689,7 +684,7 @@ class EnableBody(BaseModel):
 
 @app.get('/api/admin/users')
 def admin_users(user=User):
-    auth.require(user, 'admin')
+    auth.require(user, 'finance')
     with transaction() as c:
         return {'users': [{**u, 'role_name': auth.ROLE_NAMES[u['role']]} for u in accounts.list_users(c)],
                 'depts': accounts.DEPTS, 'teams': rows(c.execute('SELECT team_no, name FROM team ORDER BY team_no'))}
@@ -697,7 +692,7 @@ def admin_users(user=User):
 
 @app.post('/api/admin/users')
 def admin_create_user(body: NewUser, user=User):
-    auth.require(user, 'admin')
+    auth.require(user, 'finance')
     with transaction() as c:
         u = accounts.create_user(c, body.username, body.role, body.scope, body.password, body.name)
         log(c, '账号', u['user_id'], '新建', user['who'], f"{auth.ROLE_NAMES[u['role']]} · {u['scope_label']}")
@@ -706,7 +701,7 @@ def admin_create_user(body: NewUser, user=User):
 
 @app.post('/api/admin/users/{user_id}/reset')
 def admin_reset(user_id: str, body: ResetBody, user=User):
-    auth.require(user, 'admin')
+    auth.require(user, 'finance')
     with transaction() as c:
         accounts.reset_password(c, user_id, body.password)
         log(c, '账号', user_id, '重置密码', user['who'])
@@ -715,7 +710,7 @@ def admin_reset(user_id: str, body: ResetBody, user=User):
 
 @app.post('/api/admin/users/{user_id}/enable')
 def admin_enable(user_id: str, body: EnableBody, user=User):
-    auth.require(user, 'admin')
+    auth.require(user, 'finance')
     with transaction() as c:
         accounts.set_enabled(c, user_id, body.enabled, user['user_id'])
         log(c, '账号', user_id, '启用' if body.enabled else '停用', user['who'])
@@ -724,11 +719,11 @@ def admin_enable(user_id: str, body: EnableBody, user=User):
 
 @app.get('/api/admin/permissions')
 def permissions(user=User):
-    auth.require(user, 'admin')
+    auth.require(user, 'finance')
     with transaction() as c:
         users = rows(c.execute('SELECT user_id, name, role, who, scope_label FROM app_user WHERE username IS NOT NULL AND enabled=1'))
     return {'roles': [{'id': k, 'name': v} for k, v in auth.ROLE_NAMES.items()],
-            'matrix': [{'name': n, 'cells': {'team': p[0], 'dept': p[1], 'finance': p[2], 'admin': p[3]}} for n, p in auth.PERMS],
+            'matrix': [{'name': n, 'cells': {'team': p[0], 'dept': p[1], 'finance': p[2]}} for n, p in auth.PERMS],
             'users': users}
 
 

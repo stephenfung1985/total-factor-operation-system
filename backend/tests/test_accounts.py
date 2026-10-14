@@ -23,7 +23,7 @@ def bearer(token):
 
 
 @pytest.mark.parametrize('username,role,scope', [
-    ('admin', 'admin', '无业务数据'), ('fengxuecheng', 'finance', '全部'), ('jinliuchao', 'finance', '全部'),
+    ('fengxuecheng', 'finance', '全部'), ('jinliuchao', 'finance', '全部'),
     ('70152', 'team', '70152 钻井队'), ('gcjsb', 'dept', '工程技术部归口科目')])
 def test_initial_accounts(client, username, role, scope):
     r = login(client, username).json()
@@ -72,12 +72,14 @@ def test_change_password_and_logout(client):
     assert client.get('/api/me', headers=bearer(tok2)).status_code == 401
 
 
-def test_admin_manages_accounts(client):
-    adm = bearer(login(client, 'admin').json()['token'])
+def test_management_manages_accounts(client):
+    adm = bearer(login(client, 'jinliuchao').json()['token'])
     fin = bearer(login(client, 'fengxuecheng').json()['token'])
-    assert client.get('/api/admin/users', headers=fin).status_code == 403
+    team = bearer(login(client, '70152').json()['token'])
+    assert client.get('/api/admin/users', headers=team).status_code == 403
+    assert client.get('/api/admin/users', headers=fin).status_code == 200
     users = {u['username']: u for u in client.get('/api/admin/users', headers=adm).json()['users']}
-    assert {'admin', 'fengxuecheng', 'jinliuchao', '70152', 'gcjsb'} <= set(users)
+    assert {'fengxuecheng', 'jinliuchao', '70152', 'gcjsb'} <= set(users) and 'admin' not in users
     assert all('password_hash' not in u for u in users.values())
     u = client.post('/api/admin/users', json={'username': 'aqhbb', 'role': 'dept', 'scope': '安全', 'password': 'Init8888'},
                     headers=adm).json()
@@ -91,8 +93,10 @@ def test_admin_manages_accounts(client):
     client.post('/api/admin/users/fengxuecheng/enable', json={'enabled': True}, headers=adm)
     client.post('/api/admin/users/fengxuecheng/reset', json={'password': 'Temp0001'}, headers=adm)
     assert login(client, 'fengxuecheng', 'Temp0001').json()['user']['must_change'] == 1
-    # 不能停用自己
-    assert client.post('/api/admin/users/admin/enable', json={'enabled': False}, headers=adm).status_code == 400
+    # 不能停用自己；至少保留一个启用的管理层账号
+    assert client.post('/api/admin/users/jinliuchao/enable', json={'enabled': False}, headers=adm).status_code == 400
+    assert client.post('/api/admin/users/fengxuecheng/enable', json={'enabled': False}, headers=adm).status_code == 200
+    assert client.post('/api/admin/users/jinliuchao/enable', json={'enabled': False}, headers=adm).status_code == 400
 
 
 def test_passwords_are_hashed(client):
@@ -110,15 +114,14 @@ def test_debug_account_switches_demo_identities(client):
     h = bearer(r['token'])
     me = r['user']
     assert me['debug'] and me['user_id'] == 'u_fin' and me['must_change'] == 0 and me['login_username'] == 'test'
-    assert [i['user_id'] for i in me['identities']] == ['u_fin', 'u_team', 'u_dept', 'u_admin']
+    assert [i['user_id'] for i in me['identities']] == ['u_fin', 'u_team', 'u_dept']
     assert '[调试 test]' in me['who']
     # 切到基层钻井队：数据范围是 70101 队
     me = client.post('/api/auth/switch', json={'user_id': 'u_team'}, headers=h).json()
     assert me['role'] == 'team' and me['team_id'] == 't1'
     assert [w['well_id'] for w in client.get('/api/reports/wells', headers=h).json()] == ['W001']
-    me = client.post('/api/auth/switch', json={'user_id': 'u_admin'}, headers=h).json()
-    assert me['role'] == 'admin' and client.get('/api/overview?period=2026-08', headers=h).status_code == 403
-    assert client.post('/api/auth/switch', json={'user_id': 'admin'}, headers=h).status_code == 400   # 只能切演示身份
+    assert client.post('/api/auth/switch', json={'user_id': 'u_admin'}, headers=h).status_code == 400   # 只能切演示身份
+    assert client.post('/api/auth/switch', json={'user_id': 'jinliuchao'}, headers=h).status_code == 400
     # 普通账号不能切换
     fin = bearer(login(client, 'fengxuecheng').json()['token'])
     assert client.post('/api/auth/switch', json={'user_id': 'u_admin'}, headers=fin).status_code == 400
@@ -133,7 +136,7 @@ def test_debug_actions_are_traceable_and_account_can_be_disabled(client):
     # 调试账号改密码改的是 test 自己
     assert client.post('/api/auth/password', json={'old_password': 'test', 'new_password': 'debug1234'}, headers=h).status_code == 200
     assert login(client, 'test', 'debug1234').status_code == 200
-    adm = bearer(login(client, 'admin').json()['token'])
+    adm = bearer(login(client, 'jinliuchao').json()['token'])
     users = {u['username']: u for u in client.get('/api/admin/users', headers=adm).json()['users']}
     assert users['test']['is_debug'] == 1
     client.post('/api/admin/users/test/enable', json={'enabled': False}, headers=adm)
@@ -163,8 +166,8 @@ def test_production_mode_accounts(tmp_path, monkeypatch):
     _prod_init(tmp_path, monkeypatch, TFOS_INITIAL_PASSWORD='Abcd1234x')
     from app.main import app
     c = TestClient(app)
-    assert login(c, 'admin', INIT).status_code == 400          # 默认密码不可用
-    assert login(c, 'admin', 'Abcd1234x').status_code == 200   # 环境变量给定的初始密码
+    assert login(c, 'jinliuchao', INIT).status_code == 400          # 默认密码不可用
+    assert login(c, 'jinliuchao', 'Abcd1234x').status_code == 200   # 环境变量给定的初始密码
     assert login(c, 'test', 'test').status_code == 400         # 调试账号不存在或已停用
 
 

@@ -95,7 +95,7 @@ export async function download(url: string, fallbackName: string) {
 export interface NavItem { id: string; label: string }
 export interface NavGroup { label: string; items: NavItem[] }
 export interface Me {
-  user_id: string; username: string; name: string; role: 'finance' | 'team' | 'dept' | 'admin'; who: string;
+  user_id: string; username: string; name: string; role: 'finance' | 'team' | 'dept'; who: string;
   team_id: string | null; dept: string | null; scope_label: string; role_name: string; nav: NavGroup[]; must_change: number;
   debug?: boolean; login_username?: string; identities?: { user_id: string; role: string; role_name: string; who: string }[];
 }

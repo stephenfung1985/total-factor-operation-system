@@ -43,7 +43,7 @@ export default function WellInfo(_: PageProps) {
 
   return (
     <>
-      <PageHead title="单井基础信息" sub="由基层钻井队填报，提交后自动汇总；一井一行，列与《单井基础信息表》一致"
+      <PageHead title="基础信息" sub="由基层钻井队填报，提交后自动汇总；一井一行，列与《单井基础信息表》一致"
         right={
           <div className="head-actions">
             <button type="button" className="btn sm link" onClick={() => fileRef.current?.click()}>导入 Excel</button>

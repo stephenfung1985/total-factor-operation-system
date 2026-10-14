@@ -87,7 +87,7 @@ export default function BenchmarkPage({ setRoute }: PageProps) {
 
   return (
     <>
-      <PageHead title="经营对标" sub="选定要对比的市场、区块或队伍，按维度分组逐一对标；基准可选全部井、所选范围或指定标杆" />
+      <PageHead title="对标分析" sub="选定要对比的市场、区块或队伍，按维度分组逐一对标；基准可选全部井、所选范围或指定标杆" />
       <div className="filters" role="group" aria-label="对标条件">
         <label className="pill">{Icon.calendar()}
           <select aria-label="期间" value={period} onChange={(e) => setPeriod(e.target.value)}>

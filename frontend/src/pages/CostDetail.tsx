@@ -58,7 +58,7 @@ export default function CostDetail({ me }: PageProps) {
 
   return (
     <>
-      <PageHead title="费用明细导出" sub={`每项成本科目按时间、市场、区块、队伍汇总，便于单项成本对比分析 · 数据范围：${opts?.scope ?? me.scope_label}`}
+      <PageHead title="费用导出" sub={`每项成本科目按时间、市场、区块、队伍汇总，便于单项成本对比分析 · 数据范围：${opts?.scope ?? me.scope_label}`}
         right={<button type="button" className="btn primary" disabled={busy || bad} onClick={doExport}>{Icon.download()}{busy ? '导出中…' : '导出 Excel'}</button>} />
       {(optErr || error) && <div className="notice">{optErr || error}</div>}
 

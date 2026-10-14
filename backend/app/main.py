@@ -3,6 +3,7 @@
 启动：uvicorn app.main:app --reload（在 backend 目录下）
 前端构建产物 frontend/dist 存在时，同一端口直接提供页面。
 """
+import os
 from pathlib import Path
 from urllib.parse import quote
 
@@ -14,9 +15,38 @@ from pydantic import BaseModel
 from . import accounts, analysis, auth, engine, excel, reports, results_import, rules, wellinfo
 from .db import init_db, log, rows, transaction
 
-app = FastAPI(title='全要素经营管理系统 v3.0', version='3.0.0')
+def docs_kwargs() -> dict:
+    """对外服务模式关闭 /docs、/redoc、/openapi.json，不向公网暴露接口清单。"""
+    return {'docs_url': None, 'redoc_url': None, 'openapi_url': None} if accounts.is_production() else {}
+
+
+app = FastAPI(title='全要素经营管理系统 v3.0', version='3.0.0', **docs_kwargs())
 User = Depends(auth.current_user)
 XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+
+MAX_UPLOAD = int(float(os.environ.get('TFOS_MAX_UPLOAD_MB', '10')) * 1024 * 1024)   # 上传文件（Excel 导入）大小上限
+
+
+@app.middleware('http')
+async def _limit_body(request, call_next):
+    """请求体声明超限时在解析前直接拒绝，避免超大文件占满内存和磁盘。留 1MB 给表单边界等开销。"""
+    from fastapi.responses import JSONResponse
+    try:
+        size = int(request.headers.get('content-length') or 0)
+    except ValueError:
+        size = 0
+    if size > MAX_UPLOAD + 1024 * 1024:
+        return JSONResponse(status_code=413, content={'detail': f'文件过大，上限 {MAX_UPLOAD // 1024 // 1024} MB'})
+    return await call_next(request)
+
+
+async def _read_upload(file: UploadFile) -> bytes:
+    """读取上传文件；没有 Content-Length（分块上传）时也按上限截断拒绝。"""
+    data = await file.read(MAX_UPLOAD + 1)
+    if len(data) > MAX_UPLOAD:
+        raise HTTPException(413, f'文件过大，上限 {MAX_UPLOAD // 1024 // 1024} MB')
+    return data
 
 
 @app.on_event('startup')
@@ -173,7 +203,7 @@ def results_template(user=User):
 async def results_import_(commit: bool = False, file: UploadFile = File(...), user=User):
     """单井经营结果按模板导入：commit=false 只预览；导入的井在经营总览备注“历史数据导入”。"""
     auth.require(user, 'finance')
-    data = await file.read()
+    data = await _read_upload(file)
     with transaction() as c:
         return results_import.run(c, data, file.filename or '导入文件.xlsx', user, commit)
 
@@ -357,7 +387,7 @@ def report_template(well_id: str, start: str, end: str, user=User):
 @app.post('/api/reports/import')
 async def report_import(file: UploadFile = File(...), user=User):
     auth.require(user, 'team')
-    data = await file.read()
+    data = await _read_upload(file)
     with transaction() as c:
         results = excel.import_reports(c, data, user)
         for r in results:
@@ -575,7 +605,7 @@ def info_returns(user=User):
 async def info_import(commit: bool = False, file: UploadFile = File(...), user=User):
     """按《单井基础信息表》格式导入。commit=false 只预览；commit=true 写入。"""
     auth.require(user, 'finance')
-    data = await file.read()
+    data = await _read_upload(file)
     rows = excel.parse_well_info(data)
     with transaction() as c:
         return wellinfo.import_rows(c, rows, user, commit)

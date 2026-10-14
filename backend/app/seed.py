@@ -36,6 +36,22 @@ DEPT_FULL = {'市场': '市场部', '技术': '工程技术部', '物资': '物�
              '人事': '人力资源部', '财务': '企划财务部'}
 
 
+def run_empty(conn) -> None:
+    """对外服务模式的空库：只写成本项目树、物资和计量单位，不含示例井、队伍、规则、历史金额和日报。"""
+    td = json.loads(DATA.read_text(encoding='utf-8'))
+    _cost_items(conn, td['tree'])
+    conn.executemany('INSERT INTO material VALUES (?,?,?,?)', MATERIALS)
+    conn.executemany('INSERT INTO unit_of_measure VALUES (?,?)', UNITS)
+
+
+MATERIALS = [
+    ('[物资编码]-01', '柴油', '吨', 'C2-1-04'), ('[物资编码]-02', '网电', '千瓦时', 'C2-1-05-01'),
+    ('[物资编码]-03', '泥浆材料', '吨', 'C2-1-02-01'), ('[物资编码]-04', '钻头', '只', 'C2-1-01-01')]
+UNITS = [
+    ('米', '进尺'), ('天', '日费、服务日'), ('队天', '定额日费、分摊基数'), ('工日', '人员出勤'),
+    ('吨', '柴油、泥浆材料'), ('千瓦时', '网电'), ('只', '钻头'), ('元', '比例计提基数')]
+
+
 def run(conn) -> None:
     td = json.loads(DATA.read_text(encoding='utf-8'))
     tree, rev = td['tree'], td['rev']
@@ -49,12 +65,8 @@ def run(conn) -> None:
     seed_well_info(conn)
 
     _cost_items(conn, tree)
-    conn.executemany('INSERT INTO material VALUES (?,?,?,?)', [
-        ('[物资编码]-01', '柴油', '吨', 'C2-1-04'), ('[物资编码]-02', '网电', '千瓦时', 'C2-1-05-01'),
-        ('[物资编码]-03', '泥浆材料', '吨', 'C2-1-02-01'), ('[物资编码]-04', '钻头', '只', 'C2-1-01-01')])
-    conn.executemany('INSERT INTO unit_of_measure VALUES (?,?)', [
-        ('米', '进尺'), ('天', '日费、服务日'), ('队天', '定额日费、分摊基数'), ('工日', '人员出勤'),
-        ('吨', '柴油、泥浆材料'), ('千瓦时', '网电'), ('只', '钻头'), ('元', '比例计提基数')])
+    conn.executemany('INSERT INTO material VALUES (?,?,?,?)', MATERIALS)
+    conn.executemany('INSERT INTO unit_of_measure VALUES (?,?)', UNITS)
 
     _rules(conn)
     _history(conn, tree, rev)

@@ -150,7 +150,7 @@ export interface ReportCatalog {
 export interface Report {
   report_id: number | null; well_id: string; team_id: string; report_date: string; version: number; status: string; phase: string;
   depth_start: number; depth_end: number; hours: Record<string, number>; lines: Record<string, number>; notes: Record<string, string>;
-  reporter: string | null; carried?: boolean;
+  reporter: string | null; carried?: boolean; staff?: Record<string, number>;
   review_comment?: string | null; supersedes_report_id?: number | null;
   header: { well_id: string; date: string; team: string; block: string; well_type: string; phase: string; in_period: boolean };
   line_defs: LineDef[]; checks: Check[];

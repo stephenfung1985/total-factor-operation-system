@@ -1,8 +1,9 @@
 """成本日报：一井一队一天一张，只报量、不含金额。
 
-表体按事实类型分段（见 report_lines.SECTIONS）：进尺与工况 → 人员出勤 → 能耗与材料 → 设备在用 → 外包技术服务 → 运输与环保。
+表体按事实类型分段（见 report_lines.SECTIONS）：进尺与工况 → 能耗与材料 → 设备在用 → 外包技术服务 → 运输与环保。
 每段只列需要基层采集、参与成本计算的报量项目；默认显示常用项目、本井规则计价的项目和近 30 天报过的项目，
 其余可按需添加。没有已发布规则的量也可以报，由归口部室据此补规则。
+人员出勤不再逐日填报：人工费、伙食费、补贴按基础信息中的人员数量核算（见 staff_on）。
 """
 from datetime import date as Date, timedelta
 
@@ -16,7 +17,7 @@ USAGE_WARN = 1.3            # 用量高于同开次历史均值的倍数
 LATE_DAYS = 7               # 补报时限（天）
 RECENT_DAYS = 30            # 近期报过的项目默认显示
 AUTO_TYPES = ('进尺', '日历天')   # 由井深、施工期自动生成的事实
-CARRY_SECTIONS = ('staff', 'equip')   # 新日报沿用上一张已审核日报的人员出勤与在用设备
+CARRY_SECTIONS = ('equip',)   # 新日报沿用上一张已审核日报的在用设备
 SERVICE_CONDITION = {'C2-3-11': '固井', 'C2-3-14': '测井', 'C2-3-08': '下套管', 'C2-3-04': '钻进'}
 
 
@@ -32,6 +33,16 @@ def segment(conn, well_id: str, date: str, team_id: str | None = None):
         q += ' AND p.team_id=?'
         args.append(team_id)
     return conn.execute(q + ' ORDER BY p.start_at DESC LIMIT 1', args).fetchone()
+
+
+def staff_on(conn, well_id: str, date: str) -> dict:
+    """当天的在册人数（合同化 / 市场化 / 第三方）：取当天结束前最后提交的基础信息；还没有则取最新一版。"""
+    r = conn.execute("SELECT staff FROM well_info_report WHERE well_id=? AND status IN ('已提交', '已被更新') AND submitted_at<=? "
+                     'ORDER BY submitted_at DESC, report_id DESC LIMIT 1', (well_id, date + ' 23:59:59')).fetchone()
+    if not r:
+        r = conn.execute("SELECT staff FROM well_info_report WHERE well_id=? AND status='已提交' "
+                         'ORDER BY submitted_at DESC LIMIT 1', (well_id,)).fetchone()
+    return {k: v for k, v in jload(r['staff']).items() if v and v > 0} if r else {}
 
 
 def line_defs(conn, well_id: str, date: str, team_id: str | None) -> list[dict]:
@@ -101,7 +112,6 @@ def validate(conn, rep: dict, defs: list[dict] | None = None) -> list[dict]:
     by = {d['key']: d for d in defs}
     lines = report_lines.canon_map(rep.get('lines'))
     notes = report_lines.canon_map(rep.get('notes') or rep.get('line_notes'))
-    staff = 0.0
     for k, v in lines.items():
         try:
             v = float(v or 0)
@@ -117,8 +127,6 @@ def validate(conn, rep: dict, defs: list[dict] | None = None) -> list[dict]:
             msgs.append(('阻断', '数量', f'{d["label"]} 数量不能为负'))
         if v <= 0:
             continue
-        if d['section'] == 'staff' and d['fact_type'] == '人员出勤':
-            staff += v
         if d['needs_doc'] and not str(notes.get(k) or '').strip():
             msgs.append(('阻断', '签证单', f'{d["label"]} 未填签证单号（单据号）'))
         cond = SERVICE_CONDITION.get(k)
@@ -135,8 +143,8 @@ def validate(conn, rep: dict, defs: list[dict] | None = None) -> list[dict]:
     for h, k in ((c, k) for k, c in SERVICE_CONDITION.items() if c != '钻进'):
         if float(hours.get(h) or 0) > 0 and not float(lines.get(k) or 0):
             msgs.append(('警告', '服务与工况', f'有“{h}”工况，但没有报{by[k]["label"] if k in by else h}服务'))
-    if total > 0 and staff <= 0:
-        msgs.append(('警告', '人员出勤', '当天人员出勤为 0，请核对'))
+    if total > 0 and not sum(staff_on(conn, rep['well_id'], rep['report_date']).values()):
+        msgs.append(('警告', '人员数量', '基础信息中没有填写人员数量，人工费、伙食费无法核算，请先在“基础信息”填写人员'))
     if footage > FOOTAGE_WARN:
         msgs.append(('警告', '进尺范围', f'单日进尺 {footage:g} 米，超出合理范围（{FOOTAGE_WARN} 米）'))
     try:
@@ -163,6 +171,7 @@ def get_report(conn, report_id: int) -> dict:
     rep = _load(conn, report_id)
     rep['header'] = header(conn, rep['well_id'], rep['report_date'], rep['team_id'])
     rep['line_defs'] = line_defs(conn, rep['well_id'], rep['report_date'], rep['team_id'])
+    rep['staff'] = staff_on(conn, rep['well_id'], rep['report_date'])
     rep['checks'] = validate(conn, rep, rep['line_defs'])
     rep['history'] = [dict(x) for x in conn.execute(
         "SELECT action, operator, operated_at, comment FROM approval_log WHERE object_type='日报' AND object_id=? ORDER BY id",
@@ -171,7 +180,7 @@ def get_report(conn, report_id: int) -> dict:
 
 
 def find_or_new(conn, well_id: str, date: str, team_id: str) -> dict:
-    """取当天当前有效的日报；没有则新建：井深接上一张，人员出勤与在用设备沿用上一张已审核日报。"""
+    """取当天当前有效的日报；没有则新建：井深接上一张，在用设备沿用上一张已审核日报。"""
     r = conn.execute(
         "SELECT report_id FROM daily_report WHERE well_id=? AND team_id=? AND report_date=? AND status!='已被更正' "
         'ORDER BY version DESC LIMIT 1', (well_id, team_id, date)).fetchone()
@@ -191,6 +200,7 @@ def find_or_new(conn, well_id: str, date: str, team_id: str) -> dict:
         'hours': {n: 0 for n in WORK_CONDITIONS}, 'lines': lines, 'notes': notes, 'reporter': None,
         'header': h, 'line_defs': defs, 'history': [], 'carried': bool(lines),
     }
+    rep['staff'] = staff_on(conn, well_id, date)
     rep['checks'] = validate(conn, rep, defs)
     return rep
 
@@ -257,6 +267,13 @@ def facts_from_report(conn, report_id: int, status: str) -> None:
         v = float(rep['hours'].get(h) or 0)
         if v > 0:
             conn.execute(ins, base + ('工况时间', v, '小时', jdump({'work_condition': h}), '基层填报', status))
+    staff = staff_on(conn, rep['well_id'], rep['report_date'])
+    for code, label, kinds in report_lines.STAFF_LINES:   # 人员出勤：按基础信息中的在册人数，每天一条
+        n = sum(staff.get(t, 0) for t in kinds)
+        if n > 0:
+            conn.execute(ins, base + ('人员出勤', n, report_lines.STAFF_UNIT,
+                                      jdump({'line': code, 'item_code': code, 'label': label, 'employment_type': label,
+                                             'headcount': {t: staff.get(t, 0) for t in kinds}}), '基础信息', status))
     catalog = {ln['line_key']: ln for ln in report_lines.lines(conn)}
     for k, v in rep['lines'].items():
         v = float(v or 0)
@@ -264,8 +281,6 @@ def facts_from_report(conn, report_id: int, status: str) -> None:
         if v <= 0 or not ln:
             continue
         attrs = {'line': k, 'item_code': ln['item_code'], 'label': ln['label']}
-        if ln['section'] == 'staff':
-            attrs['employment_type'] = ln['label']
         if rep['notes'].get(k):
             attrs['doc_no' if ln['needs_doc'] else 'equipment_no'] = rep['notes'][k]
         conn.execute(ins, base + (ln['fact_type'], v, ln['unit'], jdump(attrs), '基层填报', status))

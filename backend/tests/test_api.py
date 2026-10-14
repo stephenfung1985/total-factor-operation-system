@@ -110,7 +110,7 @@ def test_permissions_page_is_management_only(client):
 def _report(depth_start, depth_end, hours=None, date='2026-10-10'):
     return {'well_id': 'W001', 'report_date': date, 'depth_start': depth_start, 'depth_end': depth_end,
             'hours': hours or {'钻进': 16, '起下钻': 4, '循环': 2, '接单根': 1.5, '其他': 0.5},
-            'lines': {'C1-01-01': 30, 'C1-01-02': 16, 'C2-1-04': 4.4, 'C2-1-05-01': 20000}}
+            'lines': {'C2-1-04': 4.4, 'C2-1-05-01': 20000}}
 
 
 def test_blocking_checks_prevent_submit(client):
@@ -213,11 +213,12 @@ def test_report_template_roundtrip(client):
 
 def test_report_catalog_covers_cost_tree(client):
     cat = client.get('/api/reports/catalog', headers=H('u_team')).json()
-    assert [x['id'] for x in cat['sections']] == ['drill', 'staff', 'energy', 'equip', 'service', 'logistics']
+    assert [x['id'] for x in cat['sections']] == ['drill', 'energy', 'equip', 'service', 'logistics']
     collected = {x['item_code'] for x in cat['lines']}
     not_collected = {i['item_code'] for g in cat['not_collected'] for i in g['items']}
-    assert len(collected) == 59 and len(not_collected) == 60 and not collected & not_collected
+    assert len(collected) == 55 and len(not_collected) == 64 and not collected & not_collected
     reasons = {g['reason']: [i['item_code'] for i in g['items']] for g in cat['not_collected']}
+    assert {'C1-01-01', 'C1-01-02', 'C2-3-18'} <= set(reasons['按基础信息中的人员数量自动核算'])   # 人工、伙食
     assert 'C1-05' in reasons['系统按施工期每天自动生成队天，不用填']      # 制造费
     assert 'C2-3-26' in reasons['物资系统出库单接口带入']                # 套管
 
@@ -226,13 +227,12 @@ def test_new_report_layers_and_carry_over(client):
     rep = client.get('/api/reports/current?well_id=W001&date=2026-10-10', headers=H('u_team')).json()
     shown = {x['key'] for x in rep['line_defs'] if x['show']}
     # 常用 + 本井规则计价 + 近期报过的默认显示；没有规则、没报过的不显示
-    assert {'C1-01-01', 'C1-01-02', 'C2-1-04', 'C2-1-05-01', 'C2-3-17-01', 'C2-2-02-01'} <= shown
+    assert {'C2-1-04', 'C2-1-05-01', 'C2-3-17-01', 'C2-2-02-01'} <= shown and 'C1-01-01' not in shown
     assert 'C2-3-23-03' not in shown
-    # 人员出勤与在用设备沿用上一张已审核日报，能耗不沿用
-    assert rep['lines'] == {'C1-01-01': 30, 'C1-01-02': 16, 'C2-2-02-01': 1} and rep['notes'] == {'C2-2-02-01': 'DQ-031'}
-    # 伙食费按全部人员出勤计价
-    staff = next(x for x in rep['line_defs'] if x['key'] == 'C1-01-02')
-    assert staff['rules'] == ['RL-C1-01-02', 'RL-C2-3-18']
+    # 在用设备沿用上一张已审核日报，能耗不沿用
+    assert rep['lines'] == {'C2-2-02-01': 1} and rep['notes'] == {'C2-2-02-01': 'DQ-031'}
+    # 人员数量取自基础信息（W001：合同化 18 + 市场化 12 + 第三方 16）
+    assert rep['staff'] == {'合同化': 18, '市场化': 12, '第三方': 16}
 
 
 def test_report_checks_service_and_unpriced(client):
@@ -248,15 +248,15 @@ def test_report_checks_service_and_unpriced(client):
 
 
 def test_legacy_line_keys_still_price(client):
-    """旧版日报的行名（人员出勤、柴油……）按现行编码计价。"""
+    """旧版日报的行名按现行编码计价；旧的“人员出勤”行不再收，人工费按基础信息人员数量核算。"""
     before = kpi(client, 'W001', '2026-10')['total_cost']
     body = _report(4824, 4874)
     body['lines'] = {'人员出勤': 10}
     rid = client.post('/api/reports', json=body, headers=H('u_team')).json()['report_id']
-    assert client.get(f'/api/reports/{rid}', headers=H('u_team')).json()['lines'] == {'C1-01-01': 10}
+    assert client.get(f'/api/reports/{rid}', headers=H('u_team')).json()['lines'] == {}   # 旧的人员出勤行被忽略
     client.post(f'/api/reports/{rid}/submit', headers=H('u_team'))
     client.post(f'/api/reports/{rid}/approve', json={}, headers=H('u_dept'))
     after = kpi(client, 'W001', '2026-10')['total_cost']
     mud_price = round(1832104.12 / 4411, 4)
     image_price = round(7147828.84 / 4411, 4)
-    assert after - before == pytest.approx(50 * mud_price + 13666.6667 + 10 * 400 + 10 * 55 + 50 * image_price * 0.031, abs=5)
+    assert after - before == pytest.approx(50 * mud_price + 13666.6667 + (30 * 400 + 16 * 320) + 46 * 55 + 50 * image_price * 0.031, abs=5)

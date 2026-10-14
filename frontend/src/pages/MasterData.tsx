@@ -4,7 +4,7 @@ import type { PageProps } from '../App';
 import { PageHead, Seg, useLoad } from '../ui';
 
 type Tab = 'items' | 'report_lines' | 'teams' | 'materials' | 'units';
-const SEC: Record<string, string> = { staff: '人员出勤', energy: '能耗与材料', equip: '设备与工具在用', service: '外包技术服务', logistics: '运输与环保' };
+const SEC: Record<string, string> = { energy: '能耗与材料', equip: '设备与工具在用', service: '外包技术服务', logistics: '运输与环保' };
 type Row = Record<string, string | number | null>;
 const ITEM_COLS = '1.1fr 2fr 0.6fr 0.6fr 1.1fr 0.8fr 0.6fr 0.9fr';
 

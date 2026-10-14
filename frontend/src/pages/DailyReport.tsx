@@ -130,7 +130,6 @@ export default function DailyReport(_: PageProps) {
     setAdded((s) => { const n = new Set(s); n.delete(k); return n; });
   };
   const sectionCount = (id: string) => defs.filter((d) => d.section === id && Number(draft?.lines[d.key] || 0) > 0).length;
-  const staffTotal = defs.filter((d) => d.section === 'staff' && d.fact_type === '人员出勤').reduce((a, d) => a + (Number(draft?.lines[d.key]) || 0), 0);
   const jump = (id: string) => document.getElementById('sec-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   return (
@@ -152,7 +151,7 @@ export default function DailyReport(_: PageProps) {
         <>
           <nav className="sec-nav" aria-label="日报分段">
             {sections.map((s, i) => {
-              const n = s.id === 'drill' ? (Math.abs(total - 24) < 1e-6 ? '✓' : `${total}h`) : s.id === 'staff' ? `${staffTotal} 人` : sectionCount(s.id) ? `${sectionCount(s.id)} 项` : '';
+              const n = s.id === 'drill' ? (Math.abs(total - 24) < 1e-6 ? '✓' : `${total}h`) : sectionCount(s.id) ? `${sectionCount(s.id)} 项` : '';
               return (
                 <button key={s.id} type="button" onClick={() => jump(s.id)}>
                   <span className="no">{CN[i]}</span>{s.title}{n && <span className="cnt">{n}</span>}
@@ -173,8 +172,14 @@ export default function DailyReport(_: PageProps) {
                     <div key={k} className="kv"><span className="k">{k}</span><span className="v">{v}</span></div>
                   ))}
                 </div>
+                <div className="notice info">
+                  人工费、伙食费、补贴按“基础信息”中的人员数量核算，不用逐日填出勤：{(() => {
+                    const e = Object.entries(rep.staff || {});
+                    return e.length ? e.map(([k, v]) => `${k} ${v} 人`).join('、') : '基础信息中尚未填写人员数量';
+                  })()}。
+                </div>
                 {rep.status === '驳回' && rep.review_comment && <div className="notice">审核驳回：{rep.review_comment}</div>}
-                {rep.status === '新建' && rep.carried && <div className="notice info">人员出勤和在用设备已沿用上一张日报，请按当天实际修改。</div>}
+                {rep.status === '新建' && rep.carried && <div className="notice info">在用设备已沿用上一张日报，请按当天实际修改。</div>}
               </section>
 
               {sections.map((s, i) => s.id === 'drill' ? (
@@ -205,7 +210,7 @@ export default function DailyReport(_: PageProps) {
               ) : (
                 <LineSection key={s.id} no={CN[i]} s={s} defs={defs.filter((d) => d.section === s.id)} visible={visible} editable={editable}
                   draft={draft} setLine={setLine} setNote={setNote} remove={removeLine}
-                  add={(k) => setAdded((x) => new Set(x).add(k))} staffTotal={s.id === 'staff' ? staffTotal : null} />
+                  add={(k) => setAdded((x) => new Set(x).add(k))} />
               ))}
             </div>
 
@@ -288,10 +293,9 @@ function SecHead({ no, s }: { no: string; s: ReportSection }) {
   );
 }
 
-function LineSection({ no, s, defs, visible, editable, draft, setLine, setNote, remove, add, staffTotal }: {
+function LineSection({ no, s, defs, visible, editable, draft, setLine, setNote, remove, add }: {
   no: string; s: ReportSection; defs: LineDef[]; visible: (d: LineDef) => boolean; editable: boolean; draft: Draft;
   setLine: (k: string, v: string) => void; setNote: (k: string, v: string) => void; remove: (k: string) => void; add: (k: string) => void;
-  staffTotal: number | null;
 }) {
   const rows = defs.filter(visible);
   const hidden = defs.filter((d) => !visible(d));
@@ -329,9 +333,6 @@ function LineSection({ no, s, defs, visible, editable, draft, setLine, setNote, 
               </Fragment>
             ))}
           </tbody>
-          {staffTotal !== null && (
-            <tfoot><tr><td>出勤合计</td><td className="num" style={{ paddingLeft: 22 }}>{staffTotal}</td><td className="muted">工日</td><td colSpan={editable ? 2 : 1} className="small muted">伙食费、地区补贴按出勤合计计算</td></tr></tfoot>
-          )}
         </table>
       )}
       {editable && hidden.length > 0 && (

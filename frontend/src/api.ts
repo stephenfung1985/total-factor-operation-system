@@ -108,7 +108,7 @@ export interface AccountRow {
 export interface Kpi {
   revenue: number; contract: number; fixed: number; variable: number; total_cost: number; gross_margin: number; net_profit: number;
 }
-export interface OverviewWell extends Kpi { well_id: string; block: string; well_type: string; team: string; phase: string; remark: string }
+export interface OverviewWell extends Kpi { well_id: string; block: string; well_type: string; team: string; phase: string; status: string; remark: string }
 export interface Overview { period: string; wells: OverviewWell[]; sum: Omit<Kpi, 'contract'>; show_revenue: boolean; scope: string }
 
 export interface TreeNode {

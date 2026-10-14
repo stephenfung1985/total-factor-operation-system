@@ -93,7 +93,7 @@ def overview(conn, user: dict, period: str) -> dict:
         info = well_info(conn, wid, period)
         k = compute(conn, user, wid, period)['kpi']
         rows.append({'well_id': wid, 'block': info['block'], 'well_type': info['well_type'], 'team': info['team'],
-                     'phase': info['phase'], 'remark': remark(conn, wid, period), **k})
+                     'phase': info['phase'], 'status': info['status'], 'remark': remark(conn, wid, period), **k})
     keys = ('revenue', 'fixed', 'variable', 'total_cost', 'gross_margin', 'net_profit')
     sums = {k: sum(r[k] for r in rows) for k in keys}
     return {'period': period, 'wells': rows, 'sum': sums, 'show_revenue': user['role'] != 'dept', 'scope': user['scope_label']}

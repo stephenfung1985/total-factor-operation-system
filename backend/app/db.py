@@ -37,7 +37,10 @@ def transaction():
 
 
 def init_db(reset: bool = False) -> None:
-    """建库并写入示例数据。reset=True 时删除旧库重建。"""
+    """建库并写入示例数据。reset=True 时删除旧库重建。对外服务模式先自检配置，不合格不碰数据库文件。"""
+    from . import accounts
+    if accounts.is_production():
+        accounts.production_check()
     path = db_path()
     if reset and path.exists():
         path.unlink()
@@ -49,11 +52,13 @@ def init_db(reset: bool = False) -> None:
         _add_columns(conn)
         from . import report_lines
         report_lines.seed(conn)
-        if fresh:
+        if accounts.is_production():
+            if fresh:
+                seed.run_empty(conn)   # 对外服务模式不写示例数据
+        elif fresh:
             seed.run(conn)
         elif not conn.execute('SELECT 1 FROM well_info_report LIMIT 1').fetchone():
             seed.seed_well_info(conn)
-        from . import accounts
         accounts.ensure_initial_accounts(conn)
 
 

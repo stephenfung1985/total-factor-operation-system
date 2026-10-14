@@ -3,6 +3,7 @@
 启动：uvicorn app.main:app --reload（在 backend 目录下）
 前端构建产物 frontend/dist 存在时，同一端口直接提供页面。
 """
+import os
 from pathlib import Path
 from urllib.parse import quote
 
@@ -11,12 +12,41 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import accounts, analysis, auth, engine, excel, reports, results_import, rules, wellinfo
+from . import accounts, analysis, auth, costdetail, engine, excel, reports, results_import, rules, wellinfo
 from .db import init_db, log, rows, transaction
 
-app = FastAPI(title='全要素经营管理系统 v3.0', version='3.0.0')
+def docs_kwargs() -> dict:
+    """对外服务模式关闭 /docs、/redoc、/openapi.json，不向公网暴露接口清单。"""
+    return {'docs_url': None, 'redoc_url': None, 'openapi_url': None} if accounts.is_production() else {}
+
+
+app = FastAPI(title='全要素经营管理系统 v3.0', version='3.0.0', **docs_kwargs())
 User = Depends(auth.current_user)
 XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+
+MAX_UPLOAD = int(float(os.environ.get('TFOS_MAX_UPLOAD_MB', '10')) * 1024 * 1024)   # 上传文件（Excel 导入）大小上限
+
+
+@app.middleware('http')
+async def _limit_body(request, call_next):
+    """请求体声明超限时在解析前直接拒绝，避免超大文件占满内存和磁盘。留 1MB 给表单边界等开销。"""
+    from fastapi.responses import JSONResponse
+    try:
+        size = int(request.headers.get('content-length') or 0)
+    except ValueError:
+        size = 0
+    if size > MAX_UPLOAD + 1024 * 1024:
+        return JSONResponse(status_code=413, content={'detail': f'文件过大，上限 {MAX_UPLOAD // 1024 // 1024} MB'})
+    return await call_next(request)
+
+
+async def _read_upload(file: UploadFile) -> bytes:
+    """读取上传文件；没有 Content-Length（分块上传）时也按上限截断拒绝。"""
+    data = await file.read(MAX_UPLOAD + 1)
+    if len(data) > MAX_UPLOAD:
+        raise HTTPException(413, f'文件过大，上限 {MAX_UPLOAD // 1024 // 1024} MB')
+    return data
 
 
 @app.on_event('startup')
@@ -157,6 +187,44 @@ def benchmark(period: str = 'all', dims: str = 'market', market: list[str] = Que
                                   {'market': market, 'block': block, 'team': team})
 
 
+# ---------- 费用明细（部室单项成本对比） ----------
+
+def _codes(items: str) -> list[str]:
+    return [c.strip() for c in items.split(',') if c.strip()]
+
+
+@app.get('/api/cost-detail/options')
+def cost_detail_options(user=User):
+    auth.require(user, 'finance', 'dept')
+    with transaction() as c:
+        return costdetail.options(c, user)
+
+
+@app.get('/api/cost-detail')
+def cost_detail(by: str = 'period', items: str = '', start: str = '', end: str = '', user=User):
+    """by：period / market / block / team；items：科目编码（逗号分隔，含下级），留空为全部可见科目；start / end：YYYY-MM。"""
+    auth.require(user, 'finance', 'dept')
+    with transaction() as c:
+        return costdetail.matrix(c, user, by, _codes(items), start, end)
+
+
+@app.get('/api/cost-detail/export.xlsx')
+def cost_detail_export(by: str = 'period,market,block,team', items: str = '', start: str = '', end: str = '',
+                       detail: bool = True, user=User):
+    """导出：by 可多选，每个维度一个工作表；detail=true 另附“事项明细”工作表便于透视分析。"""
+    auth.require(user, 'finance', 'dept')
+    bys = [b.strip() for b in by.split(',') if b.strip()]
+    bad = [b for b in bys if b not in costdetail.DIMS]
+    if bad:
+        raise HTTPException(400, '维度应为 period / market / block / team 之一')
+    with transaction() as c:
+        start, end = costdetail._check_range(start, end)
+        data = costdetail.workbook(c, user, _codes(items), start, end, bys, detail)
+        log(c, '导出', 'cost-detail', '费用明细导出', user['who'],
+            f"维度 {','.join(bys) or '全部'}；科目 {items or '全部'}；期间 {start or '起'} ~ {end or '今'}")
+    return _xlsx(data, f"费用明细_{user['scope_label']}_{start or '全部'}_{end or '全部'}.xlsx")
+
+
 @app.exception_handler(results_import.ImportError_)
 def _import_error(_req, exc):
     from fastapi.responses import JSONResponse
@@ -173,7 +241,7 @@ def results_template(user=User):
 async def results_import_(commit: bool = False, file: UploadFile = File(...), user=User):
     """单井经营结果按模板导入：commit=false 只预览；导入的井在经营总览备注“历史数据导入”。"""
     auth.require(user, 'finance')
-    data = await file.read()
+    data = await _read_upload(file)
     with transaction() as c:
         return results_import.run(c, data, file.filename or '导入文件.xlsx', user, commit)
 
@@ -357,7 +425,7 @@ def report_template(well_id: str, start: str, end: str, user=User):
 @app.post('/api/reports/import')
 async def report_import(file: UploadFile = File(...), user=User):
     auth.require(user, 'team')
-    data = await file.read()
+    data = await _read_upload(file)
     with transaction() as c:
         results = excel.import_reports(c, data, user)
         for r in results:
@@ -575,7 +643,7 @@ def info_returns(user=User):
 async def info_import(commit: bool = False, file: UploadFile = File(...), user=User):
     """按《单井基础信息表》格式导入。commit=false 只预览；commit=true 写入。"""
     auth.require(user, 'finance')
-    data = await file.read()
+    data = await _read_upload(file)
     rows = excel.parse_well_info(data)
     with transaction() as c:
         return wellinfo.import_rows(c, rows, user, commit)

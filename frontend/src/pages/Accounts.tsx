@@ -4,7 +4,7 @@ import { Modal, useLoad, useToast } from '../ui';
 
 interface Admin { users: AccountRow[]; depts: Record<string, string>; teams: { team_no: string; name: string }[] }
 const COLS = '1fr 1fr 0.9fr 1.4fr 0.8fr 1.1fr 1.6fr';
-const ROLES = [{ id: 'finance', label: '经营总览' }, { id: 'team', label: '基层钻井队' }, { id: 'dept', label: '专业部室' }, { id: 'admin', label: '系统管理员' }];
+const ROLES = [{ id: 'finance', label: '管理层' }, { id: 'team', label: '基层钻井队' }, { id: 'dept', label: '专业部室' }, { id: 'admin', label: '系统管理员' }];
 
 /** 账号管理：新建、重置密码、停用 / 启用。密码只设置不显示，重置后用户须在首次登录时修改。 */
 export default function Accounts({ meId }: { meId: string }) {

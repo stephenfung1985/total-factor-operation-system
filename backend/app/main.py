@@ -128,7 +128,7 @@ class SwitchBody(BaseModel):
 
 @app.post('/api/auth/switch')
 def switch_identity(body: SwitchBody, authorization: str | None = Header(default=None)):
-    """调试账号切换演示身份（经营总览 / 基层钻井队 / 专业部室 / 系统管理员）。"""
+    """调试账号切换演示身份（管理层 / 基层钻井队 / 专业部室 / 系统管理员）。"""
     token = _token(authorization)
     with transaction() as c:
         accounts.switch_identity(c, token, body.user_id)

@@ -16,9 +16,9 @@ from .db import connect
 
 NAV = {
     'finance': [
-        {'label': '经营', 'items': [{'id': 'overview', 'label': '经营总览'}, {'id': 'benchmark', 'label': '经营对标'},
-                                  {'id': 'costdetail', 'label': '费用明细导出'},
-                                  {'id': 'wellinfo', 'label': '单井基础信息'}, {'id': 'masterdata', 'label': '主数据维护'}]},
+        {'label': '经营', 'items': [{'id': 'overview', 'label': '经营总览'}, {'id': 'benchmark', 'label': '对标分析'},
+                                  {'id': 'costdetail', 'label': '费用导出'},
+                                  {'id': 'wellinfo', 'label': '基础信息'}, {'id': 'masterdata', 'label': '主数据维护'}]},
         {'label': '规则', 'items': [{'id': 'rules', 'label': '规则库'}, {'id': 'batches', 'label': '历史记录'}]},
     ],
     'team': [
@@ -27,12 +27,12 @@ NAV = {
     ],
     'dept': [
         {'label': '规则', 'items': [{'id': 'rules', 'label': '规则确认'}, {'id': 'review', 'label': '日报审核'}]},
-        {'label': '经营', 'items': [{'id': 'overview', 'label': '归口科目分析'}, {'id': 'costdetail', 'label': '费用明细导出'}]},
+        {'label': '经营', 'items': [{'id': 'overview', 'label': '归口科目分析'}, {'id': 'costdetail', 'label': '费用导出'}]},
     ],
     'admin': [{'label': '系统', 'items': [{'id': 'perm', 'label': '角色与权限'}]}],
 }
 
-ROLE_NAMES = {'finance': '经营总览', 'team': '基层钻井队', 'dept': '专业部室', 'admin': '系统管理员'}
+ROLE_NAMES = {'finance': '管理层', 'team': '基层钻井队', 'dept': '专业部室', 'admin': '系统管理员'}
 
 # 功能 → 各角色权限（team, dept, finance, admin）
 PERMS = [
@@ -45,8 +45,8 @@ PERMS = [
     ('费用科目树与主数据', ['查看', '查看', '编辑', '']),
     ('计算批次与手工重算', ['', '', '编辑', '']),
     ('经营报表与下钻', ['查看', '查看', '查看', '']),
-    ('经营对标', ['', '', '查看', '']),
-    ('费用明细导出（按时间、市场、区块、队伍）', ['', '导出', '导出', '']),
+    ('对标分析', ['', '', '查看', '']),
+    ('费用导出（按时间、市场、区块、队伍）', ['', '导出', '导出', '']),
     ('单井经营结果模板导入', ['', '', '编辑', '']),
     ('角色与权限', ['', '', '', '编辑']),
 ]

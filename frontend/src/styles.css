@@ -305,3 +305,21 @@ select.input { appearance: auto; }
 .user-chip { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; padding-right: 4px; }
 .avatar { width: 30px; height: 30px; border-radius: 15px; background: var(--accent); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; }
 .theme-btn { margin-left: 0; }
+
+/* 费用明细 */
+.picker { max-height: 280px; overflow: auto; border: 1px solid var(--sep); border-radius: 12px; padding: 4px 0; }
+.picker label { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 12px; font-size: 13px; cursor: pointer; }
+.picker label:hover { background: var(--fill); }
+.picker label.group { font-weight: 600; }
+.matrix { border-collapse: separate; border-spacing: 0; font-size: 13px; min-width: 100%; }
+.matrix th, .matrix td { padding: 8px 12px; border-bottom: 1px solid var(--sep2); white-space: nowrap; }
+.matrix thead th { position: sticky; top: 0; background: var(--card); color: var(--text2); font-weight: 500; text-align: right; border-bottom: 1px solid var(--sep); z-index: 2; }
+.matrix th.name, .matrix td.name { position: sticky; left: 0; background: var(--card); text-align: left; z-index: 1; min-width: 240px; }
+.matrix thead th.name { z-index: 3; }
+.matrix tr.grp td { font-weight: 600; background: var(--fill); }
+.matrix tr.grp td.name { background: var(--fill); }
+.matrix tr.wells td { color: var(--text2); font-size: 12px; }
+.matrix tr.total td { font-weight: 700; border-top: 1px solid var(--sep); }
+.matrix td.zero { color: var(--mute); }
+.chk-row { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 14px; }
+.chk-row label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }

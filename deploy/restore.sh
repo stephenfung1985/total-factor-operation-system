@@ -5,6 +5,7 @@ set -euo pipefail
 DATA_DIR="${TFOS_DATA_DIR:-$HOME/tfos-data}"
 set -a; . "$DATA_DIR/env"; set +a
 launchctl bootout "gui/$(id -u)/com.tfos.server" 2>/dev/null || true
+sleep 3   # 等服务真正卸掉
 [ -f "$TFOS_DB" ] && mv "$TFOS_DB" "$TFOS_DB.before-restore.$(date +%s)"
 rm -f "$TFOS_DB-wal" "$TFOS_DB-shm"
 cp "$1" "$TFOS_DB"

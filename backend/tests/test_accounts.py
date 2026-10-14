@@ -166,3 +166,43 @@ def test_production_mode_accounts(tmp_path, monkeypatch):
     assert login(c, 'admin', INIT).status_code == 400          # 默认密码不可用
     assert login(c, 'admin', 'Abcd1234x').status_code == 200   # 环境变量给定的初始密码
     assert login(c, 'test', 'test').status_code == 400         # 调试账号不存在或已停用
+
+
+def test_production_bad_config_leaves_no_db_file(tmp_path, monkeypatch):
+    monkeypatch.delenv('TFOS_DEMO_AUTH')
+    with pytest.raises(RuntimeError):
+        _prod_init(tmp_path, monkeypatch, TFOS_INITIAL_PASSWORD='123456')
+    assert not (tmp_path / 'prod.db').exists()   # 否则下次启动会被当成已有库而不再写入成本项目树
+
+
+def test_production_empty_db_and_hardening(tmp_path, monkeypatch):
+    monkeypatch.delenv('TFOS_DEMO_AUTH')
+    _prod_init(tmp_path, monkeypatch, TFOS_INITIAL_PASSWORD='Abcd1234x')
+    from app import main
+    from app.db import connect
+    with connect() as c:
+        n = lambda t: c.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0]
+        assert n('cost_item') > 50 and n('unit_of_measure') > 0     # 基础字典保留
+        assert (n('well'), n('economic_rule'), n('daily_report'), n('economic_event')) == (0, 0, 0, 0)
+        assert [r[0] for r in c.execute('SELECT team_id FROM team')] == ['T70152']   # 仅初始账号 70152 自动建档的队伍
+    assert main.docs_kwargs() == {'docs_url': None, 'redoc_url': None, 'openapi_url': None}
+    r = TestClient(main.app)
+    tk = login(r, 'fengxuecheng', 'Abcd1234x').json()['token']
+    assert r.get('/api/periods', headers=bearer(tk)).status_code == 200   # 空库不报错
+
+
+def test_docs_kwargs_empty_outside_production(monkeypatch):
+    monkeypatch.delenv('TFOS_PRODUCTION', raising=False)
+    from app import main
+    assert main.docs_kwargs() == {}
+
+
+def test_upload_size_limit(client, monkeypatch):
+    from app import main
+    monkeypatch.setattr(main, 'MAX_UPLOAD', 1024)
+    tk = login(client, 'fengxuecheng').json()['token']
+    big = b'x' * (1024 * 1024 + 2048)
+    r = client.post('/api/wellinfo/import', files={'file': ('a.xlsx', big)}, headers=bearer(tk))
+    assert r.status_code == 413
+    r = client.post('/api/wellinfo/import', files={'file': ('a.xlsx', b'x' * 1500)}, headers=bearer(tk))
+    assert r.status_code == 413      # 小于 Content-Length 门槛但超过读取上限

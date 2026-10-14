@@ -267,3 +267,13 @@ export interface ResultSheet {
   revenue: number; total_cost: number; net_profit: number; action: '导入' | '覆盖' | '无变化' | '阻断'; blocks: string[]; warns: string[];
 }
 export interface ResultImport { count: Record<string, number>; committed: boolean; sheets: ResultSheet[] }
+
+// ---------- 费用明细 ----------
+
+export interface CostItemNode { code: string; name: string; level: number; is_leaf: boolean; parent: string | null; dept: string; behavior: string }
+export interface CostOptions { items: CostItemNode[]; periods: string[]; market: string[]; block: string[]; team: string[]; scope: string }
+export interface CostMatrix {
+  by: string; label: string; start: string | null; end: string | null; scope: string; grand_total: number; event_count: number;
+  columns: { key: string; label: string; wells: number; total: number }[];
+  rows: (CostItemNode & { values: Record<string, number>; total: number })[];
+}

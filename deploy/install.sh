@@ -43,20 +43,26 @@ if [ "${1:-}" = "frpc" ]; then
   chmod 600 "$AGENTS/com.tfos.frpc.plist"
 fi
 
-# 先卸载并等它真正卸掉再加载：卸载后立刻加载会报 "Bootstrap failed: 5: Input/output error"
+# 加载 launchd 服务。卸载后立刻加载、或服务已在运行时再加载，都可能报 "Bootstrap failed: 5: Input/output error"：
+# 先卸载并等它真正卸掉，再加载并重试；仍失败但服务已经在运行，就重启它让新代码生效。
+loaded() { launchctl print "gui/$UID_/$1" >/dev/null 2>&1; }
 load_service() {
-  local label="com.tfos.$1" plist="$AGENTS/com.tfos.$1.plist" i
+  local label="com.tfos.$1" plist="$AGENTS/com.tfos.$1.plist" i out=""
   plutil -lint "$plist" >/dev/null || { echo "$plist 格式不合法" >&2; return 1; }
-  launchctl bootout "gui/$UID_/$label" 2>/dev/null || true
-  for i in 1 2 3 4 5 6 7 8 9 10; do
-    launchctl print "gui/$UID_/$label" >/dev/null 2>&1 || break
-    sleep 1
-  done
+  if loaded "$label"; then
+    launchctl bootout "gui/$UID_/$label" 2>&1 | sed 's/^/  卸载旧服务时提示：/' >&2 || true
+  fi
+  for i in 1 2 3 4 5 6 7 8 9 10; do loaded "$label" || break; sleep 1; done
   for i in 1 2 3 4 5; do
-    launchctl bootstrap "gui/$UID_" "$plist" 2>/dev/null && return 0
+    out=$(launchctl bootstrap "gui/$UID_" "$plist" 2>&1) && return 0
     sleep 2
   done
-  launchctl bootstrap "gui/$UID_" "$plist"   # 最后一次不吞错误，让原因显示出来
+  if loaded "$label"; then   # 已经在运行：重启即可
+    launchctl kickstart -k "gui/$UID_/$label" && { echo "  $label 已在运行，已重启" >&2; return 0; }
+  fi
+  if launchctl load -w "$plist" 2>/dev/null && loaded "$label"; then return 0; fi   # 旧式加载作最后手段
+  echo "  launchctl 报错：$out" >&2
+  return 1
 }
 for svc in server backup ${1:+frpc}; do
   load_service "$svc" || { echo "服务 com.tfos.$svc 加载失败。请确认是在 Mac mini 本机的终端里运行（不是 SSH），并查看上面的错误。" >&2; exit 1; }

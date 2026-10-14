@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import accounts, analysis, auth, engine, excel, reports, results_import, rules, wellinfo
+from . import accounts, analysis, auth, costdetail, engine, excel, reports, results_import, rules, wellinfo
 from .db import init_db, log, rows, transaction
 
 def docs_kwargs() -> dict:
@@ -185,6 +185,44 @@ def benchmark(period: str = 'all', dims: str = 'market', market: list[str] = Que
     with transaction() as c:
         return analysis.benchmark(c, period, [d.strip() for d in dims.split(',') if d.strip()],
                                   {'market': market, 'block': block, 'team': team})
+
+
+# ---------- 费用明细（部室单项成本对比） ----------
+
+def _codes(items: str) -> list[str]:
+    return [c.strip() for c in items.split(',') if c.strip()]
+
+
+@app.get('/api/cost-detail/options')
+def cost_detail_options(user=User):
+    auth.require(user, 'finance', 'dept')
+    with transaction() as c:
+        return costdetail.options(c, user)
+
+
+@app.get('/api/cost-detail')
+def cost_detail(by: str = 'period', items: str = '', start: str = '', end: str = '', user=User):
+    """by：period / market / block / team；items：科目编码（逗号分隔，含下级），留空为全部可见科目；start / end：YYYY-MM。"""
+    auth.require(user, 'finance', 'dept')
+    with transaction() as c:
+        return costdetail.matrix(c, user, by, _codes(items), start, end)
+
+
+@app.get('/api/cost-detail/export.xlsx')
+def cost_detail_export(by: str = 'period,market,block,team', items: str = '', start: str = '', end: str = '',
+                       detail: bool = True, user=User):
+    """导出：by 可多选，每个维度一个工作表；detail=true 另附“事项明细”工作表便于透视分析。"""
+    auth.require(user, 'finance', 'dept')
+    bys = [b.strip() for b in by.split(',') if b.strip()]
+    bad = [b for b in bys if b not in costdetail.DIMS]
+    if bad:
+        raise HTTPException(400, '维度应为 period / market / block / team 之一')
+    with transaction() as c:
+        start, end = costdetail._check_range(start, end)
+        data = costdetail.workbook(c, user, _codes(items), start, end, bys, detail)
+        log(c, '导出', 'cost-detail', '费用明细导出', user['who'],
+            f"维度 {','.join(bys) or '全部'}；科目 {items or '全部'}；期间 {start or '起'} ~ {end or '今'}")
+    return _xlsx(data, f"费用明细_{user['scope_label']}_{start or '全部'}_{end or '全部'}.xlsx")
 
 
 @app.exception_handler(results_import.ImportError_)

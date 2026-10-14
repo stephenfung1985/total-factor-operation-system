@@ -16,7 +16,8 @@ from .db import connect
 
 NAV = {
     'finance': [
-        {'label': '经营', 'items': [{'id': 'overview', 'label': '经营总览'}, {'id': 'benchmark', 'label': '经营对标'}]},
+        {'label': '经营', 'items': [{'id': 'overview', 'label': '经营总览'}, {'id': 'benchmark', 'label': '经营对标'},
+                                  {'id': 'costdetail', 'label': '费用明细导出'}]},
         {'label': '主数据', 'items': [{'id': 'wellinfo', 'label': '单井基础信息'}, {'id': 'masterdata', 'label': '主数据维护'}]},
         {'label': '规则', 'items': [{'id': 'rules', 'label': '规则库'}, {'id': 'batches', 'label': '计算批次'}]},
     ],
@@ -26,7 +27,7 @@ NAV = {
     ],
     'dept': [
         {'label': '规则', 'items': [{'id': 'rules', 'label': '规则确认'}, {'id': 'review', 'label': '日报审核'}]},
-        {'label': '经营', 'items': [{'id': 'overview', 'label': '归口科目分析'}]},
+        {'label': '经营', 'items': [{'id': 'overview', 'label': '归口科目分析'}, {'id': 'costdetail', 'label': '费用明细导出'}]},
     ],
     'admin': [{'label': '系统', 'items': [{'id': 'perm', 'label': '角色与权限'}]}],
 }
@@ -45,6 +46,7 @@ PERMS = [
     ('计算批次与手工重算', ['', '', '编辑', '']),
     ('经营报表与下钻', ['查看', '查看', '查看', '']),
     ('经营对标', ['', '', '查看', '']),
+    ('费用明细导出（按时间、市场、区块、队伍）', ['', '导出', '导出', '']),
     ('单井经营结果模板导入', ['', '', '编辑', '']),
     ('角色与权限', ['', '', '', '编辑']),
 ]

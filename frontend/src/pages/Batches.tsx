@@ -35,7 +35,7 @@ export default function Batches(_: PageProps) {
   };
   return (
     <>
-      <PageHead title="计算批次" sub="事实审核通过、规则发布、手工重算都会生成批次；金额不变的事项保留，变化的先冲销再重算"
+      <PageHead title="历史记录" sub="事实审核通过、规则发布、手工重算都会生成批次；金额不变的事项保留，变化的先冲销再重算"
         right={<button type="button" className="btn primary" disabled={busy} onClick={recalc}>{busy ? '重算中…' : '手工重算'}</button>} />
       <section className="card list">
         <div className="scroll-x">

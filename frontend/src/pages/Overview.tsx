@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, download, type ExportRow, type ItemEvents, type Overview as OV, type ResultImport, type Trace, type TreeNode, type WellResult } from '../api';
+import { api, download, type ExportRow, type ItemEvents, type Overview as OV, type OverviewWell, type ResultImport, type Trace, type TreeNode, type WellResult } from '../api';
 import type { PageProps } from '../App';
 import { Drawer, fmt, Icon, Kpis, Modal, PageHead, pct, periodLabel, useLoad, useToast, wan, yuan, type Crumb } from '../ui';
 
@@ -87,47 +87,10 @@ function Level0({ period, title, picker, dept, open, canImport, onImported }: {
       {error && <div className="notice">{error}</div>}
       {data && (
         <>
-          <Kpis items={kpiSet(data.sum, dept, false)} />
-          <section className="card list">
-            <div className="card-head">
-              <h2>单井经营结果</h2>
-              <div className="hint">点击任一口井，下钻到收入与成本科目</div>
-            </div>
-            <div className="scroll-x">
-              <div style={{ minWidth: dept ? 820 : 1000 }}>
-                <div className="grid-row grid-head" style={{ gridTemplateColumns: dept ? DEPT_COLS : WELL_COLS }}>
-                  <span>井号</span><span>区块</span><span>井型</span><span>队伍</span><span>开次</span>
-                  {dept ? (
-                    <><span className="r">归口成本（万元）</span><span className="r">固定（万元）</span><span className="r">变动（万元）</span></>
-                  ) : (
-                    <><span className="r">形象收入（万元）</span><span className="r">总成本（万元）</span><span className="r">毛益额（万元）</span>
-                      <span className="r">毛益率</span><span className="r">净利润（万元）</span><span className="r">利润率</span></>
-                  )}
-                  <span>备注</span><span />
-                </div>
-                {data.wells.length === 0 && <div className="empty">本期间没有经营数据</div>}
-                {data.wells.map((w) => {
-                  const gm = w.revenue - w.variable;
-                  const net = w.revenue - w.total_cost;
-                  return (
-                    <button key={w.well_id} type="button" className="grid-row line" aria-label={'下钻到 ' + w.well_id}
-                      style={{ gridTemplateColumns: dept ? DEPT_COLS : WELL_COLS }} onClick={() => open(w.well_id)}>
-                      <span className="bold">{w.well_id}</span><span>{w.block}</span><span>{w.well_type}</span><span>{w.team}</span><span>{w.phase}</span>
-                      {dept ? (
-                        <><span className="r num bold">{wan(w.total_cost)}</span><span className="r num">{wan(w.fixed)}</span><span className="r num">{wan(w.variable)}</span></>
-                      ) : (
-                        <><span className="r num">{wan(w.revenue)}</span><span className="r num">{wan(w.total_cost)}</span>
-                          <span className={'r num bold' + (gm < 0 ? ' neg' : '')}>{wan(gm)}</span><span className="r num muted">{pct(gm, w.revenue)}%</span>
-                          <span className={'r num bold' + (net < 0 ? ' neg' : '')}>{wan(net)}</span><span className="r num muted">{pct(net, w.revenue)}%</span></>
-                      )}
-                      <span>{w.remark && <span className="tag">{w.remark}</span>}</span>
-                      {Icon.chevron()}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </section>
+          {[{ title: '正钻井', rows: data.wells.filter((w) => !DONE.includes(w.status)) },
+            { title: '完成井', rows: data.wells.filter((w) => DONE.includes(w.status)) }].map((g) => (
+            <WellGroup key={g.title} title={g.title} rows={g.rows} dept={dept} open={open} />
+          ))}
         </>
       )}
     </>
@@ -471,5 +434,58 @@ function ResultImportModal({ file, onClose, onDone }: { file: File | null; onClo
         </>
       )}
     </Modal>
+  );
+}
+
+const DONE = ['完钻', '完井', '已结算'];
+
+function WellGroup({ title, rows, dept, open }: { title: string; rows: OverviewWell[]; dept: boolean; open: (w: string) => void }) {
+  const sum = { revenue: 0, total_cost: 0, fixed: 0, variable: 0 };
+  rows.forEach((w) => { sum.revenue += w.revenue; sum.total_cost += w.total_cost; sum.fixed += w.fixed; sum.variable += w.variable; });
+  return (
+    <>
+      <h3 style={{ margin: '20px 0 8px' }}>{title}</h3>
+      <Kpis items={kpiSet(sum, dept, false)} />
+      <section className="card list">
+        <div className="card-head">
+          <h2>{title}单井经营结果（{rows.length} 口）</h2>
+          <div className="hint">点击任一口井，下钻到收入与成本科目</div>
+        </div>
+        <div className="scroll-x">
+          <div style={{ minWidth: dept ? 820 : 1000 }}>
+            <div className="grid-row grid-head" style={{ gridTemplateColumns: dept ? DEPT_COLS : WELL_COLS }}>
+              <span>井号</span><span>区块</span><span>井型</span><span>队伍</span><span>开次</span>
+              {dept ? (
+                <><span className="r">归口成本（万元）</span><span className="r">固定（万元）</span><span className="r">变动（万元）</span></>
+              ) : (
+                <><span className="r">形象收入（万元）</span><span className="r">总成本（万元）</span><span className="r">毛益额（万元）</span>
+                  <span className="r">毛益率</span><span className="r">净利润（万元）</span><span className="r">利润率</span></>
+              )}
+              <span>备注</span><span />
+            </div>
+            {rows.length === 0 && <div className="empty">本期间没有{title}经营数据</div>}
+            {rows.map((w) => {
+              const gm = w.revenue - w.variable;
+              const net = w.revenue - w.total_cost;
+              return (
+                <button key={w.well_id} type="button" className="grid-row line" aria-label={'下钻到 ' + w.well_id}
+                  style={{ gridTemplateColumns: dept ? DEPT_COLS : WELL_COLS }} onClick={() => open(w.well_id)}>
+                  <span className="bold">{w.well_id}</span><span>{w.block}</span><span>{w.well_type}</span><span>{w.team}</span><span>{w.phase}</span>
+                  {dept ? (
+                    <><span className="r num bold">{wan(w.total_cost)}</span><span className="r num">{wan(w.fixed)}</span><span className="r num">{wan(w.variable)}</span></>
+                  ) : (
+                    <><span className="r num">{wan(w.revenue)}</span><span className="r num">{wan(w.total_cost)}</span>
+                      <span className={'r num bold' + (gm < 0 ? ' neg' : '')}>{wan(gm)}</span><span className="r num muted">{pct(gm, w.revenue)}%</span>
+                      <span className={'r num bold' + (net < 0 ? ' neg' : '')}>{wan(net)}</span><span className="r num muted">{pct(net, w.revenue)}%</span></>
+                  )}
+                  <span>{w.remark && <span className="tag">{w.remark}</span>}</span>
+                  {Icon.chevron()}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+    </>
   );
 }

@@ -16,9 +16,9 @@ from .db import connect
 
 NAV = {
     'finance': [
-        {'label': '经营', 'items': [{'id': 'overview', 'label': '经营总览'}, {'id': 'benchmark', 'label': '经营对标'}]},
-        {'label': '主数据', 'items': [{'id': 'wellinfo', 'label': '单井基础信息'}, {'id': 'masterdata', 'label': '主数据维护'}]},
-        {'label': '规则', 'items': [{'id': 'rules', 'label': '规则库'}, {'id': 'batches', 'label': '计算批次'}]},
+        {'label': '经营', 'items': [{'id': 'overview', 'label': '经营总览'}, {'id': 'benchmark', 'label': '经营对标'},
+                                  {'id': 'wellinfo', 'label': '单井基础信息'}, {'id': 'masterdata', 'label': '主数据维护'}]},
+        {'label': '规则', 'items': [{'id': 'rules', 'label': '规则库'}, {'id': 'batches', 'label': '历史记录'}]},
     ],
     'team': [
         {'label': '填报', 'items': [{'id': 'report', 'label': '成本日报'}, {'id': 'wellreg', 'label': '基础信息填报'}]},

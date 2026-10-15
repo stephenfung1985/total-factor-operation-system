@@ -237,12 +237,20 @@ def results_template(user=User):
 
 
 @app.post('/api/results/import')
-async def results_import_(commit: bool = False, file: UploadFile = File(...), user=User):
-    """单井经营结果按模板导入：commit=false 只预览；导入的井在经营总览备注“历史数据导入”。"""
+async def results_import_(commit: bool = False, file: list[UploadFile] = File(...), user=User):
+    """单井经营结果按模板导入（可一次多个文件）：commit=false 只预览；未经基层队登记的井备注“历史数据井”。"""
     auth.require(user, 'finance')
-    data = await _read_upload(file)
+    files = [(f.filename or '导入文件.xlsx', await _read_upload(f)) for f in file]
     with transaction() as c:
-        return results_import.run(c, data, file.filename or '导入文件.xlsx', user, commit)
+        return results_import.run(c, files, user, commit)
+
+
+@app.delete('/api/wells/{well_id}')
+def delete_well(well_id: str, user=User):
+    """手工删除一口井（正钻或完成）：冲销该井全部有效经济事项、从各页面隐藏，可追溯；历史数据井再次导入时恢复。"""
+    auth.require(user, 'finance')
+    with transaction() as c:
+        return analysis.delete_well(c, well_id, user)
 
 
 def _can_export(c, user, well_id):
@@ -299,7 +307,8 @@ def report_wells(user=User):
     with transaction() as c:
         return rows(c.execute(
             'SELECT DISTINCT w.well_id, w.block, w.well_type, w.status FROM well w JOIN team_well_period p ON p.well_id=w.well_id '
-            "WHERE p.team_id=? AND w.status IN ('计划','正钻','完钻') ORDER BY w.well_id", (user['team_id'],)))
+            "WHERE p.team_id=? AND w.status IN ('计划','正钻','完钻') AND w.well_id NOT IN (SELECT well_id FROM well_deleted) "
+            "ORDER BY w.well_id", (user['team_id'],)))
 
 
 @app.get('/api/reports/mine')

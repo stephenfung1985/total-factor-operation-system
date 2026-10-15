@@ -181,7 +181,10 @@ def recalc(conn, well_ids: list[str], periods: list[str], trigger: str, operator
         (trigger, jdump({'wells': well_ids, 'periods': periods}), ENGINE_VERSION, now(), operator)).lastrowid
     created = reversed_n = 0
     change = 0.0
+    gone = {r['well_id'] for r in conn.execute('SELECT well_id FROM well_deleted')}   # 已删除的井不再计算
     for well_id in well_ids:
+        if well_id in gone:
+            continue
         for period in periods:
             desired = _desired(conn, well_id, period)
             current = conn.execute(
@@ -232,6 +235,7 @@ def affected_scope(conn, item_code: str | None = None) -> tuple[list[str], list[
         wells.add(r['well_id']); periods.add(r['p'])
     for r in conn.execute('SELECT DISTINCT well_id, period p FROM economic_event'):
         wells.add(r['well_id']); periods.add(r['p'])
+    wells -= {r['well_id'] for r in conn.execute('SELECT well_id FROM well_deleted')}
     return sorted(wells), sorted(periods)
 
 

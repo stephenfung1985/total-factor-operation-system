@@ -63,6 +63,7 @@ export const api = {
   get: <T>(url: string) => request<T>('GET', url),
   post: <T>(url: string, body: unknown = {}) => request<T>('POST', url, body),
   put: <T>(url: string, body: unknown) => request<T>('PUT', url, body),
+  del: <T>(url: string) => request<T>('DELETE', url),
 };
 
 /** 带账号头下载文件（Excel 导出）。 */
@@ -263,7 +264,7 @@ export interface Benchmark {
 // ---------- 单井经营结果模板导入 ----------
 
 export interface ResultSheet {
-  sheet: string; well_id: string; period: string; team_no: string; new_well: boolean; new_team: boolean;
+  file: string; changes: { item: string; old: number; new: number }[]; sheet: string; well_id: string; period: string; team_no: string; new_well: boolean; new_team: boolean;
   revenue: number; total_cost: number; net_profit: number; action: '导入' | '覆盖' | '无变化' | '阻断'; blocks: string[]; warns: string[];
 }
 export interface ResultImport { count: Record<string, number>; committed: boolean; sheets: ResultSheet[] }

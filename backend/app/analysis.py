@@ -8,7 +8,7 @@ import re
 from fastapi import HTTPException
 
 from . import auth, engine, wellinfo
-from .db import jload, money
+from .db import jdump, jload, log, money, now
 
 def periods(conn) -> list[str]:
     return [r['period'] for r in conn.execute('SELECT DISTINCT period FROM economic_event ORDER BY period DESC')]
@@ -112,7 +112,9 @@ def well_result(conn, user: dict, well_id: str, period: str) -> dict:
 
 
 def remark(conn, well_id: str, period: str) -> str:
-    """本期金额含历史导入（模板导入或期初导入）时备注“历史数据导入”。"""
+    """未经基层钻井队登记基础信息的井（模板导入建档）备注“历史数据井”；已登记的井，本期金额含历史导入时备注“历史数据导入”。"""
+    if not conn.execute("SELECT 1 FROM well_info_report WHERE well_id=? AND status IN ('已提交', '已被更新') LIMIT 1", (well_id,)).fetchone():
+        return '历史数据井'
     hit = conn.execute("SELECT 1 FROM economic_event WHERE well_id=? AND period=? AND origin_type='历史导入' AND status='有效' LIMIT 1",
                        (well_id, period)).fetchone()
     return '历史数据导入' if hit else ''
@@ -288,7 +290,8 @@ def benchmark(conn, period: str, dims: list[str], filters: dict[str, list[str]] 
         periods = [period] if period in periods_all else []
     rows = []
     for p in periods:
-        for r in conn.execute('SELECT DISTINCT well_id FROM economic_event WHERE period=? ORDER BY well_id', (p,)):
+        for r in conn.execute('SELECT DISTINCT well_id FROM economic_event WHERE period=? '
+                              'AND well_id NOT IN (SELECT well_id FROM well_deleted) ORDER BY well_id', (p,)):
             wid = r['well_id']
             info = well_info(conn, wid, p)
             k = compute(conn, None, wid, p)['kpi']
@@ -316,3 +319,22 @@ def benchmark(conn, period: str, dims: list[str], filters: dict[str, list[str]] 
     groups = [_aggregate(rs, dict(zip(dims, key))) for key, rs in buckets.items()]
     return {'period': period, 'periods': periods_all, 'dims': dims, 'dim_labels': DIMS, 'filters': filters, 'options': options,
             'filtered': any(filters.values()), 'groups': groups, 'scope': _aggregate(scoped, {}), 'total': _aggregate(rows, {})}
+
+
+def delete_well(conn, well_id: str, user: dict) -> dict:
+    """手工删除：经济事项只冲不改，所以冲销该井全部有效事项并登记删除，井不再出现在经营总览、对标、导出和填报中。"""
+    if not conn.execute('SELECT 1 FROM well WHERE well_id=?', (well_id,)).fetchone():
+        raise HTTPException(404, '井号不存在')
+    if conn.execute('SELECT 1 FROM well_deleted WHERE well_id=?', (well_id,)).fetchone():
+        raise HTTPException(409, '该井已删除')
+    batch = conn.execute(
+        "INSERT INTO calc_batch (trigger, scope, engine_version, started_at, operator) VALUES ('手工删除井', ?, ?, ?, ?)",
+        (jdump({'wells': [well_id]}), engine.ENGINE_VERSION, now(), user['who'])).lastrowid
+    n = 0
+    for ev in conn.execute("SELECT e.*, NULL rule_code FROM economic_event e WHERE well_id=? AND status='有效'", (well_id,)).fetchall():
+        engine.reverse_event(conn, ev, batch)
+        n += 1
+    conn.execute('UPDATE calc_batch SET finished_at=?, event_count=? WHERE batch_id=?', (now(), n, batch))
+    conn.execute('INSERT INTO well_deleted (well_id, deleted_at, deleted_by) VALUES (?,?,?)', (well_id, now(), user['who']))
+    log(conn, '井', well_id, '删除', user['who'], f'冲销 {n} 笔经济事项')
+    return {'ok': True, 'reversed': n}

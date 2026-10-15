@@ -386,3 +386,7 @@ select.input { appearance: auto; }
 .bar-row.pick { cursor: pointer; transition: background-color .15s ease, transform .12s ease; }
 .bar-row.pick:active { transform: scale(.995); }
 .bar { transition: width .3s ease, left .3s ease, filter .15s ease; }
+.row-x.del { opacity: .45; transition: opacity .15s ease, background-color .15s ease, color .15s ease; }
+.grid-row.line:hover .row-x.del, .row-x.del:focus-visible { opacity: 1; }
+.row-x.del:hover { background: var(--bad); color: #fff; }
+.grid-row.line[role="button"] { cursor: pointer; }

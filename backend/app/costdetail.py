@@ -72,7 +72,7 @@ def _events(conn, items: list[dict], start: str | None, end: str | None) -> list
            "e.team_id, w.market, w.block, t.team_no, t.name team_name, f.unit "
            "FROM economic_event e JOIN well w ON w.well_id=e.well_id LEFT JOIN team t ON t.team_id=e.team_id "
            "LEFT JOIN business_fact f ON f.fact_id=e.fact_id "
-           f"WHERE e.status='有效' AND e.item_code IN ({','.join('?' * len(leaves))})")
+           f"WHERE e.status='有效' AND e.well_id NOT IN (SELECT well_id FROM well_deleted) AND e.item_code IN ({','.join('?' * len(leaves))})")
     args: list = list(leaves)
     if start:
         sql += ' AND e.period>=?'

@@ -18,6 +18,13 @@ CREATE TABLE IF NOT EXISTS app_user (
 -- 登录名、密码散列等列由 db._add_columns 补齐（兼容旧库）
 
 -- 登录会话：只存令牌的散列
+-- 手工删除的井：经济事项只冲不改，删除 = 冲销该井全部有效事项 + 在此登记；井从各页面隐藏，再次导入或登记时恢复
+CREATE TABLE IF NOT EXISTS well_deleted (
+  well_id    TEXT PRIMARY KEY,
+  deleted_at TEXT NOT NULL,
+  deleted_by TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS app_session (
   token_hash TEXT PRIMARY KEY,
   user_id    TEXT NOT NULL REFERENCES app_user(user_id),

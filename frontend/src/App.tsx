@@ -6,7 +6,6 @@ import Overview from './pages/Overview';
 import DailyReport from './pages/DailyReport';
 import Review from './pages/Review';
 import Rules from './pages/Rules';
-import WellInfo from './pages/WellInfo';
 import WellReg from './pages/WellReg';
 import MasterData from './pages/MasterData';
 import Perm from './pages/Perm';
@@ -119,7 +118,7 @@ export default function App() {
     const p = { me, route, setRoute };
     page = {
       overview: <Overview {...p} />, report: <DailyReport {...p} />, review: <Review {...p} />, rules: <Rules {...p} />,
-      wellinfo: <WellInfo {...p} />, wellreg: <WellReg {...p} />, masterdata: <MasterData {...p} />, perm: <Perm {...p} />, batches: <Batches {...p} />, benchmark: <BenchmarkPage {...p} />, costdetail: <CostDetail {...p} />,
+      wellreg: <WellReg {...p} />, masterdata: <MasterData {...p} />, perm: <Perm {...p} />, batches: <Batches {...p} />, benchmark: <BenchmarkPage {...p} />, costdetail: <CostDetail {...p} />,
     }[route.screen] ?? null;
   }
 

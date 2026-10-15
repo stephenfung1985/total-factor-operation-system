@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, download, type ExportRow, type ItemEvents, type Overview as OV, type OverviewWell, type ResultImport, type Trace, type TreeNode, type WellResult } from '../api';
 import type { PageProps } from '../App';
+import OverviewCharts from './OverviewCharts';
 import { Drawer, fmt, Icon, Kpis, Modal, PageHead, pct, periodLabel, useLoad, useToast, wan, yuan, type Crumb } from '../ui';
 
 const WELL_COLS = '0.8fr 0.8fr 0.8fr 1.2fr 0.6fr 1fr 1fr 1fr 0.8fr 1fr 0.8fr 1fr 24px';
@@ -55,12 +56,12 @@ export default function Overview({ me, route, setRoute }: PageProps) {
   if (route.well) {
     return <Level1 well={route.well} period={period} crumbs={crumbs} picker={periodPicker} dept={dept} open={(c) => go(route.well, c)} />;
   }
-  return <Level0 period={period} title={navLabel} picker={periodPicker} dept={dept} open={(w) => go(w)}
+  return <Level0 period={period} periods={periods.data || []} title={navLabel} picker={periodPicker} dept={dept} open={(w) => go(w)}
     canImport={me.role === 'finance'} onImported={(p) => { periods.reload(); setRoute({ screen: 'overview', period: p }); }} />;
 }
 
-function Level0({ period, title, picker, dept, open, canImport, onImported }: {
-  period: string; title: string; picker: React.ReactNode; dept: boolean; open: (w: string) => void;
+function Level0({ period, periods, title, picker, dept, open, canImport, onImported }: {
+  period: string; periods: string[]; title: string; picker: React.ReactNode; dept: boolean; open: (w: string) => void;
   canImport: boolean; onImported: (period: string) => void;
 }) {
   const { data, error, reload } = useLoad(() => api.get<OV>(`/api/overview?period=${period}`), [period]);
@@ -87,6 +88,7 @@ function Level0({ period, title, picker, dept, open, canImport, onImported }: {
       {error && <div className="notice">{error}</div>}
       {data && (
         <>
+          <OverviewCharts periods={periods} period={period} wells={data.wells} dept={dept} open={open} />
           {[{ title: '正钻井', rows: data.wells.filter((w) => !DONE.includes(w.status)) },
             { title: '完成井', rows: data.wells.filter((w) => DONE.includes(w.status)) }].map((g) => (
             <WellGroup key={g.title} title={g.title} rows={g.rows} dept={dept} open={open} />
@@ -452,7 +454,7 @@ function WellGroup({ title, rows, dept, open }: { title: string; rows: OverviewW
           <div className="hint">点击任一口井，下钻到收入与成本科目</div>
         </div>
         <div className="scroll-x">
-          <div style={{ minWidth: dept ? 820 : 1000 }}>
+          <div className="nowrap" style={{ minWidth: dept ? 820 : 1000 }}>
             <div className="grid-row grid-head" style={{ gridTemplateColumns: dept ? DEPT_COLS : WELL_COLS }}>
               <span>井号</span><span>区块</span><span>井型</span><span>队伍</span><span>开次</span>
               {dept ? (

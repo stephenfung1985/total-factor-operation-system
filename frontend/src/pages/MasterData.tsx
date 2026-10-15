@@ -20,7 +20,7 @@ export default function MasterData(_: PageProps) {
       <section className="card list">
         {tab === 'items' && (
           <div className="scroll-x">
-            <div style={{ minWidth: 920 }}>
+            <div className="nowrap" style={{ minWidth: 920 }}>
               <div className="grid-row grid-head" style={{ gridTemplateColumns: ITEM_COLS }}>
                 <span>编码</span><span>名称</span><span>方向</span><span>性态</span><span>计价类型</span><span>归口部室</span><span>总表列</span><span>会计科目</span>
               </div>
@@ -29,7 +29,7 @@ export default function MasterData(_: PageProps) {
                 return (
                   <div key={r.item_code as string} className="grid-row" style={{ gridTemplateColumns: ITEM_COLS, minHeight: group ? 44 : 40, fontSize: 14, borderBottom: '1px solid var(--sep2)', background: group && Number(r.level) <= 2 ? 'var(--fill)' : undefined, fontWeight: group ? 600 : 400 }}>
                     <span className="muted num" style={{ fontWeight: 400 }}>{r.item_code}</span>
-                    <span style={{ paddingLeft: (Number(r.level) - 1) * 16 }}>{r.item_name}</span>
+                    <span style={{ paddingLeft: (Number(r.level) - 1) * 16 }} title={String(r.item_name)}>{r.item_name}</span>
                     <span>{r.direction}</span><span>{r.cost_behavior || '—'}</span>
                     <span className="text3" style={{ fontWeight: 400 }}>{r.calc_type || ''}</span><span style={{ fontWeight: 400 }}>{r.owner_dept || ''}</span>
                     <span className="muted" style={{ fontWeight: 400 }}>{r.report_col || ''}</span><span className="muted" style={{ fontWeight: 400 }}>{r.finance_account || ''}</span>

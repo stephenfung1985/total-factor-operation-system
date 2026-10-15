@@ -323,3 +323,48 @@ select.input { appearance: auto; }
 .matrix td.zero { color: var(--mute); }
 .chk-row { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 14px; }
 .chk-row label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+
+/* 经营总览：整体经营情况图表 */
+:root, .theme-light { --accent-soft: #8FC2F5; }
+.theme-dark { --accent-soft: #3E6FA8; }
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+.charts .wide { grid-column: 1 / -1; }
+.legend { display: inline-flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--text2); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.chart { width: 100%; height: auto; display: block; }
+.comp { display: flex; flex-direction: column; gap: 16px; }
+.comp-row { display: flex; flex-direction: column; gap: 6px; }
+.comp-head { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
+.comp-bar { display: flex; height: 26px; border-radius: 8px; overflow: hidden; background: var(--fill2); }
+.comp-bar span { display: flex; align-items: center; justify-content: center; font-size: 12px; color: #fff; min-width: 0; }
+.comp-bar.empty { align-items: center; justify-content: center; font-size: 12px; color: var(--text2); }
+.wp { display: flex; flex-direction: column; gap: 2px; }
+.wp-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) 84px; align-items: center; min-height: 30px; border: none; background: transparent; border-radius: 8px; padding: 0 8px; text-align: left; color: var(--text); font-size: 13px; }
+.wp-row:hover { background: var(--fill); }
+.wp-name em { font-style: normal; font-size: 11px; color: var(--text2); margin-left: 6px; }
+.wp-plot { position: relative; height: 18px; }
+.wp-zero { position: absolute; top: -4px; bottom: -4px; width: 1px; background: var(--sep); }
+.wp-bar { position: absolute; top: 2px; height: 14px; border-radius: 3px; }
+.wp-val { text-align: right; font-size: 13px; }
+
+/* 通用：文字不随意换行，放不下时省略或横向滚动 */
+.btn, .pill, .tag, .seg button, .nav-item .lbl, .kpi .k, .kpi .v span, .card-head h2, .hint { white-space: nowrap; }
+.kpi .k, .nav-item .lbl { overflow: hidden; text-overflow: ellipsis; }
+.kpi .v { flex-wrap: nowrap; }
+.kpi .v b { font-size: clamp(22px, 2.2vw, 30px); }
+.nowrap .grid-row > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+/* 交互感：悬停、按下与入场过渡 */
+.kpi, .btn, .pill, .nav-item, .seg button, .grid-row.line { transition: background-color .15s ease, box-shadow .15s ease, transform .12s ease, color .15s ease; }
+.kpi:hover { box-shadow: 0 2px 14px rgba(0,0,0,.07); }
+.btn:active, .nav-item:active, .grid-row.line:active { transform: scale(.992); }
+.wp-row { cursor: pointer; transition: background-color .15s ease, transform .12s ease; }
+.wp-row:active { transform: scale(.992); }
+.wp-row:hover .wp-bar { filter: brightness(1.12); }
+.wp-bar { transition: width .35s ease, left .35s ease, filter .15s ease; }
+.comp-bar span { transition: width .35s ease; }
+.chart rect { transition: opacity .15s ease, filter .15s ease; cursor: default; }
+.chart rect:hover { filter: brightness(1.12); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+.who b, .who span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grid-head > span, .text3, .num { white-space: nowrap; }

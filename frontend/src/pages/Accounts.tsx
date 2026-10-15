@@ -29,7 +29,7 @@ export default function Accounts({ meId }: { meId: string }) {
         <button type="button" className="btn primary sm" onClick={() => setCreating(true)}>新建账号</button>
       </div>
       <div className="scroll-x">
-        <div style={{ minWidth: 900 }}>
+        <div className="nowrap" style={{ minWidth: 900 }}>
           <div className="grid-row grid-head" style={{ gridTemplateColumns: COLS }}>
             <span>登录名</span><span>姓名</span><span>角色</span><span>数据范围</span><span>状态</span><span>最近登录</span><span>操作</span>
           </div>

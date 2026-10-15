@@ -38,7 +38,7 @@ export default function Perm({ me }: PageProps) {
           <section className="card list">
             <div className="card-head"><h2>功能权限矩阵</h2><div className="hint">编辑 · 审核 · 查看 · 无</div></div>
             <div className="scroll-x">
-              <div style={{ minWidth: 760 }}>
+              <div className="nowrap" style={{ minWidth: 760 }}>
                 <div className="grid-row grid-head" style={{ gridTemplateColumns: tpl }}><span>功能</span>{ORDER.map((id) => <span key={id}>{name(id)}</span>)}</div>
                 {data.matrix.map((m) => (
                   <div key={m.name} className="grid-row" style={{ gridTemplateColumns: tpl, minHeight: 50, fontSize: 14, borderBottom: '1px solid var(--sep2)' }}>

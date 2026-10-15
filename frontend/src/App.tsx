@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { api, hasToken, setActingTeam, setToken, setUnauthorizedHandler, type Me } from './api';
 import { LoginPage, PasswordModal } from './auth';
 import { Icon, NAV_ICON, Seg, ToastHost } from './ui';
@@ -110,7 +110,8 @@ export default function App() {
     if (me?.role === 'finance') api.get<typeof teams>('/api/teams').then(setTeams).catch(() => setTeams([]));
   }, [me?.role, me?.user_id]);
 
-  useEffect(() => {
+  // 用 layout effect：子页面在 useEffect 里取数，必须先于它们设好 X-Team-Id
+  useLayoutEffect(() => {
     setActingTeam(me?.role === 'finance' && acting ? acting : null);
   }, [me?.role, acting]);
 

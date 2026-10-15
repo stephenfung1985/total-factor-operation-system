@@ -22,7 +22,15 @@ export const hasToken = () => !!token;
 export function setUnauthorizedHandler(fn: () => void) {
   onUnauthorized = fn;
 }
-const authHeaders = (): Record<string, string> => (token ? { Authorization: `Bearer ${token}` } : {});
+let actingTeam: string | null = null;
+/** 管理层代队伍填报时指定队伍，随每个请求以 X-Team-Id 发送。 */
+export function setActingTeam(id: string | null) {
+  actingTeam = id;
+}
+const authHeaders = (): Record<string, string> => ({
+  ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  ...(actingTeam ? { 'X-Team-Id': actingTeam } : {}),
+});
 
 export class ApiError extends Error {
   status: number;

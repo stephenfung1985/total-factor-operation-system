@@ -9,7 +9,7 @@ const TODO = ['草稿', '待确认', '回算中', '待发布'];
 
 export default function Rules({ me }: PageProps) {
   const toast = useToast();
-  const isDept = me.role === 'dept';
+  const isDept = me.role === 'dept' || me.role === 'finance';
   const [filter, setFilter] = useState<Filter>(isDept ? 'todo' : 'all');
   const list = useLoad(() => api.get<RuleRow[]>('/api/rules'), []);
   const shown = useMemo(() => (list.data || []).filter((r) =>

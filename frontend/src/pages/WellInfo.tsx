@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, download, type ImportResult, type InfoSummaryRow, type InfoWellDetail, type PendingReturn } from '../api';
-import type { PageProps } from '../App';
-import { Drawer, fmt, Kpis, Modal, PageHead, useLoad, useToast } from '../ui';
+import { Drawer, fmt, Kpis, Modal, useLoad, useToast } from '../ui';
 
 const SECTIONS = ['一开', '二开', '三开', '四开', '五开'];
 const WELL_TAG: Record<string, string> = { 计划: '', 正钻: 'info', 完钻: 'warn', 完井: 'good' };
@@ -9,13 +8,11 @@ const t16 = (s: string | null | undefined) => (s ? s.slice(0, 16) : '');
 const RET_COLS = '0.8fr 1fr 0.8fr 3fr 1fr';
 const lagCls = (s: string | null | undefined) => (s?.startsWith('滞后') ? 'tag bad' : s === '未开钻' ? 'tag' : s ? 'tag good' : '');
 
-export default function WellInfo(_: PageProps) {
+/** 管理层经营总览中的基础信息：登记统计、待队伍修改、Excel 导入导出；单井详情与退回在 InfoDetail 中。 */
+export function InfoPanel() {
   const toast = useToast();
   const { data, error, reload } = useLoad(() => api.get<InfoSummaryRow[]>('/api/wellinfo/summary'), []);
   const returns = useLoad(() => api.get<PendingReturn[]>('/api/wellinfo/returns'), []);
-  const [q, setQ] = useState('');
-  const [market, setMarket] = useState('');
-  const [status, setStatus] = useState('');
   const [open, setOpen] = useState<string | null>(null);
   const [importFile, setImportFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -23,13 +20,6 @@ export default function WellInfo(_: PageProps) {
     reload();
     returns.reload();
   };
-
-  const rows = useMemo(() => (data || []).filter((r) =>
-    (!q || [r.well_id, r.team_no, r.block, r.client, r.captain].some((x) => x?.includes(q.trim())))
-    && (!market || r.market === market)
-    && (!status || (status === '退回' ? !!r.pending_return : r.derived.status === status))), [data, q, market, status]);
-  const maxSec = Math.max(3, ...(data || []).map((r) => r.spud_sections));
-  const markets = [...new Set((data || []).map((r) => r.market))];
   const count = (f: (r: InfoSummaryRow) => boolean) => String((data || []).filter(f).length);
 
   const exportXlsx = async () => {
@@ -43,37 +33,36 @@ export default function WellInfo(_: PageProps) {
 
   return (
     <>
-      <PageHead title="基础信息" sub="由基层钻井队填报，提交后自动汇总；一井一行，列与《单井基础信息表》一致"
-        right={
+      <section className="card list">
+        <div className="card-head center">
+          <h2>基础信息</h2>
           <div className="head-actions">
+            <div className="hint">由基层钻井队填报，提交后自动汇总；在单井页查看详情或退回</div>
             <button type="button" className="btn sm link" onClick={() => fileRef.current?.click()}>导入 Excel</button>
             <button type="button" className="btn primary sm" onClick={exportXlsx}>导出 Excel</button>
             <input ref={fileRef} type="file" accept=".xlsx" hidden onChange={(e) => { if (e.target.files?.[0]) setImportFile(e.target.files[0]); e.target.value = ''; }} />
           </div>
-        } />
-      {error && <div className="notice">{error}</div>}
-      {data && (
-        <Kpis items={[
-          { label: '登记井数', value: count(() => true), unit: '口' },
-          { label: '正钻', value: count((r) => r.derived.status === '正钻'), unit: '口' },
-          { label: '完钻 / 完井', value: `${count((r) => r.derived.status === '完钻')} / ${count((r) => r.derived.status === '完井')}`, unit: '口' },
-          { label: '登记滞后', value: count((r) => r.derived.reg_lag.startsWith('滞后')), unit: '口' },
-          { label: '完井填报滞后', value: count((r) => !!r.derived.comp_lag?.startsWith('滞后')), unit: '口' },
-        ]} />
-      )}
-      {returns.data && returns.data.length > 0 && (
-        <section className="card list">
-          <div className="card-head">
-            <h2>待队伍修改 · {returns.data.length}</h2>
-            <div className="hint">退回队伍或导入校验未通过的记录；队伍重新提交前，汇总表仍按当前已提交版本</div>
-          </div>
+        </div>
+        {error && <div className="notice">{error}</div>}
+        {data && (
+          <Kpis items={[
+            { label: '登记井数', value: count(() => true), unit: '口' },
+            { label: '正钻', value: count((r) => r.derived.status === '正钻'), unit: '口' },
+            { label: '完钻 / 完井', value: `${count((r) => r.derived.status === '完钻')} / ${count((r) => r.derived.status === '完井')}`, unit: '口' },
+            { label: '登记滞后', value: count((r) => r.derived.reg_lag.startsWith('滞后')), unit: '口' },
+            { label: '完井填报滞后', value: count((r) => !!r.derived.comp_lag?.startsWith('滞后')), unit: '口' },
+          ]} />
+        )}
+        {returns.data && returns.data.length > 0 && (
           <div className="scroll-x">
             <div style={{ minWidth: 760 }}>
+              <div className="hint" style={{ padding: '8px 24px' }}>待队伍修改 · {returns.data.length}（退回队伍或导入校验未通过；队伍重新提交前仍按当前已提交版本）</div>
               <div className="grid-row grid-head" style={{ gridTemplateColumns: RET_COLS }}>
                 <span>井号</span><span>队伍</span><span>来源</span><span>原因</span><span>退回时间</span>
               </div>
               {returns.data.map((r) => (
-                <div key={r.report_id} className="grid-row line" style={{ gridTemplateColumns: RET_COLS, minHeight: 48, fontSize: 13 }}>
+                <div key={r.report_id} className="grid-row line" style={{ gridTemplateColumns: RET_COLS, minHeight: 48, fontSize: 13, cursor: 'pointer' }}
+                  onClick={() => setOpen(r.well_id)}>
                   <span className="bold">{r.well_id}</span><span>{r.team}</span>
                   <span><span className={'tag ' + (r.source === '导入' ? 'warn' : 'info')}>{r.source === '导入' ? '导入未通过' : '人工退回'}</span></span>
                   <span className="text3" style={{ whiteSpace: 'normal', padding: '8px 0' }}>{r.return_comment}</span>
@@ -82,74 +71,15 @@ export default function WellInfo(_: PageProps) {
               ))}
             </div>
           </div>
-        </section>
-      )}
-      <section className="card list">
-        <div className="card-head center">
-          <h2>汇总表</h2>
-          <div className="filters">
-            <input className="input" placeholder="井号 / 队号 / 区块 / 甲方" value={q} onChange={(e) => setQ(e.target.value)} aria-label="搜索" />
-            <select className="input" value={market} onChange={(e) => setMarket(e.target.value)} aria-label="市场分布">
-              <option value="">全部市场</option>{markets.map((m) => <option key={m}>{m}</option>)}
-            </select>
-            <select className="input" value={status} onChange={(e) => setStatus(e.target.value)} aria-label="状态">
-              <option value="">全部状态</option>{['计划', '正钻', '完钻', '完井'].map((m) => <option key={m}>{m}</option>)}
-              <option value="退回">已退回待修改</option>
-            </select>
-          </div>
-        </div>
-        <div className="wtable-wrap">
-          <table className="wtable">
-            <thead>
-              <tr className="grp">
-                <th rowSpan={2} style={{ textAlign: 'left', height: 64 }}>井号</th>
-                <th colSpan={11}>基本信息</th><th colSpan={4}>井深与周期（天）</th>
-                <th colSpan={4 + maxSec * 2}>施工节点</th><th colSpan={3}>人员</th><th colSpan={6}>状态与填报</th>
-              </tr>
-              <tr className="col">
-                <th>年月</th><th>市场</th><th>队号</th><th>队长</th><th>钻机</th><th>甲方单位</th><th>区块</th><th>井别</th><th>井型</th><th>开次</th><th>版本</th>
-                <th className="r">设计井深（米）</th><th className="r">钻前</th><th className="r">钻井</th><th className="r">完井</th>
-                <th>搬安（平移）</th><th>砸导管</th>
-                {SECTIONS.slice(0, maxSec).flatMap((s) => [<th key={s}>{s}</th>, <th key={s + '完'}>{s}完钻</th>])}
-                <th>完钻</th><th>完井</th>
-                <th className="r">合同化</th><th className="r">市场化</th><th className="r">第三方</th>
-                <th>状态</th><th>填报时间</th><th>登记滞后</th><th>完井填报日期</th><th>完井填报滞后</th><th>创建人</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.well_id} onClick={() => setOpen(r.well_id)} tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && setOpen(r.well_id)}>
-                  <td className="bold">{r.well_id}{r.pending_return && <> <span className="tag warn" title={r.pending_return.return_comment}>已退回</span></>}</td>
-                  <td className="g">{r.period}</td><td>{r.market}</td><td>{r.team_no}</td><td>{r.captain}</td><td>{r.rig_type}</td>
-                  <td>{r.client}</td><td>{r.block}</td><td>{r.well_category}</td><td>{r.well_type}</td><td>{r.spud_sections}</td><td>v{r.version}</td>
-                  <td className="r num g">{fmt(r.design_depth, 2)}</td><td className="r num">{fmt(r.derived.pre_days)}</td>
-                  <td className="r num">{fmt(r.derived.drill_days)}</td><td className="r num">{fmt(r.derived.completion_days)}</td>
-                  <td className="num g">{t16(r.milestones['搬安'])}</td><td className="num">{t16(r.milestones['砸导管'])}</td>
-                  {SECTIONS.slice(0, maxSec).flatMap((s, i) => [
-                    <td key={s} className="num">{t16(r.milestones[`开钻${i + 1}`])}</td>,
-                    <td key={s + '完'} className="num">{t16(r.milestones[`完钻${i + 1}`])}</td>])}
-                  <td className="num">{t16(r.milestones['完钻'])}</td><td className="num">{t16(r.milestones['完井'])}</td>
-                  <td className="r num g">{r.staff['合同化'] ?? 0}</td><td className="r num">{r.staff['市场化'] ?? 0}</td><td className="r num">{r.staff['第三方'] ?? 0}</td>
-                  <td className="g"><span className={'tag ' + (WELL_TAG[r.derived.status] || '')}>{r.derived.status}</span></td>
-                  <td className="num">{t16(r.registered_at)}</td>
-                  <td><span className={lagCls(r.derived.reg_lag)}>{r.derived.reg_lag}</span></td>
-                  <td className="num">{t16(r.completion_reported_at)}</td>
-                  <td>{r.derived.comp_lag && <span className={lagCls(r.derived.comp_lag)}>{r.derived.comp_lag}</span>}</td>
-                  <td>{r.creator}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {data && rows.length === 0 && <div className="empty">没有符合条件的井</div>}
-        </div>
+        )}
       </section>
-      <Detail id={open} onClose={() => setOpen(null)} onReturned={refresh} />
+      <InfoDetail id={open} onClose={() => setOpen(null)} onReturned={refresh} />
       <ImportModal file={importFile} onClose={() => setImportFile(null)} onDone={refresh} />
     </>
   );
 }
 
-function Detail({ id, onClose, onReturned }: { id: string | null; onClose: () => void; onReturned: () => void }) {
+export function InfoDetail({ id, onClose, onReturned }: { id: string | null; onClose: () => void; onReturned: () => void }) {
   const toast = useToast();
   const { data, reload } = useLoad(() => (id ? api.get<InfoWellDetail>(`/api/wellinfo/wells/${encodeURIComponent(id)}`) : Promise.resolve(null)), [id]);
   const d = data && data.well_id === id ? data : null;

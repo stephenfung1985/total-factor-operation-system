@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, download, type ExportRow, type ItemEvents, type Overview as OV, type OverviewWell, type ResultImport, type Trace, type TreeNode, type WellResult } from '../api';
 import type { PageProps } from '../App';
+import { InfoDetail, InfoPanel } from './WellInfo';
 import { Drawer, fmt, Icon, Kpis, Modal, PageHead, pct, periodLabel, useLoad, useToast, wan, yuan, type Crumb } from '../ui';
 
 const WELL_COLS = '0.8fr 0.8fr 0.8fr 1.2fr 0.6fr 1fr 1fr 1fr 0.8fr 1fr 0.8fr 1fr 24px';
@@ -53,7 +54,8 @@ export default function Overview({ me, route, setRoute }: PageProps) {
     return <Level2 well={route.well} item={route.item} period={period} crumbs={crumbs} picker={periodPicker} />;
   }
   if (route.well) {
-    return <Level1 well={route.well} period={period} crumbs={crumbs} picker={periodPicker} dept={dept} open={(c) => go(route.well, c)} />;
+    return <Level1 well={route.well} period={period} crumbs={crumbs} picker={periodPicker} dept={dept} open={(c) => go(route.well, c)}
+      canInfo={me.role === 'finance'} />;
   }
   return <Level0 period={period} title={navLabel} picker={periodPicker} dept={dept} open={(w) => go(w)}
     canImport={me.role === 'finance'} onImported={(p) => { periods.reload(); setRoute({ screen: 'overview', period: p }); }} />;
@@ -91,15 +93,17 @@ function Level0({ period, title, picker, dept, open, canImport, onImported }: {
             { title: '完成井', rows: data.wells.filter((w) => DONE.includes(w.status)) }].map((g) => (
             <WellGroup key={g.title} title={g.title} rows={g.rows} dept={dept} open={open} />
           ))}
+          {canImport && <InfoPanel />}
         </>
       )}
     </>
   );
 }
 
-function Level1({ well, period, crumbs, picker, dept, open }: {
-  well: string; period: string; crumbs: Crumb[]; picker: React.ReactNode; dept: boolean; open: (code: string) => void;
+function Level1({ well, period, crumbs, picker, dept, open, canInfo }: {
+  well: string; period: string; crumbs: Crumb[]; picker: React.ReactNode; dept: boolean; open: (code: string) => void; canInfo: boolean;
 }) {
+  const [infoOpen, setInfoOpen] = useState(false);
   const { data, error } = useLoad(() => api.get<WellResult>(`/api/wells/${well}/result?period=${period}`), [well, period]);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [exportOpen, setExportOpen] = useState(false);
@@ -132,7 +136,9 @@ function Level1({ well, period, crumbs, picker, dept, open }: {
 
   return (
     <>
-      <PageHead crumbs={crumbs} title={well + ' 单井经营'} sub="成本按固定成本、变动成本分级展开，点击末级项目查看明细" right={picker} />
+      <PageHead crumbs={crumbs} title={well + ' 单井经营'} sub="成本按固定成本、变动成本分级展开，点击末级项目查看明细"
+        right={<div className="head-actions">{canInfo && <button type="button" className="btn sm link" onClick={() => setInfoOpen(true)}>基础信息</button>}{picker}</div>} />
+      {canInfo && <InfoDetail id={infoOpen ? well : null} onClose={() => setInfoOpen(false)} onReturned={() => undefined} />}
       {error && <div className="notice">{error}</div>}
       {data?.info.remark && (
         <div className="notice info">

@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, hasToken, setToken, setUnauthorizedHandler, type Me } from './api';
+import { api, hasToken, setActingTeam, setToken, setUnauthorizedHandler, type Me } from './api';
 import { LoginPage, PasswordModal } from './auth';
 import { Icon, NAV_ICON, Seg, ToastHost } from './ui';
 import Overview from './pages/Overview';
 import DailyReport from './pages/DailyReport';
 import Review from './pages/Review';
 import Rules from './pages/Rules';
-import WellInfo from './pages/WellInfo';
 import WellReg from './pages/WellReg';
 import MasterData from './pages/MasterData';
 import Perm from './pages/Perm';
@@ -57,6 +56,8 @@ export default function App() {
   const [theme, setTheme] = useState(() => store.get('tfos.theme') || (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
   const [route, setRouteState] = useState<Route>(readHash);
   const [err, setErr] = useState<string | null>(null);
+  const [teams, setTeams] = useState<{ team_id: string; team_no: string; name: string }[]>([]);
+  const [acting, setActing] = useState('');
 
   const setRoute = useCallback((r: Route) => {
     setRouteState(r);
@@ -106,6 +107,14 @@ export default function App() {
   }, [enter]);
 
   useEffect(() => {
+    if (me?.role === 'finance') api.get<typeof teams>('/api/teams').then(setTeams).catch(() => setTeams([]));
+  }, [me?.role, me?.user_id]);
+
+  useEffect(() => {
+    setActingTeam(me?.role === 'finance' && acting ? acting : null);
+  }, [me?.role, acting]);
+
+  useEffect(() => {
     window.scrollTo(0, 0);
   }, [route.screen, route.well, route.item]);
 
@@ -119,7 +128,7 @@ export default function App() {
     const p = { me, route, setRoute };
     page = {
       overview: <Overview {...p} />, report: <DailyReport {...p} />, review: <Review {...p} />, rules: <Rules {...p} />,
-      wellinfo: <WellInfo {...p} />, wellreg: <WellReg {...p} />, masterdata: <MasterData {...p} />, perm: <Perm {...p} />, batches: <Batches {...p} />, benchmark: <BenchmarkPage {...p} />, costdetail: <CostDetail {...p} />,
+      wellreg: <WellReg {...p} />, masterdata: <MasterData {...p} />, perm: <Perm {...p} />, batches: <Batches {...p} />, benchmark: <BenchmarkPage {...p} />, costdetail: <CostDetail {...p} />,
     }[route.screen] ?? null;
   }
 
@@ -201,7 +210,19 @@ export default function App() {
           <main className="main">
             <div className="wrap">
               {err && <div className="notice">{err}</div>}
-              <div key={me?.user_id} style={{ display: 'contents' }}>{page}</div>
+              {me?.role === 'finance' && (route.screen === 'wellreg' || route.screen === 'report') && (
+                <label className="pill" style={{ alignSelf: 'flex-start' }}>
+                  <span className="small muted">代填报队伍</span>
+                  <select aria-label="代填报队伍" value={acting} onChange={(e) => setActing(e.target.value)}>
+                    <option value="">请选择队伍</option>
+                    {teams.map((t) => <option key={t.team_id} value={t.team_id}>{t.team_no} {t.name}</option>)}
+                  </select>
+                </label>
+              )}
+              {me?.role === 'finance' && (route.screen === 'wellreg' || route.screen === 'report') && !acting
+                ? <div className="empty">请先选择要代填报的队伍</div>
+                : null}
+              <div key={me?.user_id + ':' + acting} style={{ display: 'contents' }}>{me?.role === 'finance' && (route.screen === 'wellreg' || route.screen === 'report') && !acting ? null : page}</div>
             </div>
           </main>
         </div>

@@ -154,8 +154,9 @@ def test_rule_confirm_backtest_publish(client):
     lst = client.get('/api/rules', headers=H('u_dept')).json()
     draft = next(r for r in lst if r['rule_code'] == 'RL-C2-3-04')
     assert draft['status'] == '待确认'
-    # 企划财务部只读
-    assert client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=H('u_fin')).status_code == 403
+    # 基层队无权确认；管理层包含部室的全部权限
+    assert client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=H('u_team')).status_code == 403
+    assert client.get(f"/api/rules/{draft['rule_id']}", headers=H('u_fin')).json()['can_confirm'] is True
     d = client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=H('u_dept')).json()
     assert d['backtest']['result'] == '豁免' and d['rule']['status'] == '待发布'
     d = client.post(f"/api/rules/{draft['rule_id']}/publish", headers=H('u_dept')).json()

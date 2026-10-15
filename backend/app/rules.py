@@ -32,7 +32,7 @@ def _visible(user: dict, r: dict) -> bool:
 
 
 def _can_edit(user: dict, r: dict) -> bool:
-    return user['role'] == 'dept' and _visible(user, r)
+    return user['role'] in ('dept', 'finance') and _visible(user, r)
 
 
 def list_rules(conn, user: dict) -> list[dict]:

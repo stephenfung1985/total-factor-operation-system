@@ -14,7 +14,7 @@ export default function Review({ me }: PageProps) {
   const detail = useLoad(() => (open === null ? Promise.resolve(null) : api.get<Report>(`/api/reports/${open}`)), [open]);
   const [comment, setComment] = useState('');
   const [busy, setBusy] = useState(false);
-  const canReview = me.role === 'dept';
+  const canReview = me.role === 'dept' || me.role === 'finance';
 
   const act = async (kind: 'approve' | 'reject') => {
     if (kind === 'reject' && !comment.trim()) {

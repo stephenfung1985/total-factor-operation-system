@@ -282,7 +282,7 @@ class Comment(BaseModel):
 
 
 def _team_ctx(c, user, well_id):
-    auth.require(user, 'team')
+    auth.require_team(user)
     auth.check_well(c, user, well_id)
 
 
@@ -295,7 +295,7 @@ def report_catalog(user=User):
 
 @app.get('/api/reports/wells')
 def report_wells(user=User):
-    auth.require(user, 'team')
+    auth.require_team(user)
     with transaction() as c:
         return rows(c.execute(
             'SELECT DISTINCT w.well_id, w.block, w.well_type, w.status FROM well w JOIN team_well_period p ON p.well_id=w.well_id '
@@ -305,7 +305,7 @@ def report_wells(user=User):
 @app.get('/api/reports/mine')
 def report_mine(user=User):
     """本队最近的日报，草稿和驳回的排在前面作为待办。"""
-    auth.require(user, 'team')
+    auth.require_team(user)
     with transaction() as c:
         return rows(c.execute(
             "SELECT report_id, well_id, report_date, version, status, review_comment FROM daily_report WHERE team_id=? "
@@ -356,7 +356,7 @@ def report_get(rid: int, user=User):
 
 @app.put('/api/reports/{rid:int}')
 def report_update(rid: int, body: ReportBody, user=User):
-    auth.require(user, 'team')
+    auth.require_team(user)
     with transaction() as c:
         _own_report(c, user, rid)
         reports.update_draft(c, rid, body.model_dump(), user)
@@ -365,7 +365,7 @@ def report_update(rid: int, body: ReportBody, user=User):
 
 @app.post('/api/reports/{rid:int}/submit')
 def report_submit(rid: int, user=User):
-    auth.require(user, 'team')
+    auth.require_team(user)
     with transaction() as c:
         _own_report(c, user, rid)
         checks = reports.validate(c, reports._load(c, rid))
@@ -376,7 +376,7 @@ def report_submit(rid: int, user=User):
 
 @app.post('/api/reports/{rid:int}/correct')
 def report_correct(rid: int, user=User):
-    auth.require(user, 'team')
+    auth.require_team(user)
     with transaction() as c:
         _own_report(c, user, rid)
         return reports.get_report(c, reports.correct(c, rid, user))
@@ -421,7 +421,7 @@ def report_template(well_id: str, start: str, end: str, user=User):
 
 @app.post('/api/reports/import')
 async def report_import(file: UploadFile = File(...), user=User):
-    auth.require(user, 'team')
+    auth.require_team(user)
     data = await _read_upload(file)
     with transaction() as c:
         results = excel.import_reports(c, data, user)
@@ -532,6 +532,14 @@ def _info_error(_req, exc):
     return JSONResponse(status_code=409, content={'detail': str(exc)})
 
 
+@app.get('/api/teams')
+def team_list(user=User):
+    """管理层代队伍填报时选择队伍。"""
+    auth.require(user, 'finance')
+    with transaction() as c:
+        return rows(c.execute('SELECT team_id, team_no, name FROM team ORDER BY team_no'))
+
+
 @app.get('/api/wellinfo/options')
 def info_options(user=User):
     with transaction() as c:
@@ -548,7 +556,7 @@ def info_options(user=User):
 
 @app.get('/api/wellinfo/mine')
 def info_mine(user=User):
-    auth.require(user, 'team')
+    auth.require_team(user)
     with transaction() as c:
         return wellinfo.my_wells(c, user)
 
@@ -556,7 +564,7 @@ def info_mine(user=User):
 @app.get('/api/wellinfo/current')
 def info_current(well_id: str | None = None, user=User):
     """取某井当前记录（草稿优先）；不带井号返回登记新井的空白表。"""
-    auth.require(user, 'team')
+    auth.require_team(user)
     with transaction() as c:
         rec = wellinfo.current(c, well_id, user['team_id']) if well_id else None
         if well_id and not rec:
@@ -566,7 +574,7 @@ def info_current(well_id: str | None = None, user=User):
 
 @app.post('/api/wellinfo/check')
 def info_check(body: InfoBody, user=User):
-    auth.require(user, 'team')
+    auth.require_team(user)
     with transaction() as c:
         rec = wellinfo.normalize(body.model_dump())
         if body.report_id:
@@ -577,7 +585,7 @@ def info_check(body: InfoBody, user=User):
 
 @app.post('/api/wellinfo')
 def info_save(body: InfoBody, user=User):
-    auth.require(user, 'team')
+    auth.require_team(user)
     with transaction() as c:
         rid = wellinfo.save_draft(c, body.model_dump(), user)
         return wellinfo.view(c, wellinfo._load(c, rid), user['team_id'])
@@ -585,14 +593,14 @@ def info_save(body: InfoBody, user=User):
 
 @app.post('/api/wellinfo/{rid:int}/submit')
 def info_submit(rid: int, user=User):
-    auth.require(user, 'team')
+    auth.require_team(user)
     with transaction() as c:
         return wellinfo.submit(c, rid, user)
 
 
 @app.post('/api/wellinfo/{rid:int}/revise')
 def info_revise(rid: int, user=User):
-    auth.require(user, 'team')
+    auth.require_team(user)
     with transaction() as c:
         nid = wellinfo.revise(c, rid, user)
         return wellinfo.view(c, wellinfo._load(c, nid), user['team_id'])

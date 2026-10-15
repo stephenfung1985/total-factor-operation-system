@@ -177,13 +177,13 @@ def trace(event_id: int, user=User):
 
 @app.get('/api/benchmark')
 def benchmark(period: str = 'all', dims: str = 'market', market: list[str] = Query([]), block: list[str] = Query([]),
-              team: list[str] = Query([]), user=User):
-    """经营对标：dims 为分组方式（market / block / team 任意组合，逗号分隔）；
-    market / block / team 可重复传参，选定参与对比的具体对象；period 为 YYYY-MM 或 all。"""
+              team: list[str] = Query([]), well: list[str] = Query([]), user=User):
+    """经营对标：dims 为分组维度（market / block / team / well，逗号分隔）；
+    market / block / team / well 可重复传参，选定参与对比的具体对象；period 为 YYYY-MM 或 all。"""
     auth.require(user, 'finance')
     with transaction() as c:
         return analysis.benchmark(c, period, [d.strip() for d in dims.split(',') if d.strip()],
-                                  {'market': market, 'block': block, 'team': team})
+                                  {'market': market, 'block': block, 'team': team, 'well': well})
 
 
 # ---------- 费用明细（部室单项成本对比） ----------

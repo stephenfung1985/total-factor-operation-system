@@ -256,7 +256,7 @@ export interface BenchGroup {
 }
 export interface Benchmark {
   period: string; periods: string[]; dims: string[]; dim_labels: Record<string, string>;
-  filters: Record<'market' | 'block' | 'team', string[]>; options: Record<'market' | 'block' | 'team', { value: string; wells: number }[]>;
+  filters: Record<'market' | 'block' | 'team' | 'well', string[]>; options: Record<'market' | 'block' | 'team' | 'well', { value: string; wells: number }[]>;
   filtered: boolean; groups: BenchGroup[]; scope: BenchGroup; total: BenchGroup;
 }
 

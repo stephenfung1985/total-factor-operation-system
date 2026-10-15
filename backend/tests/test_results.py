@@ -247,3 +247,23 @@ def test_delete_registered_well_blocks_import_until_reregistered(client):
     assert 'W002' not in [w['well_id'] for w in ov]
     s = _post(client, _bytes(_sheet_from_export(client, 井号='W002', 月份='06', 队号='70102')), False).json()['sheets'][0]
     assert s['action'] == '阻断' and any('重新登记' in b for b in s['blocks'])
+
+
+def test_batch_new_wells_share_new_team_and_same_well_two_months(client):
+    """批量导入时同一批里的新井共用一支新队伍、同一口新井有多个月份，都不能重复建档。"""
+    wb = _sheet_from_export(client, 井号='H401', 月份='05', 队号='BH99999')
+    _add_well_column(client, wb, 3, 井号='H402', 月份='05', 队号='BH99999')     # 另一口井，同一支新队伍
+    _add_well_column(client, wb, 4, 井号='H401', 月份='06', 队号='BH99999')     # H401 的下一个月
+    data = _bytes(wb)
+    pre = _post_many(client, [('b.xlsx', data)], False).json()
+    assert pre['count'] == {'导入': 3}
+    res = _post_many(client, [('b.xlsx', data)], True)
+    assert res.status_code == 200 and res.json()['count'] == {'导入': 3}
+    from app.db import connect
+    c = connect()
+    n_team = c.execute("SELECT COUNT(*) FROM team WHERE team_no='BH99999'").fetchone()[0]
+    n_well = c.execute("SELECT COUNT(*) FROM well WHERE well_id IN ('H401','H402')").fetchone()[0]
+    c.close()
+    assert n_team == 1 and n_well == 2
+    assert [w['well_id'] for w in client.get('/api/overview?period=2026-05', headers=FIN).json()['wells']] == ['H401', 'H402']
+    assert [w['well_id'] for w in client.get('/api/overview?period=2026-06', headers=FIN).json()['wells']] == ['H401']

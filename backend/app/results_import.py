@@ -264,6 +264,8 @@ def _write(conn, r: dict, filename: str, batch_id: int, user: dict) -> int:
     """写入一张工作表，返回新写入的事项数；覆盖时只冲销并重写金额有变化的科目。"""
     head, wid, period = r['_head'], r['well_id'], r['period']
     team = r['_team']
+    if not team and r['team_no']:   # 同一批里前面的井可能已经建了这支队伍，写入时重新查一次
+        team = conn.execute('SELECT * FROM team WHERE team_no=? OR name=?', (r['team_no'], r['team_no'])).fetchone()
     if not team and not r['team_no']:
         tid = None   # 已有井、表中未填队号：沿用系统中的施工时段
     elif not team:
@@ -278,7 +280,7 @@ def _write(conn, r: dict, filename: str, batch_id: int, user: dict) -> int:
     depth = _num(head.get('实际井深（米）')) or 0
     contract = money(_num(head.get('合同收入（元）')) or 0)
     conn.execute('DELETE FROM well_deleted WHERE well_id=?', (wid,))   # 已删除的历史数据井导入即恢复
-    if r['new_well']:
+    if not conn.execute('SELECT 1 FROM well WHERE well_id=?', (wid,)).fetchone():   # 同一口井的多个月份在同一批里，只建一次
         conn.execute("INSERT INTO well VALUES (?,?,?,?,?,?,?,?,?,?, '正钻')",
                      (wid, _s(head.get('市场分布')) or '—', _s(head.get('区块')) or '—', _s(head.get('井别')) or '—',
                       _s(head.get('井型')) or '—', SECTIONS.index(phase) + 1 if phase in SECTIONS else 1,

@@ -247,3 +247,61 @@ def test_delete_registered_well_blocks_import_until_reregistered(client):
     assert 'W002' not in [w['well_id'] for w in ov]
     s = _post(client, _bytes(_sheet_from_export(client, 井号='W002', 月份='06', 队号='70102')), False).json()['sheets'][0]
     assert s['action'] == '阻断' and any('重新登记' in b for b in s['blocks'])
+
+
+def test_batch_new_wells_share_new_team_and_same_well_two_months(client):
+    """批量导入时同一批里的新井共用一支新队伍、同一口新井有多个月份，都不能重复建档。"""
+    wb = _sheet_from_export(client, 井号='H401', 月份='05', 队号='BH99999')
+    _add_well_column(client, wb, 3, 井号='H402', 月份='05', 队号='BH99999')     # 另一口井，同一支新队伍
+    _add_well_column(client, wb, 4, 井号='H401', 月份='06', 队号='BH99999')     # H401 的下一个月
+    data = _bytes(wb)
+    pre = _post_many(client, [('b.xlsx', data)], False).json()
+    assert pre['count'] == {'导入': 3}
+    res = _post_many(client, [('b.xlsx', data)], True)
+    assert res.status_code == 200 and res.json()['count'] == {'导入': 3}
+    from app.db import connect
+    c = connect()
+    n_team = c.execute("SELECT COUNT(*) FROM team WHERE team_no='BH99999'").fetchone()[0]
+    n_well = c.execute("SELECT COUNT(*) FROM well WHERE well_id IN ('H401','H402')").fetchone()[0]
+    c.close()
+    assert n_team == 1 and n_well == 2
+    assert [w['well_id'] for w in client.get('/api/overview?period=2026-05', headers=FIN).json()['wells']] == ['H401', 'H402']
+    assert [w['well_id'] for w in client.get('/api/overview?period=2026-06', headers=FIN).json()['wells']] == ['H401']
+
+
+def test_overview_year_prev_structure_trend_and_history_wells_are_done(client):
+    m8 = client.get('/api/overview?period=2026-08', headers=FIN).json()
+    m10 = client.get('/api/overview?period=2026-10', headers=FIN).json()
+    year = client.get('/api/overview?period=2026', headers=FIN).json()
+    assert year['months'] == ['2026-08', '2026-10']
+    assert year['sum']['revenue'] == m8['sum']['revenue'] + m10['sum']['revenue']
+    w1 = next(w for w in year['wells'] if w['well_id'] == 'W001')
+    assert w1['last_period'] == '2026-10'
+    # 环比：十月对八月；八月之前没有数据
+    assert m10['prev']['period'] == '2026-08' and m10['prev']['sum'] == m8['sum'] and m8['prev'] is None
+    # 成本科目结构：二级科目合计等于总成本
+    assert sum(d['amount'] for d in m8['structure']) == m8['sum']['total_cost']
+    tr = client.get('/api/overview/trend', headers=FIN).json()
+    assert [t['period'] for t in tr] == ['2026-08', '2026-10'] and tr[0]['revenue'] == m8['sum']['revenue']
+    # 部室看不到收入，趋势里收入为 0
+    assert all(t['revenue'] == 0 for t in client.get('/api/overview/trend', headers={'X-User-Id': 'u_dept'}).json())
+    # 历史数据井默认为完成井
+    _post(client, _bytes(_sheet_from_export(client, 井号='H501', 月份='07', 队号='70101')), True)
+    h = next(w for w in client.get('/api/overview?period=2026-07', headers=FIN).json()['wells'] if w['well_id'] == 'H501')
+    assert h['remark'] == '历史数据井' and h['status'] == '完井'
+
+
+def test_benchmark_multiple_periods(client):
+    one = client.get('/api/benchmark?period=2026-08&dims=team', headers=FIN).json()
+    both = client.get('/api/benchmark?period=2026-08&period=2026-10&dims=team', headers=FIN).json()
+    allp = client.get('/api/benchmark?period=all&dims=team', headers=FIN).json()
+    assert one['selected'] == ['2026-08'] and both['selected'] == ['2026-08', '2026-10'] and both['period'] == '2026-08,2026-10'
+    assert both['scope']['well_months'] == allp['scope']['well_months'] > one['scope']['well_months']
+    assert both['scope']['revenue'] == allp['scope']['revenue']
+    # 整年与默认（不传）等价于全部
+    year = client.get('/api/benchmark?period=2026&dims=team', headers=FIN).json()
+    assert year['selected'] == ['2026-08', '2026-10'] and year['scope']['revenue'] == allp['scope']['revenue']
+    assert client.get('/api/benchmark?dims=team', headers=FIN).json()['selected'] == allp['selected']
+    assert [o['value'] for o in both['period_options']] == ['2026-08', '2026-10'] and both['period_options'][0]['wells'] == 4
+    # 不存在的期间：没有对象，不报错
+    assert client.get('/api/benchmark?period=1999-01&dims=team', headers=FIN).json()['groups'] == []

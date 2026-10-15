@@ -109,8 +109,13 @@ export interface AccountRow {
 export interface Kpi {
   revenue: number; contract: number; fixed: number; variable: number; total_cost: number; gross_margin: number; net_profit: number;
 }
-export interface OverviewWell extends Kpi { well_id: string; block: string; well_type: string; team: string; phase: string; status: string; remark: string }
-export interface Overview { period: string; wells: OverviewWell[]; sum: Omit<Kpi, 'contract'>; show_revenue: boolean; scope: string }
+export type KpiSum = Omit<Kpi, 'contract'>;
+export interface OverviewWell extends KpiSum { well_id: string; market: string; block: string; well_type: string; team: string; phase: string; status: string; remark: string; last_period: string }
+export interface Overview {
+  period: string; months: string[]; wells: OverviewWell[]; sum: KpiSum; show_revenue: boolean; scope: string;
+  prev: { period: string; sum: KpiSum } | null; structure: { code: string; name: string; behavior: string; amount: number }[];
+}
+export interface TrendPoint extends KpiSum { period: string; well_count: number }
 
 export interface TreeNode {
   code: string; name: string; level: number; is_leaf: boolean; parent: string | null; dept: string | null;
@@ -256,7 +261,7 @@ export interface BenchGroup {
     gross_margin: number; net_profit: number; footage: number; remark: string }[];
 }
 export interface Benchmark {
-  period: string; periods: string[]; dims: string[]; dim_labels: Record<string, string>;
+  period: string; selected: string[]; periods: string[]; period_options: { value: string; wells: number }[]; dims: string[]; dim_labels: Record<string, string>;
   filters: Record<'market' | 'block' | 'team' | 'well', string[]>; options: Record<'market' | 'block' | 'team' | 'well', { value: string; wells: number }[]>;
   filtered: boolean; groups: BenchGroup[]; scope: BenchGroup; total: BenchGroup;
 }
@@ -275,6 +280,10 @@ export interface CostItemNode { code: string; name: string; level: number; is_le
 export interface CostOptions { items: CostItemNode[]; periods: string[]; market: string[]; block: string[]; team: string[]; scope: string }
 export interface CostMatrix {
   by: string; label: string; start: string | null; end: string | null; scope: string; grand_total: number; event_count: number;
-  columns: { key: string; label: string; wells: number; total: number }[];
-  rows: (CostItemNode & { values: Record<string, number>; total: number })[];
+  footage: number; rig_months: number; per_meter: number | null; per_rig: number | null;
+  columns: { key: string; label: string; wells: number; total: number; footage: number; rig_months: number; per_meter: number | null; per_rig: number | null }[];
+  rows: (CostItemNode & {
+    values: Record<string, number>; total: number;
+    per_meter: Record<string, number | null>; per_rig: Record<string, number | null>; per_meter_total: number | null; per_rig_total: number | null;
+  })[];
 }

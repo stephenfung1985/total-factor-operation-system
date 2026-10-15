@@ -105,13 +105,16 @@ export function Modal({ open, onClose, title, children, wide, closable = true }:
   );
 }
 
-export function Kpis({ items, flat }: { items: { label: string; value: string; unit: string }[]; flat?: boolean }) {
+export interface KpiItem { label: string; value: string; unit: string; delta?: { text: string; tone: 'good' | 'bad' | 'flat' } }
+
+export function Kpis({ items, flat, board }: { items: KpiItem[]; flat?: boolean; board?: boolean }) {
   return (
-    <div className="kpis" style={flat ? { gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))' } : undefined}>
+    <div className={'kpis' + (board ? ' board' : '')} style={flat ? { gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))' } : undefined}>
       {items.map((k) => (
         <div key={k.label} className={'kpi' + (flat ? ' flat' : '')}>
           <div className="k">{k.label}</div>
           <div className="v"><b>{k.value}</b><span>{k.unit}</span></div>
+          {k.delta && <div className={'delta ' + k.delta.tone}>{k.delta.text}</div>}
         </div>
       ))}
     </div>
@@ -180,5 +183,31 @@ export function PageHead({ title, sub, crumbs, right }: { title: string; sub?: R
         {right}
       </div>
     </header>
+  );
+}
+
+/** 期间选择：年、月分开选；allowYear 时月份可选“全年”（按月累加）。periods 为 YYYY-MM 列表。 */
+export function PeriodPicker({ value, periods, onChange, allowYear }: { value: string; periods: string[]; onChange: (p: string) => void; allowYear?: boolean }) {
+  const years = [...new Set(periods.map((p) => p.slice(0, 4)))].sort().reverse();
+  const year = value.slice(0, 4);
+  const isYear = value.length === 4;
+  const months = periods.filter((p) => p.startsWith(year)).map((p) => p.slice(5)).sort().reverse();
+  const pickYear = (y: string) => {
+    const ms = periods.filter((p) => p.startsWith(y)).sort();
+    if (isYear && allowYear) return onChange(y);
+    const keep = y + '-' + value.slice(5);
+    onChange(periods.includes(keep) ? keep : ms[ms.length - 1]);
+  };
+  return (
+    <div className="pill period" role="group" aria-label="会计期间">
+      {Icon.calendar()}
+      <select aria-label="年份" value={year} onChange={(e) => pickYear(e.target.value)}>
+        {years.map((y) => <option key={y} value={y}>{y} 年</option>)}
+      </select>
+      <select aria-label="月份" value={isYear ? 'all' : value.slice(5)} onChange={(e) => onChange(e.target.value === 'all' ? year : year + '-' + e.target.value)}>
+        {allowYear && <option value="all">全年</option>}
+        {months.map((m) => <option key={m} value={m}>{Number(m)} 月</option>)}
+      </select>
+    </div>
   );
 }

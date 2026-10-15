@@ -153,8 +153,15 @@ def periods(user=User):
 
 @app.get('/api/overview')
 def overview(period: str, user=User):
+    """period 为 YYYY-MM（单月）或 YYYY（全年累计）。"""
     with transaction() as c:
         return analysis.overview(c, user, period)
+
+
+@app.get('/api/overview/trend')
+def overview_trend(user=User):
+    with transaction() as c:
+        return analysis.trend(c, user)
 
 
 @app.get('/api/wells/{well_id}/result')
@@ -176,10 +183,10 @@ def trace(event_id: int, user=User):
 
 
 @app.get('/api/benchmark')
-def benchmark(period: str = 'all', dims: str = 'market', market: list[str] = Query([]), block: list[str] = Query([]),
+def benchmark(period: list[str] = Query(['all']), dims: str = 'market', market: list[str] = Query([]), block: list[str] = Query([]),
               team: list[str] = Query([]), well: list[str] = Query([]), user=User):
     """经营对标：dims 为分组维度（market / block / team / well，逗号分隔）；
-    market / block / team / well 可重复传参，选定参与对比的具体对象；period 为 YYYY-MM 或 all。"""
+    market / block / team / well 可重复传参，选定参与对比的具体对象；period 可重复传参多选，元素为 YYYY-MM、YYYY（整年）或 all。"""
     auth.require(user, 'finance')
     with transaction() as c:
         return analysis.benchmark(c, period, [d.strip() for d in dims.split(',') if d.strip()],
@@ -209,8 +216,8 @@ def cost_detail(by: str = 'period', items: str = '', start: str = '', end: str =
 
 @app.get('/api/cost-detail/export.xlsx')
 def cost_detail_export(by: str = 'period,market,block,team', items: str = '', start: str = '', end: str = '',
-                       detail: bool = True, user=User):
-    """导出：by 可多选，每个维度一个工作表；detail=true 另附“事项明细”工作表便于透视分析。"""
+                       detail: bool = True, unit: bool = True, user=User):
+    """导出：by 可多选，每个维度一个金额工作表；unit=true 再附米成本、单位成本（元/台月）两张表；detail=true 另附“事项明细”工作表便于透视分析。"""
     auth.require(user, 'finance', 'dept')
     bys = [b.strip() for b in by.split(',') if b.strip()]
     bad = [b for b in bys if b not in costdetail.DIMS]
@@ -218,7 +225,7 @@ def cost_detail_export(by: str = 'period,market,block,team', items: str = '', st
         raise HTTPException(400, '维度应为 period / market / block / team 之一')
     with transaction() as c:
         start, end = costdetail._check_range(start, end)
-        data = costdetail.workbook(c, user, _codes(items), start, end, bys, detail)
+        data = costdetail.workbook(c, user, _codes(items), start, end, bys, detail, unit)
         log(c, '导出', 'cost-detail', '费用明细导出', user['who'],
             f"维度 {','.join(bys) or '全部'}；科目 {items or '全部'}；期间 {start or '起'} ~ {end or '今'}")
     return _xlsx(data, f"费用明细_{user['scope_label']}_{start or '全部'}_{end or '全部'}.xlsx")

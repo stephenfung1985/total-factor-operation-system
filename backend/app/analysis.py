@@ -83,20 +83,79 @@ def well_info(conn, well_id: str, period: str) -> dict:
     return w
 
 
-def overview(conn, user: dict, period: str) -> dict:
+SUM_KEYS = ('revenue', 'fixed', 'variable', 'total_cost', 'gross_margin', 'net_profit')
+
+
+def _months(conn, period: str) -> list[str]:
+    """YYYY-MM 为单月；YYYY 为该年有数据的全部月份（升序）。"""
+    if len(period) == 4 and period.isdigit():
+        return sorted(p for p in periods(conn) if p.startswith(period + '-'))
+    return [period]
+
+
+def _prev_period(conn, period: str) -> str | None:
+    """环比对象：单月取上一个有数据的月份，全年取上一年。"""
+    if len(period) == 4:
+        prev = str(int(period) - 1)
+        return prev if _months(conn, prev) else None
+    earlier = [p for p in periods(conn) if p < period]
+    return earlier[0] if earlier else None
+
+
+def _sum_wells(rows: list[dict]) -> dict:
+    return {k: sum(r[k] for r in rows) for k in SUM_KEYS}
+
+
+def overview(conn, user: dict, period: str, with_extra: bool = True) -> dict:
+    """经营总览：period 为 YYYY-MM（单月）或 YYYY（全年，按月累加）。
+    返回各井指标、合计、上期合计（环比）、成本科目结构（二级科目）。历史数据井（未经基层队登记）按完成井处理。"""
+    months = _months(conn, period)
     wells = auth.visible_wells(conn, user)
-    rows = []
+    acc: dict[str, dict] = {}
+    structure: dict[str, dict] = {}
     for wid in wells:
-        has = conn.execute('SELECT 1 FROM economic_event WHERE well_id=? AND period=? LIMIT 1', (wid, period)).fetchone()
-        if not has:
-            continue
-        info = well_info(conn, wid, period)
-        k = compute(conn, user, wid, period)['kpi']
-        rows.append({'well_id': wid, 'block': info['block'], 'well_type': info['well_type'], 'team': info['team'],
-                     'phase': info['phase'], 'status': info['status'], 'remark': remark(conn, wid, period), **k})
-    keys = ('revenue', 'fixed', 'variable', 'total_cost', 'gross_margin', 'net_profit')
-    sums = {k: sum(r[k] for r in rows) for k in keys}
-    return {'period': period, 'wells': rows, 'sum': sums, 'show_revenue': user['role'] != 'dept', 'scope': user['scope_label']}
+        for m in months:
+            if not conn.execute('SELECT 1 FROM economic_event WHERE well_id=? AND period=? LIMIT 1', (wid, m)).fetchone():
+                continue
+            c = compute(conn, user, wid, m)
+            k = c['kpi']
+            row = acc.get(wid)
+            if row is None:
+                info = well_info(conn, wid, m)
+                row = acc[wid] = {'well_id': wid, 'market': info['market'], 'block': info['block'], 'well_type': info['well_type'],
+                                  'team': info['team'], 'phase': info['phase'], 'status': info['status'],
+                                  'remark': remark(conn, wid, m), 'last_period': m, **{x: 0 for x in SUM_KEYS}}
+            else:
+                info = well_info(conn, wid, m)   # 全年累计时以最近一个月的队伍、开次、状态为准
+                row.update(team=info['team'], phase=info['phase'], status=info['status'], remark=remark(conn, wid, m), last_period=m)
+            for x in ('revenue', 'fixed', 'variable', 'total_cost', 'net_profit'):
+                row[x] += k[x]
+            row['gross_margin'] += k['gross_margin']
+            if with_extra:
+                for n in c['tree']:
+                    if n['level'] == 2 and n['amount']:
+                        d = structure.setdefault(n['code'], {'code': n['code'], 'name': n['name'], 'behavior': n['behavior'], 'amount': 0})
+                        d['amount'] += n['amount']
+    rows = sorted(acc.values(), key=lambda r: r['well_id'])
+    for r in rows:
+        if r['remark'] == '历史数据井':
+            r['status'] = '完井'   # 历史数据井默认为完成井
+    out = {'period': period, 'months': months, 'wells': rows, 'sum': _sum_wells(rows),
+           'show_revenue': user['role'] != 'dept', 'scope': user['scope_label']}
+    if with_extra:
+        prev = _prev_period(conn, period)
+        out['prev'] = {'period': prev, 'sum': overview(conn, user, prev, False)['sum']} if prev else None
+        out['structure'] = sorted(structure.values(), key=lambda d: -d['amount'])
+    return out
+
+
+def trend(conn, user: dict) -> list[dict]:
+    """各月合计（收入、成本、净利润、井数），供经营总览趋势图。"""
+    out = []
+    for p in sorted(periods(conn)):
+        o = overview(conn, user, p, False)
+        out.append({'period': p, 'well_count': len(o['wells']), **o['sum']})
+    return out
 
 
 def well_result(conn, user: dict, well_id: str, period: str) -> dict:
@@ -277,17 +336,24 @@ def _aggregate(rows: list[dict], keys: dict) -> dict:
     return _ratios(g)
 
 
-def benchmark(conn, period: str, dims: list[str], filters: dict[str, list[str]] | None = None) -> dict:
+def benchmark(conn, period: str | list[str], dims: list[str], filters: dict[str, list[str]] | None = None) -> dict:
     """经营对标。
+    period：可多选的期间，元素为 YYYY-MM（单月）、YYYY（整年）或 all；多个期间取并集，空或 all 表示全部期间。
     filters：每个维度选定的具体对象（如 队伍 = 70101、70103），只对比这些对象；不选表示该维度全部。
     dims：分组维度，市场 / 区块 / 队伍 / 井；前端按“单选维度 + 下钻”使用，接口仍支持组合。
     返回各分组、所选范围合计（scope）与全部井合计（total），基准由前端在三者或某一分组（标杆）中选择。
     options 为各维度可选对象，按其他维度已选条件联动收窄。单井指标按“井·月”平均；单位进尺成本只用有进尺事实的井·月计算。"""
     dims = [d for d in dims if d in DIMS] or ['market']
     filters = {d: [v for v in (filters or {}).get(d, []) if v] for d in DIMS}
-    periods = periods_all = [r['period'] for r in conn.execute('SELECT DISTINCT period FROM economic_event ORDER BY period')]
-    if period != 'all':
-        periods = [period] if period in periods_all else []
+    periods_all = [r['period'] for r in conn.execute('SELECT DISTINCT period FROM economic_event ORDER BY period')]
+    sel = [period] if isinstance(period, str) else [x for x in period if x]
+    if not sel or 'all' in sel:
+        periods = periods_all
+    else:
+        periods = [p for p in periods_all if any(p == x or (len(x) == 4 and p.startswith(x + '-')) for x in sel)]
+    period_options = [{'value': p, 'wells': conn.execute(
+        'SELECT COUNT(DISTINCT well_id) n FROM economic_event WHERE period=? AND well_id NOT IN (SELECT well_id FROM well_deleted)',
+        (p,)).fetchone()['n']} for p in periods_all]
     rows = []
     for p in periods:
         for r in conn.execute('SELECT DISTINCT well_id FROM economic_event WHERE period=? '
@@ -317,7 +383,7 @@ def benchmark(conn, period: str, dims: list[str], filters: dict[str, list[str]] 
     for row in scoped:
         buckets.setdefault(tuple(row[d] for d in dims), []).append(row)
     groups = [_aggregate(rs, dict(zip(dims, key))) for key, rs in buckets.items()]
-    return {'period': period, 'periods': periods_all, 'dims': dims, 'dim_labels': DIMS, 'filters': filters, 'options': options,
+    return {'period': 'all' if not sel else ','.join(sel), 'selected': periods, 'periods': periods_all, 'period_options': period_options, 'dims': dims, 'dim_labels': DIMS, 'filters': filters, 'options': options,
             'filtered': any(filters.values()), 'groups': groups, 'scope': _aggregate(scoped, {}), 'total': _aggregate(rows, {})}
 
 

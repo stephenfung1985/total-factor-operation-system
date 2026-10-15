@@ -67,8 +67,9 @@ function Level0({ period, periods, title, picker, dept, open, canImport, onImpor
   const { data, error, reload } = useLoad(() => api.get<OV>(`/api/overview?period=${period}`), [period]);
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [file, setFile] = useState<File | null>(null);
-  const tpl = () => download('/api/results/template.xlsx', '单井经营情况导入模板.xlsx').catch((e: Error) => toast(e.message, true));
+  const [files, setFiles] = useState<File[]>([]);
+  const [del, setDel] = useState<string | null>(null);
+  const tpl = () => download('/api/results/template.xlsx', '单井经营情况批量导入模板.xlsx').catch((e: Error) => toast(e.message, true));
   return (
     <>
       <PageHead title={title} sub={data ? '数据范围：' + data.scope : undefined}
@@ -77,21 +78,22 @@ function Level0({ period, periods, title, picker, dept, open, canImport, onImpor
             {canImport && (
               <>
                 <button type="button" className="btn sm link" onClick={tpl}>下载模板</button>
-                <button type="button" className="btn sm link" onClick={() => fileRef.current?.click()}>模板导入</button>
-                <input ref={fileRef} type="file" accept=".xlsx" hidden onChange={(e) => { if (e.target.files?.[0]) setFile(e.target.files[0]); e.target.value = ''; }} />
+                <button type="button" className="btn sm link" onClick={() => fileRef.current?.click()} title="工作表里横向放多口井，可一次选多个文件">批量导入</button>
+                <input ref={fileRef} type="file" accept=".xlsx" multiple hidden onChange={(e) => { if (e.target.files?.length) setFiles([...e.target.files]); e.target.value = ''; }} />
               </>
             )}
             {picker}
           </div>
         } />
-      <ResultImportModal file={file} onClose={() => setFile(null)} onDone={(p) => { if (p === period) reload(); else onImported(p); }} />
+      <ResultImportModal files={files} onClose={() => setFiles([])} onDone={(p) => { if (p === period) reload(); else onImported(p); }} />
+      <DeleteWellModal well={del} onClose={() => setDel(null)} onDone={() => { setDel(null); reload(); }} />
       {error && <div className="notice">{error}</div>}
       {data && (
         <>
           <OverviewCharts periods={periods} period={period} wells={data.wells} dept={dept} open={open} />
           {[{ title: '正钻井', rows: data.wells.filter((w) => !DONE.includes(w.status)) },
             { title: '完成井', rows: data.wells.filter((w) => DONE.includes(w.status)) }].map((g) => (
-            <WellGroup key={g.title} title={g.title} rows={g.rows} dept={dept} open={open} />
+            <WellGroup key={g.title} title={g.title} rows={g.rows} dept={dept} open={open} onDelete={canImport ? setDel : undefined} />
           ))}
         </>
       )}
@@ -363,28 +365,28 @@ function TraceDrawer({ id, onClose }: { id: number | null; onClose: () => void }
 const RES_COLS = '1fr 0.9fr 0.8fr 0.9fr 0.7fr 0.9fr 0.9fr 2.6fr';
 const RES_TAG: Record<string, string> = { 导入: 'good', 覆盖: 'info', 无变化: '', 阻断: 'bad' };
 
-function ResultImportModal({ file, onClose, onDone }: { file: File | null; onClose: () => void; onDone: (period: string) => void }) {
+function ResultImportModal({ files, onClose, onDone }: { files: File[]; onClose: () => void; onDone: (period: string) => void }) {
   const toast = useToast();
   const [res, setRes] = useState<ResultImport | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const post = (commit: boolean) => {
     const fd = new FormData();
-    fd.append('file', file!);
+    files.forEach((f) => fd.append('file', f));
     return api.post<ResultImport>(`/api/results/import?commit=${commit}`, fd);
   };
   useEffect(() => {
     setRes(null);
     setErr(null);
-    if (file) post(false).then(setRes).catch((e: Error) => setErr(e.message));
+    if (files.length) post(false).then(setRes).catch((e: Error) => setErr(e.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file]);
+  }, [files]);
   const writes = res ? res.sheets.filter((x) => x.action === '导入' || x.action === '覆盖') : [];
   const commit = async () => {
     setBusy(true);
     try {
       const r = await post(true);
-      toast(`导入完成：导入 ${r.count['导入'] || 0}、覆盖 ${r.count['覆盖'] || 0}、阻断 ${r.count['阻断'] || 0}；已备注“历史数据导入”`);
+      toast(`导入完成：导入 ${r.count['导入'] || 0}、覆盖 ${r.count['覆盖'] || 0}、阻断 ${r.count['阻断'] || 0}；未经基层队登记的井已备注“历史数据井”`);
       onDone(writes[0].period);
       onClose();
     } catch (e) {
@@ -394,10 +396,10 @@ function ResultImportModal({ file, onClose, onDone }: { file: File | null; onClo
     }
   };
   return (
-    <Modal open={!!file} onClose={onClose} title="单井经营结果模板导入" wide>
+    <Modal open={files.length > 0} onClose={onClose} title="单井经营结果批量导入" wide>
       <div className="hint">
-        文件：{file?.name}。每个工作表一口井一个月，A、B 两列与《单井经营情况导出模板》一致；按末级项目导入为“历史导入”经济事项，汇总行由系统重算。
-        已导入的科目规则不再重复计算；同一井同一月再次导入时，金额有变化的冲销后重新导入。
+        文件：{files.map((f) => f.name).join('、')}。A 列为项目，B 列起每一列一口井一个月（行序与《单井经营情况导出模板》一致），可一次选多个文件；按末级项目导入为“历史导入”经济事项，汇总行由系统重算。
+        未经基层钻井队登记的井备注“历史数据井”；同一井同一月再次导入时，只冲销金额有变化的科目并重新导入，没变的科目保留。
       </div>
       {err && <div className="notice">{err}</div>}
       {!res && !err && <div className="loading">正在校验…</div>}
@@ -407,22 +409,24 @@ function ResultImportModal({ file, onClose, onDone }: { file: File | null; onClo
             {(['导入', '覆盖', '无变化', '阻断'] as const).map((a) => <span key={a} className="chip"><span>{a}</span> {res.count[a] || 0}</span>)}
           </div>
           <div className="scroll-x" style={{ maxHeight: 380, overflowY: 'auto', border: '1px solid var(--sep)', borderRadius: 12 }}>
-            <div style={{ minWidth: 820 }}>
+            <div className="nowrap" style={{ minWidth: 820 }}>
               <div className="grid-row grid-head" style={{ gridTemplateColumns: RES_COLS, position: 'sticky', top: 0, background: 'var(--card)', zIndex: 1 }}>
-                <span>工作表</span><span>井号</span><span>期间</span><span>队号</span><span>处理</span>
+                <span>文件 · 工作表</span><span>井号</span><span>期间</span><span>队号</span><span>处理</span>
                 <span className="r">形象收入（万元）</span><span className="r">总成本（万元）</span><span>说明</span>
               </div>
               {res.sheets.map((x) => (
-                <div key={x.sheet} className="grid-row" style={{ gridTemplateColumns: RES_COLS, minHeight: 44, fontSize: 13, borderBottom: '1px solid var(--sep2)', padding: '6px 24px' }}>
-                  <span className="muted">{x.sheet}</span>
+                <div key={x.file + x.sheet} className="grid-row" style={{ gridTemplateColumns: RES_COLS, minHeight: 44, fontSize: 13, borderBottom: '1px solid var(--sep2)', padding: '6px 24px' }}>
+                  <span className="muted" title={x.file + ' · ' + x.sheet}>{files.length > 1 ? x.file + ' · ' : ''}{x.sheet}</span>
                   <span className="bold">{x.well_id || '—'}{x.new_well && <> <span className="tag">新井</span></>}</span>
                   <span className="num">{x.period || '—'}</span>
                   <span>{x.team_no || '—'}{x.new_team && <> <span className="tag">新队伍</span></>}</span>
                   <span><span className={'tag ' + RES_TAG[x.action]}>{x.action}</span></span>
                   <span className="r num">{wan(x.revenue)}</span><span className="r num">{wan(x.total_cost)}</span>
-                  <span className="text3" style={{ lineHeight: '18px' }}>
-                    {[...x.blocks.map((b) => '阻断：' + b), ...x.warns.map((w) => '提示：' + w)].join('；') || '—'}
-                  </span>
+                  {(() => {
+                    const ch = x.changes?.length ? [`变化 ${x.changes.length} 项：` + x.changes.slice(0, 3).map((c) => `${c.item} ${yuan(c.old)}→${yuan(c.new)}`).join('、') + (x.changes.length > 3 ? ' 等' : '')] : [];
+                    const text = [...x.blocks.map((b) => '阻断：' + b), ...x.warns.map((w) => '提示：' + w), ...ch].join('；') || '—';
+                    return <span className="text3" title={text}>{text}</span>;
+                  })()}
                 </div>
               ))}
             </div>
@@ -441,7 +445,8 @@ function ResultImportModal({ file, onClose, onDone }: { file: File | null; onClo
 
 const DONE = ['完钻', '完井', '已结算'];
 
-function WellGroup({ title, rows, dept, open }: { title: string; rows: OverviewWell[]; dept: boolean; open: (w: string) => void }) {
+function WellGroup({ title, rows, dept, open, onDelete }: { title: string; rows: OverviewWell[]; dept: boolean; open: (w: string) => void; onDelete?: (w: string) => void }) {
+  const cols = (dept ? DEPT_COLS : WELL_COLS) + (onDelete ? ' 32px' : '');
   const sum = { revenue: 0, total_cost: 0, fixed: 0, variable: 0 };
   rows.forEach((w) => { sum.revenue += w.revenue; sum.total_cost += w.total_cost; sum.fixed += w.fixed; sum.variable += w.variable; });
   return (
@@ -455,7 +460,7 @@ function WellGroup({ title, rows, dept, open }: { title: string; rows: OverviewW
         </div>
         <div className="scroll-x">
           <div className="nowrap" style={{ minWidth: dept ? 820 : 1000 }}>
-            <div className="grid-row grid-head" style={{ gridTemplateColumns: dept ? DEPT_COLS : WELL_COLS }}>
+            <div className="grid-row grid-head" style={{ gridTemplateColumns: cols }}>
               <span>井号</span><span>区块</span><span>井型</span><span>队伍</span><span>开次</span>
               {dept ? (
                 <><span className="r">归口成本（万元）</span><span className="r">固定（万元）</span><span className="r">变动（万元）</span></>
@@ -463,15 +468,16 @@ function WellGroup({ title, rows, dept, open }: { title: string; rows: OverviewW
                 <><span className="r">形象收入（万元）</span><span className="r">总成本（万元）</span><span className="r">毛益额（万元）</span>
                   <span className="r">毛益率</span><span className="r">净利润（万元）</span><span className="r">利润率</span></>
               )}
-              <span>备注</span><span />
+              <span>备注</span><span />{onDelete && <span />}
             </div>
             {rows.length === 0 && <div className="empty">本期间没有{title}经营数据</div>}
             {rows.map((w) => {
               const gm = w.revenue - w.variable;
               const net = w.revenue - w.total_cost;
               return (
-                <button key={w.well_id} type="button" className="grid-row line" aria-label={'下钻到 ' + w.well_id}
-                  style={{ gridTemplateColumns: dept ? DEPT_COLS : WELL_COLS }} onClick={() => open(w.well_id)}>
+                <div key={w.well_id} role="button" tabIndex={0} className="grid-row line" aria-label={'下钻到 ' + w.well_id}
+                  style={{ gridTemplateColumns: cols }} onClick={() => open(w.well_id)}
+                  onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(w.well_id); } }}>
                   <span className="bold">{w.well_id}</span><span>{w.block}</span><span>{w.well_type}</span><span>{w.team}</span><span>{w.phase}</span>
                   {dept ? (
                     <><span className="r num bold">{wan(w.total_cost)}</span><span className="r num">{wan(w.fixed)}</span><span className="r num">{wan(w.variable)}</span></>
@@ -482,12 +488,52 @@ function WellGroup({ title, rows, dept, open }: { title: string; rows: OverviewW
                   )}
                   <span>{w.remark && <span className="tag">{w.remark}</span>}</span>
                   {Icon.chevron()}
-                </button>
+                  {onDelete && (
+                    <button type="button" className="row-x del" aria-label={'删除 ' + w.well_id} title="删除这口井"
+                      onClick={(e) => { e.stopPropagation(); onDelete(w.well_id); }}>{Icon.trash()}</button>
+                  )}
+                </div>
               );
             })}
           </div>
         </div>
       </section>
     </>
+  );
+}
+
+/** 手工删除一口井：须输入井号确认；经济事项只冲不改，删除即冲销该井全部事项并从各页面隐藏。 */
+function DeleteWellModal({ well, onClose, onDone }: { well: string | null; onClose: () => void; onDone: () => void }) {
+  const toast = useToast();
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setText(''), [well]);
+  const go = async () => {
+    setBusy(true);
+    try {
+      const r = await api.del<{ reversed: number }>(`/api/wells/${encodeURIComponent(well!)}`);
+      toast(`已删除 ${well}，冲销 ${r.reversed} 笔经济事项`);
+      onDone();
+    } catch (e) {
+      toast((e as Error).message, true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal open={!!well} onClose={onClose} title={`删除 ${well ?? ''}`}>
+      <div className="small" style={{ lineHeight: '22px' }}>
+        删除后这口井会冲销全部经济事项，并从经营总览、对标分析、费用导出和填报列表中隐藏；冲销记录保留，可在历史记录中追溯。
+        未经基层钻井队登记的历史数据井，再次导入即可恢复。
+      </div>
+      <label className="field"><span style={{ whiteSpace: 'nowrap' }}>输入井号 <b>{well}</b> 确认</span>
+        <input className="input" value={text} onChange={(e) => setText(e.target.value)} autoFocus placeholder={well ?? ''}
+          onKeyDown={(e) => e.key === 'Enter' && text.trim() === well && !busy && go()} />
+      </label>
+      <div className="btn-row">
+        <button type="button" className="btn" onClick={onClose}>取消</button>
+        <button type="button" className="btn danger" disabled={busy || text.trim() !== well} onClick={go}>{busy ? '删除中…' : '删除'}</button>
+      </div>
+    </Modal>
   );
 }

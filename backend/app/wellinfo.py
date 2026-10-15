@@ -263,7 +263,8 @@ def template(conn, user: dict) -> dict:
 def my_wells(conn, user: dict) -> list[dict]:
     out = []
     for r in conn.execute(
-            "SELECT * FROM well_info_report r WHERE team_id=? AND status IN ('草稿', '已提交') AND version=("
+            "SELECT * FROM well_info_report r WHERE team_id=? AND status IN ('草稿', '已提交') "
+            "AND well_id NOT IN (SELECT well_id FROM well_deleted) AND version=("
             "SELECT MAX(version) FROM well_info_report x WHERE x.well_id=r.well_id AND x.team_id=r.team_id "
             "AND x.status IN ('草稿', '已提交')) ORDER BY CASE status WHEN '草稿' THEN 0 ELSE 1 END, well_id", (user['team_id'],)):
         rec = _row_to_rec(r)
@@ -390,6 +391,7 @@ def _segments(rec: dict) -> list[tuple[str, str, str | None]]:
 def _apply(conn, rec: dict, user: dict, recalc: bool) -> dict | None:
     d = derive(rec)
     wid, tid = rec['well_id'], rec['team_id']
+    conn.execute('DELETE FROM well_deleted WHERE well_id=?', (wid,))   # 重新登记即恢复已删除的井
     w = conn.execute('SELECT status FROM well WHERE well_id=?', (wid,)).fetchone()
     status = w['status'] if w and w['status'] == '已结算' else d['status']
     if w:
@@ -429,6 +431,7 @@ def summary(conn) -> list[dict]:
     out = []
     for r in conn.execute(
             "SELECT r.*, t.team_no FROM well_info_report r JOIN team t ON t.team_id=r.team_id WHERE r.status='已提交' "
+            "AND r.well_id NOT IN (SELECT well_id FROM well_deleted) "
             "AND r.submitted_at=(SELECT MAX(submitted_at) FROM well_info_report x WHERE x.well_id=r.well_id AND x.status='已提交') "
             'ORDER BY r.well_id'):
         rec = _row_to_rec(r)

@@ -23,6 +23,7 @@ export const Icon = {
   chevron: () => <svg width="16" height="16" viewBox="0 0 24 24" {...S} strokeWidth="2" className="chev"><path d="M9 6l6 6-6 6" /></svg>,
   down: (n = 14) => <svg width={n} height={n} viewBox="0 0 24 24" {...S} strokeWidth="2.2" style={{ color: 'var(--text2)' }}><path d="M6 9l6 6 6-6" /></svg>,
   right: (n = 14) => <svg width={n} height={n} viewBox="0 0 24 24" {...S} strokeWidth="2.2" style={{ color: 'var(--text2)' }}><path d="M9 6l6 6-6 6" /></svg>,
+  trash: () => <svg width="15" height="15" viewBox="0 0 24 24" {...S} strokeWidth="1.9"><path d="M4 7h16" /><path d="M10 11v6M14 11v6" /><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" /><path d="M9 7V4h6v3" /></svg>,
   close: () => <svg width="14" height="14" viewBox="0 0 24 24" {...S} strokeWidth="2.2"><path d="M6 6l12 12" /><path d="M18 6L6 18" /></svg>,
   download: () => <svg width="16" height="16" viewBox="0 0 24 24" {...S} strokeWidth="2"><path d="M12 4v11" /><path d="M7 10l5 5 5-5" /><path d="M5 20h14" /></svg>,
   calendar: () => <svg width="14" height="14" viewBox="0 0 24 24" {...S} strokeWidth="1.8" style={{ color: 'var(--text2)' }}><rect x="3" y="5" width="18" height="16" rx="3" /><path d="M3 10h18" /><path d="M8 3v4" /><path d="M16 3v4" /></svg>,

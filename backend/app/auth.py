@@ -76,8 +76,10 @@ def require(user: dict, *roles: str) -> None:
 def visible_wells(conn, user: dict) -> list[str]:
     if user['role'] == 'team':
         return [r['well_id'] for r in conn.execute(
-            'SELECT DISTINCT well_id FROM team_well_period WHERE team_id=? ORDER BY well_id', (user['team_id'],))]
-    return [r['well_id'] for r in conn.execute('SELECT well_id FROM well ORDER BY well_id')]
+            'SELECT DISTINCT well_id FROM team_well_period WHERE team_id=? AND well_id NOT IN (SELECT well_id FROM well_deleted) '
+            'ORDER BY well_id', (user['team_id'],))]
+    return [r['well_id'] for r in conn.execute(
+        'SELECT well_id FROM well WHERE well_id NOT IN (SELECT well_id FROM well_deleted) ORDER BY well_id')]
 
 
 def check_well(conn, user: dict, well_id: str) -> None:

@@ -368,3 +368,8 @@ select.input { appearance: auto; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 .who b, .who span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .grid-head > span, .text3, .num { white-space: nowrap; }
+
+.row-x.del { opacity: .45; transition: opacity .15s ease, background-color .15s ease, color .15s ease; }
+.grid-row.line:hover .row-x.del, .row-x.del:focus-visible { opacity: 1; }
+.row-x.del:hover { background: var(--bad); color: #fff; }
+.grid-row.line[role="button"] { cursor: pointer; }

@@ -254,7 +254,7 @@ def export_rows(conn, well_id: str, period: str) -> list[dict]:
 
 # ---------- 经营对标 ----------
 
-DIMS = {'market': '市场', 'block': '区块', 'team': '队伍'}
+DIMS = {'market': '市场', 'block': '区块', 'team': '队伍', 'well': '井'}
 SUM_KEYS = ('revenue', 'fixed', 'variable', 'total_cost', 'gross_margin', 'net_profit', 'footage', 'cost_with_footage')
 
 
@@ -280,7 +280,7 @@ def _aggregate(rows: list[dict], keys: dict) -> dict:
 def benchmark(conn, period: str, dims: list[str], filters: dict[str, list[str]] | None = None) -> dict:
     """经营对标。
     filters：每个维度选定的具体对象（如 队伍 = 70101、70103），只对比这些对象；不选表示该维度全部。
-    dims：分组方式，市场 / 区块 / 队伍任意组合。
+    dims：分组维度，市场 / 区块 / 队伍 / 井；前端按“单选维度 + 下钻”使用，接口仍支持组合。
     返回各分组、所选范围合计（scope）与全部井合计（total），基准由前端在三者或某一分组（标杆）中选择。
     options 为各维度可选对象，按其他维度已选条件联动收窄。单井指标按“井·月”平均；单位进尺成本只用有进尺事实的井·月计算。"""
     dims = [d for d in dims if d in DIMS] or ['market']
@@ -298,7 +298,7 @@ def benchmark(conn, period: str, dims: list[str], filters: dict[str, list[str]] 
             footage = conn.execute(
                 "SELECT COALESCE(SUM(quantity), 0) q FROM business_fact WHERE well_id=? AND fact_type='进尺' AND status='已审核' "
                 'AND substr(fact_date,1,7)=?', (wid, p)).fetchone()['q']
-            rows.append({'well_id': wid, 'period': p, 'market': info['market'], 'block': info['block'], 'team': info['team'],
+            rows.append({'well_id': wid, 'well': wid, 'period': p, 'market': info['market'], 'block': info['block'], 'team': info['team'],
                          'remark': remark(conn, wid, p), 'footage': footage,
                          'cost_with_footage': k['total_cost'] if footage else 0, **k})
 

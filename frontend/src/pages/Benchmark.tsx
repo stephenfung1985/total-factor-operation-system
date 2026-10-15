@@ -1,23 +1,26 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, type BenchGroup, type Benchmark } from '../api';
 import type { PageProps } from '../App';
-import { fmt, Icon, Kpis, PageHead, periodLabel, useLoad, wan, yuan } from '../ui';
+import { fmt, Icon, PageHead, periodLabel, useLoad, wan, yuan } from '../ui';
 
-type Dim = 'market' | 'block' | 'team';
-const DIMS: { id: Dim; label: string }[] = [{ id: 'market', label: '市场' }, { id: 'block', label: '区块' }, { id: 'team', label: '队伍' }];
+/** 对比维度按“市场 › 区块 › 队伍 › 井”逐级下钻；每次只看一个维度，多维靠下钻和筛选。 */
+type Dim = 'market' | 'block' | 'team' | 'well';
+const ORDER: { id: Dim; label: string }[] = [{ id: 'market', label: '市场' }, { id: 'block', label: '区块' }, { id: 'team', label: '队伍' }, { id: 'well', label: '井' }];
+const FILTER_DIMS = ORDER.slice(0, 3);
 type Filters = Record<Dim, string[]>;
+const NO_FILTER: Filters = { market: [], block: [], team: [], well: [] };
 
 interface Metric { id: keyof BenchGroup; label: string; better: 'high' | 'low'; kind: 'rate' | 'wan' | 'yuan' }
 const METRICS: Metric[] = [
   { id: 'net_rate', label: '利润率', better: 'high', kind: 'rate' },
   { id: 'gm_rate', label: '毛益率', better: 'high', kind: 'rate' },
   { id: 'avg_net', label: '单井净利润', better: 'high', kind: 'wan' },
-  { id: 'avg_revenue', label: '单井形象收入', better: 'high', kind: 'wan' },
-  { id: 'avg_cost', label: '单井总成本', better: 'low', kind: 'wan' },
+  { id: 'avg_revenue', label: '单井收入', better: 'high', kind: 'wan' },
+  { id: 'avg_cost', label: '单井成本', better: 'low', kind: 'wan' },
   { id: 'cost_per_m', label: '单位进尺成本', better: 'low', kind: 'yuan' },
 ];
 const CHART_MAX = 20;
-const COLS_TAIL = '0.6fr 0.6fr 1fr 1fr 1fr 0.8fr 1fr 0.8fr 1fr 0.8fr 1fr 0.9fr 24px';
+const COLS = 'minmax(120px, 1.6fr) 0.6fr 1fr 1fr 0.9fr 1.1fr 1fr 24px';
 
 const val = (g: BenchGroup, m: Metric) => g[m.id] as number | null;
 const unit = (m: Metric) => (m.kind === 'rate' ? '%' : m.kind === 'wan' ? '万元' : '元/米');
@@ -33,162 +36,197 @@ function diff(v: number | null, base: number | null, m: Metric) {
     : base !== 0 ? `${d >= 0 ? '+' : ''}${((d / Math.abs(base)) * 100).toFixed(1)}%` : '—';
   return { text, good: Math.abs(d) < 1e-9 ? null : (d > 0) === (m.better === 'high') };
 }
+const rank = (gs: BenchGroup[], m: Metric) => gs.filter((g) => val(g, m) !== null)
+  .sort((a, b) => (m.better === 'high' ? (val(b, m) as number) - (val(a, m) as number) : (val(a, m) as number) - (val(b, m) as number)));
 
 export default function BenchmarkPage({ setRoute }: PageProps) {
   const [period, setPeriod] = useState('all');
-  const [dims, setDims] = useState<Dim[]>(['market']);
-  const [filters, setFilters] = useState<Filters>({ market: [], block: [], team: [] });
-  const [baseSel, setBaseSel] = useState('total');   // total / scope / g:<分组名>
+  const [dim, setDim] = useState<Dim>('team');
+  const [filters, setFilters] = useState<Filters>(NO_FILTER);
+  const [showFilter, setShowFilter] = useState(false);
+  const [baseSel, setBaseSel] = useState('total');   // total / scope / g:<对象名>
   const [metricId, setMetricId] = useState<keyof BenchGroup>('net_rate');
-  const [open, setOpen] = useState<string | null>(null);
 
   const query = useMemo(() => {
-    const q = new URLSearchParams({ period, dims: dims.join(',') });
-    DIMS.forEach((d) => filters[d.id].forEach((v) => q.append(d.id, v)));
+    const q = new URLSearchParams({ period, dims: dim });
+    ORDER.forEach((d) => filters[d.id].forEach((v) => q.append(d.id, v)));
     return q.toString();
-  }, [period, dims, filters]);
+  }, [period, dim, filters]);
   const { data, error } = useLoad(() => api.get<Benchmark>(`/api/benchmark?${query}`), [query]);
   const m = METRICS.find((x) => x.id === metricId)!;
+  const dimLabel = ORDER.find((d) => d.id === dim)!.label;
+  const nameOf = (g: BenchGroup) => g.keys[data?.dims[0] ?? dim] ?? '';   // 切换维度的加载间隙仍按旧数据的维度取名
+  const sorted = useMemo(() => (data ? rank(data.groups, m) : []), [data, m]);
+  const noValue = useMemo(() => (data ? data.groups.filter((g) => val(g, m) === null) : []), [data, m]);
+  const rows = useMemo(() => [...sorted, ...noValue], [sorted, noValue]);
 
-  const toggleDim = (d: Dim) => setDims((cur) => {
-    if (cur.includes(d)) return cur.length > 1 ? cur.filter((x) => x !== d) : cur;
-    return DIMS.map((x) => x.id).filter((x) => x === d || cur.includes(x));
-  });
-  // 选了具体对象的维度自动参与分组，才能逐一对比
-  const pick = (d: Dim, values: string[]) => {
-    setFilters((f) => ({ ...f, [d]: values }));
-    if (values.length > 1 && !dims.includes(d)) toggleDim(d);
-  };
-  const clearAll = () => setFilters({ market: [], block: [], team: [] });
-
-  const nameOf = (g: BenchGroup) => (data ? data.dims.map((d) => g.keys[d]).join(' · ') : '');
-  const sorted = useMemo(() => {
-    if (!data) return [];
-    return [...data.groups].sort((a, b) => {
-      const va = val(a, m), vb = val(b, m);
-      if (va === null) return 1;
-      if (vb === null) return -1;
-      return m.better === 'high' ? vb - va : va - vb;
-    });
-  }, [data, m]);
-
-  // 基准：全部井合计 / 所选范围合计 / 某一分组（标杆）
-  const benchGroup = baseSel.startsWith('g:') ? sorted.find((g) => nameOf(g) === baseSel.slice(2)) : undefined;
+  const benchGroup = baseSel.startsWith('g:') ? rows.find((g) => nameOf(g) === baseSel.slice(2)) : undefined;
   useEffect(() => {
     if (!data) return;
     if (baseSel === 'scope' && !data.filtered) setBaseSel('total');
     if (baseSel.startsWith('g:') && !benchGroup) setBaseSel(data.filtered ? 'scope' : 'total');
   }, [data, baseSel, benchGroup]);
   const baseGroup = benchGroup ?? (baseSel === 'scope' && data?.filtered ? data.scope : data?.total);
-  const baseName = benchGroup ? `标杆 ${nameOf(benchGroup)}` : baseSel === 'scope' && data?.filtered ? '所选范围合计' : '全部井合计';
+  const baseName = benchGroup ? `标杆 ${nameOf(benchGroup)}` : baseSel === 'scope' && data?.filtered ? '所选范围' : '全部井';
   const base = baseGroup ? val(baseGroup, m) : null;
-  const scope = data?.scope;
-  const stale = data && (data.dims.join(',') !== dims.join(',') || data.period !== period);
+  const stale = !!data && (data.dims[0] !== dim || data.period !== period);
+
+  // ---- 下钻与面包屑：已下钻的维度（只选了一个对象）依次排在对比维度之前 ----
+  const dimIdx = ORDER.findIndex((d) => d.id === dim);
+  const crumbs = ORDER.slice(0, dimIdx).filter((d) => filters[d.id].length === 1);
+  const drill = (g: BenchGroup) => {
+    const key = nameOf(g);
+    if (dim === 'well') {
+      const it = g.items[g.items.length - 1];
+      if (it) setRoute({ screen: 'overview', well: it.well_id, period: it.period });
+      return;
+    }
+    setFilters((f) => ({ ...f, [dim]: [key] }));
+    setDim(ORDER[dimIdx + 1].id);
+  };
+  const backTo = (i: number) => {
+    setFilters((f) => ({ ...f, ...Object.fromEntries(ORDER.slice(i).map((d) => [d.id, []])) }));
+    setDim(ORDER[i].id);
+  };
+  const activeFilters = FILTER_DIMS.reduce((n, d) => n + (filters[d.id].length ? 1 : 0), 0);
+  const insight = useMemo(() => {
+    if (sorted.length < 2) return '';
+    const b = sorted[0], w = sorted[sorted.length - 1];
+    return `${m.label}：${nameOf(b)} 最好（较${baseName} ${diff(val(b, m), base, m).text}），${nameOf(w)} 最差（较${baseName} ${diff(val(w, m), base, m).text}）。点击任一${dimLabel}${dim === 'well' ? '查看该井经营' : '下钻'}。`;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sorted, m, base, baseName]);
 
   return (
     <>
-      <PageHead title="对标分析" sub="选定要对比的市场、区块或队伍，按维度分组逐一对标；基准可选全部井、所选范围或指定标杆" />
-      <div className="filters" role="group" aria-label="对标条件">
+      <PageHead title="对标分析" sub="选一个对比维度，看谁好谁差、差多少；点击对象逐级下钻" />
+      <div className="filters bm-bar" role="group" aria-label="对标条件">
         <label className="pill">{Icon.calendar()}
           <select aria-label="期间" value={period} onChange={(e) => setPeriod(e.target.value)}>
             <option value="all">全部期间</option>
             {(data?.periods || []).slice().reverse().map((p) => <option key={p} value={p}>{periodLabel(p)}</option>)}
           </select>
         </label>
-        {DIMS.map((d) => (
-          <MultiSelect key={d.id} label={d.label} options={data?.options[d.id] || []} value={filters[d.id]} onChange={(v) => pick(d.id, v)} />
-        ))}
-        {data?.filtered && <button type="button" className="btn sm link" style={{ minHeight: 34 }} onClick={clearAll}>清空对象</button>}
-      </div>
-      <div className="filters" role="group" aria-label="分组与基准">
-        <div className="pill" style={{ padding: '3px 3px 3px 12px' }}>
-          分组方式
-          <div className="seg" role="group" aria-label="分组方式（可多选）">
-            {DIMS.map((d) => (
-              <button key={d.id} type="button" className={dims.includes(d.id) ? 'on' : ''} aria-pressed={dims.includes(d.id)} onClick={() => toggleDim(d.id)}>
-                {dims.includes(d.id) ? '✓ ' : ''}{d.label}
-              </button>
-            ))}
-          </div>
+        <div className="seg" role="group" aria-label="对比维度">
+          {ORDER.map((d) => (
+            <button key={d.id} type="button" className={dim === d.id ? 'on' : ''} aria-pressed={dim === d.id} onClick={() => setDim(d.id)}>{d.label}</button>
+          ))}
         </div>
-        <label className="pill">对标基准
+        <label className="pill">基准
           <select aria-label="对标基准" value={benchGroup ? baseSel : baseSel === 'scope' && data?.filtered ? 'scope' : 'total'} onChange={(e) => setBaseSel(e.target.value)}>
-            <option value="total">全部井合计</option>
-            {data?.filtered && <option value="scope">所选范围合计</option>}
-            {sorted.length > 1 && (
+            <option value="total">全部井</option>
+            {data?.filtered && <option value="scope">所选范围</option>}
+            {rows.length > 1 && (
               <optgroup label="指定标杆">
-                {sorted.map((g) => <option key={nameOf(g)} value={'g:' + nameOf(g)}>{nameOf(g)}</option>)}
+                {rows.map((g) => <option key={nameOf(g)} value={'g:' + nameOf(g)}>{nameOf(g)}</option>)}
               </optgroup>
             )}
           </select>
         </label>
-        <label className="pill">排序指标
-          <select aria-label="排序指标" value={String(metricId)} onChange={(e) => setMetricId(e.target.value as keyof BenchGroup)}>
-            {METRICS.map((x) => <option key={x.id} value={x.id}>{x.label}（{x.better === 'high' ? '越高越好' : '越低越好'}）</option>)}
-          </select>
-        </label>
+        <button type="button" className={'pill ms-btn' + (activeFilters ? ' on' : '')} aria-expanded={showFilter} onClick={() => setShowFilter(!showFilter)}>
+          <span className="muted">筛选</span>{activeFilters > 0 && <b>{activeFilters}</b>}{Icon.down(12)}
+        </button>
       </div>
-      {error && <div className="notice">{error}</div>}
-      {data && scope && baseGroup && (
-        <>
-          <Kpis items={[
-            { label: '对比对象', value: String(data.groups.length), unit: `组 · ${scope.well_count} 口井` },
-            { label: `${baseName} · 利润率`, value: baseGroup.net_rate === null ? '—' : (baseGroup.net_rate * 100).toFixed(1), unit: '%' },
-            { label: `${baseName} · 单井净利润`, value: wan(baseGroup.avg_net), unit: '万元' },
-            { label: `${baseName} · 单位进尺成本`, value: baseGroup.cost_per_m === null ? '—' : yuan(baseGroup.cost_per_m), unit: '元/米' },
-          ]} />
+      {showFilter && (
+        <div className="filters" role="group" aria-label="筛选对象">
+          {FILTER_DIMS.map((d) => (
+            <MultiSelect key={d.id} label={d.label} options={data?.options[d.id] || []} value={filters[d.id]}
+              onChange={(v) => setFilters((f) => ({ ...f, [d.id]: v }))} />
+          ))}
+          {activeFilters > 0 && <button type="button" className="btn sm link" style={{ minHeight: 34 }} onClick={() => { setFilters(NO_FILTER); setDim('market'); }}>清空筛选</button>}
+        </div>
+      )}
+      {(crumbs.length > 0 || dimIdx > 0) && (
+        <nav className="crumbs" aria-label="下钻路径">
+          <button type="button" onClick={() => backTo(0)}>全部</button>
+          {crumbs.map((d) => (
+            <span key={d.id} className="bm-crumb"><span className="sep">›</span>
+              <button type="button" onClick={() => backTo(ORDER.findIndex((x) => x.id === d.id) + 1)} title={`${d.label} ${filters[d.id][0]}，点击回到下一级`}>{filters[d.id][0]}</button>
+            </span>
+          ))}
+          <span className="bm-crumb"><span className="sep">›</span><b>{dimLabel}</b></span>
+        </nav>
+      )}
 
-          <section className="card pad" style={{ opacity: stale ? 0.6 : 1 }}>
+      {error && <div className="notice">{error}</div>}
+      {data && baseGroup && (
+        <div style={{ opacity: stale ? 0.6 : 1, transition: 'opacity .15s', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="bm-cards" role="group" aria-label="对标指标">
+            {METRICS.map((x) => {
+              const r = rank(data.groups, x);
+              const b = baseGroup ? val(baseGroup, x) : null;
+              return (
+                <button key={x.id} type="button" className={'bm-card' + (x.id === metricId ? ' on' : '')} aria-pressed={x.id === metricId} onClick={() => setMetricId(x.id)}>
+                  <span className="k">{x.label}</span>
+                  <b className="num">{show(b, x)}{x.kind !== 'rate' && <small>{unit(x)}</small>}</b>
+                  <span className="s">{r.length > 1 ? `${nameOf(r[0])} 最优 · ${nameOf(r[r.length - 1])} 最差` : `${baseName}基准`}</span>
+                </button>
+              );
+            })}
+          </div>
+          {insight && <div className="notice info bm-insight">{insight}</div>}
+
+          <section className="card pad">
             <div className="sec-head">
-              <h2>{m.label}对标<span className="hint" style={{ fontWeight: 400, marginLeft: 8 }}>{m.better === 'high' ? '越高越好' : '越低越好'} · {unit(m)}</span></h2>
-              <span className="small muted">竖线为{baseName} {show(base, m)}{sorted.length > CHART_MAX ? `；显示前 ${CHART_MAX} 组，完整数据见下表` : ''}</span>
+              <h2>{m.label}排名<span className="hint" style={{ fontWeight: 400, marginLeft: 8 }}>{m.better === 'high' ? '越高越好' : '越低越好'} · {unit(m)}</span></h2>
+              <span className="small muted bm-ellipsis">竖线为{baseName} {show(base, m)}{sorted.length > CHART_MAX ? `；显示前 ${CHART_MAX} 个，完整数据见下表` : ''}</span>
             </div>
             {sorted.length < 2
-              ? <div className="empty" style={{ padding: 20 }}>只有一个对比对象。请在上方选择两个及以上的市场、区块或队伍，或增加分组方式</div>
+              ? <div className="empty" style={{ padding: 20 }}>只有一个{dimLabel}，无法排名。换一个对比维度，或在“筛选”里放宽范围</div>
               : <BarChart groups={sorted.slice(0, CHART_MAX)} metric={m} base={base} baseLabel={benchGroup ? '标杆' : '基准'}
-                  benchName={benchGroup ? nameOf(benchGroup) : null} nameOf={nameOf} />}
+                  benchName={benchGroup ? nameOf(benchGroup) : null} nameOf={nameOf} onPick={drill} />}
           </section>
 
           <section className="card list">
             <div className="card-head">
               <h2>对标明细</h2>
-              <div className="hint">按{m.label}排序；“{m.label}对标”列与{baseName}比较；点击分组展开所含单井</div>
+              <div className="hint">按{m.label}排序；“较基准”为{m.label}与{baseName}的差</div>
             </div>
             <div className="scroll-x">
-              <div style={{ minWidth: 1180 }}>
-                <TableHead dims={data.dims} labels={data.dim_labels} metric={m} />
-                {sorted.map((g) => {
-                  const key = nameOf(g);
-                  return (
-                    <Fragment key={key}>
-                      <Row g={g} dims={data.dims} m={m} base={base} open={open === key} bench={benchGroup === g}
-                        onClick={() => setOpen(open === key ? null : key)} />
-                      {open === key && g.items.map((it) => (
-                        <button key={it.well_id + it.period} type="button" className="grid-row line"
-                          style={{ gridTemplateColumns: `${data.dims.map(() => '1fr').join(' ')} ${COLS_TAIL}`, background: 'var(--fill)', minHeight: 44, fontSize: 13 }}
-                          onClick={() => setRoute({ screen: 'overview', well: it.well_id, period: it.period })} aria-label={`下钻到 ${it.well_id} ${it.period}`}>
-                          <span style={{ gridColumn: `span ${data.dims.length}`, paddingLeft: 16 }}>
-                            {it.well_id} · {it.period}{it.remark && <> <span className="tag">{it.remark}</span></>}
-                          </span>
-                          <span /><span />
-                          <span className="r num">{wan(it.revenue)}</span><span className="r num">{wan(it.total_cost)}</span>
-                          <span className="r num">{wan(it.gross_margin)}</span><span />
-                          <span className={'r num' + (it.net_profit < 0 ? ' neg' : '')}>{wan(it.net_profit)}</span><span /><span />
-                          <span className="r num">{it.footage ? fmt(it.footage, 0) : '—'}</span><span /><span />
-                          {Icon.chevron()}
-                        </button>
-                      ))}
-                    </Fragment>
-                  );
-                })}
-                {data.filtered && <Row g={data.scope} dims={data.dims} m={m} base={base} totalLabel="所选范围合计" />}
-                <Row g={data.total} dims={data.dims} m={m} base={base} totalLabel="全部井合计" />
+              <div className="nowrap" style={{ minWidth: 860 }}>
+                <div className="grid-row grid-head" style={{ gridTemplateColumns: COLS }}>
+                  <span>{dimLabel}</span><span className="r">井数</span><span className="r">形象收入（万元）</span><span className="r">总成本（万元）</span>
+                  <span className="r">利润率</span><span className="r">单位进尺成本（元/米）</span><span className="r">较基准（{m.label}）</span><span />
+                </div>
+                {rows.length === 0 && <div className="empty">当前条件下没有经营数据</div>}
+                {rows.map((g) => <Row key={nameOf(g)} g={g} name={nameOf(g)} m={m} base={base} bench={benchGroup === g} onClick={() => drill(g)} />)}
+                {data.filtered && <Total g={data.scope} label="所选范围合计" m={m} base={base} />}
+                <Total g={data.total} label="全部井合计" m={m} base={base} />
               </div>
             </div>
           </section>
-        </>
+        </div>
       )}
     </>
+  );
+}
+
+function rate(v: number | null) { return v === null ? '—' : (v * 100).toFixed(1) + '%'; }
+
+function Row({ g, name, m, base, bench, onClick }: { g: BenchGroup; name: string; m: Metric; base: number | null; bench: boolean; onClick: () => void }) {
+  const d = diff(val(g, m), base, m);
+  return (
+    <button type="button" className="grid-row line" style={{ gridTemplateColumns: COLS }} onClick={onClick} aria-label={`${name}，下钻`}>
+      <span className="bold" title={name}>{name}{bench && <> <span className="tag info">标杆</span></>}</span>
+      <span className="r num">{g.well_count}</span>
+      <span className="r num">{wan(g.revenue)}</span><span className="r num">{wan(g.total_cost)}</span>
+      <span className={'r num' + (g.net_profit < 0 ? ' neg' : '')}>{rate(g.net_rate)}</span>
+      <span className="r num">{g.cost_per_m === null ? '—' : yuan(g.cost_per_m)}</span>
+      <span className="r">{bench ? '标杆' : <span className={'tag ' + (d.good === null ? '' : d.good ? 'good' : 'bad')}>{d.text}</span>}</span>
+      {Icon.chevron()}
+    </button>
+  );
+}
+
+function Total({ g, label, m, base }: { g: BenchGroup; label: string; m: Metric; base: number | null }) {
+  const d = diff(val(g, m), base, m);
+  return (
+    <div className="grid-row line bold" style={{ gridTemplateColumns: COLS, background: 'var(--fill)', fontSize: 14 }}>
+      <span>{label}</span><span className="r num">{g.well_count}</span>
+      <span className="r num">{wan(g.revenue)}</span><span className="r num">{wan(g.total_cost)}</span>
+      <span className={'r num' + (g.net_profit < 0 ? ' neg' : '')}>{rate(g.net_rate)}</span>
+      <span className="r num">{g.cost_per_m === null ? '—' : yuan(g.cost_per_m)}</span>
+      <span className="r muted">{d.text === '+0.0 pp' || d.text === '—' ? '—' : d.text}</span><span />
+    </div>
   );
 }
 
@@ -236,49 +274,10 @@ function MultiSelect({ label, options, value, onChange }: {
   );
 }
 
-function TableHead({ dims, labels, metric }: { dims: string[]; labels: Record<string, string>; metric: Metric }) {
-  return (
-    <div className="grid-row grid-head" style={{ gridTemplateColumns: `${dims.map(() => '1fr').join(' ')} ${COLS_TAIL}` }}>
-      {dims.map((d) => <span key={d}>{labels[d]}</span>)}
-      <span className="r">井数</span><span className="r">井·月</span>
-      <span className="r">形象收入（万元）</span><span className="r">总成本（万元）</span><span className="r">毛益额（万元）</span><span className="r">毛益率</span>
-      <span className="r">净利润（万元）</span><span className="r">利润率</span><span className="r">单井净利润（万元）</span>
-      <span className="r">进尺（米）</span><span className="r">单位进尺成本（元/米）</span><span className="r">{metric.label}对标</span><span />
-    </div>
-  );
-}
-
-function Row({ g, dims, m, base, open, onClick, totalLabel, bench }: {
-  g: BenchGroup; dims: string[]; m: Metric; base: number | null; open?: boolean; onClick?: () => void; totalLabel?: string; bench?: boolean;
-}) {
-  const d = diff(val(g, m), base, m);
-  const cells = (
-    <>
-      {totalLabel ? <span style={{ gridColumn: `span ${dims.length}` }}>{totalLabel}</span>
-        : dims.map((k, i) => <span key={k}>{g.keys[k]}{bench && i === 0 && <> <span className="tag info">标杆</span></>}</span>)}
-      <span className="r num">{g.well_count}</span><span className="r num">{g.well_months}</span>
-      <span className="r num">{wan(g.revenue)}</span><span className="r num">{wan(g.total_cost)}</span>
-      <span className="r num">{wan(g.gross_margin)}</span><span className="r num muted">{g.gm_rate === null ? '—' : (g.gm_rate * 100).toFixed(1) + '%'}</span>
-      <span className={'r num' + (g.net_profit < 0 ? ' neg' : '')}>{wan(g.net_profit)}</span>
-      <span className="r num muted">{g.net_rate === null ? '—' : (g.net_rate * 100).toFixed(1) + '%'}</span>
-      <span className="r num">{wan(g.avg_net)}</span>
-      <span className="r num">{g.footage ? fmt(g.footage, 0) : '—'}</span>
-      <span className="r num">{g.cost_per_m === null ? '—' : yuan(g.cost_per_m)}</span>
-      <span className="r">{bench ? '标杆' : <span className={'tag ' + (d.good === null ? '' : d.good ? 'good' : 'bad')}>{d.text}</span>}</span>
-    </>
-  );
-  const style = { gridTemplateColumns: `${dims.map(() => '1fr').join(' ')} ${COLS_TAIL}` };
-  if (totalLabel) return <div className="grid-row line bold" style={{ ...style, background: 'var(--fill)', fontSize: 14 }}>{cells}<span /></div>;
-  return (
-    <button type="button" className={'grid-row line' + (open ? ' sel' : '')} style={style} aria-expanded={open} onClick={onClick}>
-      {cells}{open ? Icon.down(14) : Icon.right(14)}
-    </button>
-  );
-}
-
-/** 单系列横向条形图：一个色相（强调蓝），零线与基准竖线为细线；每条可悬停 / 聚焦查看数值。 */
-function BarChart({ groups, metric, base, baseLabel, benchName, nameOf }: {
-  groups: BenchGroup[]; metric: Metric; base: number | null; baseLabel: string; benchName: string | null; nameOf: (g: BenchGroup) => string;
+/** 单系列横向条形图：优于基准用强调蓝、劣于基准用红，零线与基准为细线；悬停看数值，点击下钻。 */
+function BarChart({ groups, metric, base, baseLabel, benchName, nameOf, onPick }: {
+  groups: BenchGroup[]; metric: Metric; base: number | null; baseLabel: string; benchName: string | null;
+  nameOf: (g: BenchGroup) => string; onPick: (g: BenchGroup) => void;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const vals = groups.map((g) => val(g, metric));
@@ -296,16 +295,20 @@ function BarChart({ groups, metric, base, baseLabel, benchName, nameOf }: {
         const d = diff(v, base, metric);
         const neg = v !== null && v < 0;
         return (
-          <div key={name} className={'bar-row' + (hover === i ? ' on' : '')} tabIndex={0}
-            aria-label={`${name}：${metric.label} ${show(v, metric)}${isBench ? '（标杆）' : `，与${baseLabel} ${d.text}`}`}
-            onMouseEnter={() => setHover(i)} onFocus={() => setHover(i)} onBlur={() => setHover(null)}>
+          <div key={name} className={'bar-row pick' + (hover === i ? ' on' : '')} tabIndex={0} role="button"
+            aria-label={`${name}：${metric.label} ${show(v, metric)}${isBench ? '（标杆）' : `，较${baseLabel} ${d.text}`}，点击下钻`}
+            onMouseEnter={() => setHover(i)} onFocus={() => setHover(i)} onBlur={() => setHover(null)}
+            onClick={() => onPick(g)} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onPick(g))}>
             <span className="bar-name" title={name}>{isBench ? '★ ' : ''}{name}</span>
             <span className="bar-plot">
               <span className="bar-zero" style={{ left: `${zero}%` }} />
               {base !== null && <span className="bar-base" style={{ left: `${pos(base)}%` }}>{i === 0 && <em>{baseLabel}</em>}</span>}
               {v !== null && (
                 <>
-                  <span className={'bar' + (neg ? ' neg' : '')} style={{ left: `${Math.min(zero, pos(v))}%`, width: `${Math.abs(pos(v) - zero)}%` }} />
+                  <span className={'bar' + (neg ? ' neg' : '')} style={{
+                    left: `${Math.min(zero, pos(v))}%`, width: `${Math.abs(pos(v) - zero)}%`,
+                    background: d.good === false ? 'var(--bad)' : undefined,
+                  }} />
                   <span className="bar-val num" style={neg ? { right: `calc(${100 - pos(v)}% + 6px)` } : { left: `calc(${pos(v)}% + 6px)` }}>{show(v, metric)}</span>
                 </>
               )}
@@ -313,7 +316,7 @@ function BarChart({ groups, metric, base, baseLabel, benchName, nameOf }: {
                 <span className="bar-tip" role="tooltip" style={{ left: `clamp(0px, calc(${pos(v ?? 0)}% - 90px), calc(100% - 200px))` }}>
                   <b>{show(v, metric)}</b>
                   <span>{name}{isBench ? '（标杆）' : ''}</span>
-                  <span>{isBench ? '' : `与${baseLabel} ${d.text} · `}{g.well_count} 口井 / {g.well_months} 井·月</span>
+                  <span>{isBench ? '' : `较${baseLabel} ${d.text} · `}{g.well_count} 口井 / {fmt(g.well_months, 0)} 井·月</span>
                 </span>
               )}
             </span>

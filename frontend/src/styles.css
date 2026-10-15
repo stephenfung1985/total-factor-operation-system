@@ -369,6 +369,23 @@ select.input { appearance: auto; }
 .who b, .who span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .grid-head > span, .text3, .num { white-space: nowrap; }
 
+/* 对标分析：单行控制栏、指标卡切换、可下钻条形 */
+.bm-bar { flex-wrap: wrap; }
+.bm-bar .seg button { white-space: nowrap; }
+.bm-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.bm-card { display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 14px 16px; border-radius: 16px; border: 1.5px solid transparent; background: var(--card); color: var(--text); min-width: 0; transition: border-color .15s ease, box-shadow .15s ease, transform .12s ease; }
+.bm-card:hover { box-shadow: 0 2px 14px rgba(0,0,0,.07); }
+.bm-card:active { transform: scale(.985); }
+.bm-card.on { border-color: var(--accent); }
+.bm-card .k { font-size: 13px; color: var(--text2); white-space: nowrap; }
+.bm-card b { font-size: 22px; font-weight: 600; white-space: nowrap; letter-spacing: -0.01em; }
+.bm-card b small { font-size: 12px; font-weight: 400; color: var(--text2); margin-left: 4px; }
+.bm-card .s { font-size: 12px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bm-insight, .bm-ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bm-crumb { display: inline-flex; align-items: center; gap: 6px; }
+.bar-row.pick { cursor: pointer; transition: background-color .15s ease, transform .12s ease; }
+.bar-row.pick:active { transform: scale(.995); }
+.bar { transition: width .3s ease, left .3s ease, filter .15s ease; }
 .row-x.del { opacity: .45; transition: opacity .15s ease, background-color .15s ease, color .15s ease; }
 .grid-row.line:hover .row-x.del, .row-x.del:focus-visible { opacity: 1; }
 .row-x.del:hover { background: var(--bad); color: #fff; }

@@ -40,7 +40,7 @@ const rank = (gs: BenchGroup[], m: Metric) => gs.filter((g) => val(g, m) !== nul
   .sort((a, b) => (m.better === 'high' ? (val(b, m) as number) - (val(a, m) as number) : (val(a, m) as number) - (val(b, m) as number)));
 
 export default function BenchmarkPage({ setRoute }: PageProps) {
-  const [period, setPeriod] = useState('all');
+  const [periodSel, setPeriodSel] = useState<string[]>([]);   // 空 = 全部期间，可多选月份
   const [dim, setDim] = useState<Dim>('team');
   const [filters, setFilters] = useState<Filters>(NO_FILTER);
   const [showFilter, setShowFilter] = useState(false);
@@ -48,10 +48,11 @@ export default function BenchmarkPage({ setRoute }: PageProps) {
   const [metricId, setMetricId] = useState<keyof BenchGroup>('net_rate');
 
   const query = useMemo(() => {
-    const q = new URLSearchParams({ period, dims: dim });
+    const q = new URLSearchParams({ dims: dim });
+    (periodSel.length ? [...periodSel].sort() : ['all']).forEach((p) => q.append('period', p));
     ORDER.forEach((d) => filters[d.id].forEach((v) => q.append(d.id, v)));
     return q.toString();
-  }, [period, dim, filters]);
+  }, [periodSel, dim, filters]);
   const { data, error } = useLoad(() => api.get<Benchmark>(`/api/benchmark?${query}`), [query]);
   const m = METRICS.find((x) => x.id === metricId)!;
   const dimLabel = ORDER.find((d) => d.id === dim)!.label;
@@ -69,7 +70,7 @@ export default function BenchmarkPage({ setRoute }: PageProps) {
   const baseGroup = benchGroup ?? (baseSel === 'scope' && data?.filtered ? data.scope : data?.total);
   const baseName = benchGroup ? `标杆 ${nameOf(benchGroup)}` : baseSel === 'scope' && data?.filtered ? '所选范围' : '全部井';
   const base = baseGroup ? val(baseGroup, m) : null;
-  const stale = !!data && (data.dims[0] !== dim || data.period !== period);
+  const stale = !!data && (data.dims[0] !== dim || data.period !== (periodSel.length ? [...periodSel].sort().join(',') : 'all'));
 
   // ---- 下钻与面包屑：已下钻的维度（只选了一个对象）依次排在对比维度之前 ----
   const dimIdx = ORDER.findIndex((d) => d.id === dim);
@@ -100,12 +101,8 @@ export default function BenchmarkPage({ setRoute }: PageProps) {
     <>
       <PageHead title="对标分析" sub="选一个对比维度，看谁好谁差、差多少；点击对象逐级下钻" />
       <div className="filters bm-bar" role="group" aria-label="对标条件">
-        <label className="pill">{Icon.calendar()}
-          <select aria-label="期间" value={period} onChange={(e) => setPeriod(e.target.value)}>
-            <option value="all">全部期间</option>
-            {(data?.periods || []).slice().reverse().map((p) => <option key={p} value={p}>{periodLabel(p)}</option>)}
-          </select>
-        </label>
+        <MultiSelect label="期间" options={[...(data?.period_options || [])].reverse()} value={periodSel} onChange={setPeriodSel}
+          all="全部期间" unit="个月" fmtValue={periodLabel} icon quick={years(data?.periods || [])} />
         <div className="seg" role="group" aria-label="对比维度">
           {ORDER.map((d) => (
             <button key={d.id} type="button" className={dim === d.id ? 'on' : ''} aria-pressed={dim === d.id} onClick={() => setDim(d.id)}>{d.label}</button>
@@ -200,6 +197,12 @@ export default function BenchmarkPage({ setRoute }: PageProps) {
   );
 }
 
+/** 按年快选：把一整年的月份一次选中或取消。 */
+function years(periods: string[]) {
+  return [...new Set(periods.map((p) => p.slice(0, 4)))].sort().reverse()
+    .map((y) => ({ label: `${y} 年`, values: periods.filter((p) => p.startsWith(y)) }));
+}
+
 function rate(v: number | null) { return v === null ? '—' : (v * 100).toFixed(1) + '%'; }
 
 function Row({ g, name, m, base, bench, onClick }: { g: BenchGroup; name: string; m: Metric; base: number | null; bench: boolean; onClick: () => void }) {
@@ -231,8 +234,9 @@ function Total({ g, label, m, base }: { g: BenchGroup; label: string; m: Metric;
 }
 
 /** 多选下拉：不选表示全部；选项带井数，按其他维度已选条件联动收窄。 */
-function MultiSelect({ label, options, value, onChange }: {
+function MultiSelect({ label, options, value, onChange, all = '全部', unit = '个', fmtValue = (v: string) => v, icon, quick }: {
   label: string; options: { value: string; wells: number }[]; value: string[]; onChange: (v: string[]) => void;
+  all?: string; unit?: string; fmtValue?: (v: string) => string; icon?: boolean; quick?: { label: string; values: string[] }[];
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
@@ -245,27 +249,37 @@ function MultiSelect({ label, options, value, onChange }: {
     window.addEventListener('keydown', esc);
     return () => { document.removeEventListener('mousedown', close); window.removeEventListener('keydown', esc); };
   }, [open]);
-  const shown = options.filter((o) => !q || o.value.includes(q.trim()));
-  const summary = value.length === 0 ? '全部' : value.length === 1 ? value[0] : `${value[0]} 等 ${value.length} 个`;
+  const shown = options.filter((o) => !q || fmtValue(o.value).includes(q.trim()) || o.value.includes(q.trim()));
+  const ordered = [...value].sort();
+  const summary = value.length === 0 ? all : value.length === 1 ? fmtValue(value[0]) : `${fmtValue(ordered[0])} 等 ${value.length} ${unit}`;
   const toggle = (v: string) => onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
   return (
     <div className="ms" ref={ref}>
       <button type="button" className={'pill ms-btn' + (value.length ? ' on' : '')} aria-haspopup="listbox" aria-expanded={open}
-        aria-label={`${label}：${value.length ? value.join('、') : '全部'}`} onClick={() => setOpen(!open)}>
-        <span className="muted">{label}</span><b>{summary}</b>{Icon.down(12)}
+        aria-label={`${label}：${value.length ? value.map(fmtValue).join('、') : all}`} onClick={() => setOpen(!open)}>
+        {icon && Icon.calendar()}<span className="muted">{label}</span><b>{summary}</b>{Icon.down(12)}
       </button>
       {open && (
         <div className="ms-pop" role="listbox" aria-multiselectable="true" aria-label={'选择' + label}>
           {options.length > 8 && <input className="input" style={{ height: 34, fontSize: 13, marginBottom: 6 }} placeholder={'搜索' + label} value={q} onChange={(e) => setQ(e.target.value)} autoFocus />}
           <div className="ms-actions">
             <button type="button" onClick={() => onChange(options.map((o) => o.value))}>全选</button>
-            <button type="button" onClick={() => onChange([])}>清空（全部）</button>
+            <button type="button" onClick={() => onChange([])}>清空（{all}）</button>
           </div>
+          {quick && quick.length > 0 && (
+            <div className="ms-actions" aria-label="按年选择">
+              {quick.map((y) => {
+                const on = y.values.every((v) => value.includes(v));
+                return <button key={y.label} type="button" className={on ? 'on' : ''} aria-pressed={on}
+                  onClick={() => onChange(on ? value.filter((v) => !y.values.includes(v)) : [...new Set([...value, ...y.values])])}>{y.label}</button>;
+              })}
+            </div>
+          )}
           {shown.length === 0 && <div className="hint" style={{ padding: 8 }}>没有可选的{label}</div>}
           {shown.map((o) => (
             <label key={o.value} className="ms-opt" role="option" aria-selected={value.includes(o.value)}>
               <input type="checkbox" checked={value.includes(o.value)} onChange={() => toggle(o.value)} />
-              <span style={{ flex: 1 }}>{o.value}</span><span className="small muted">{o.wells} 口井</span>
+              <span style={{ flex: 1 }}>{fmtValue(o.value)}</span><span className="small muted">{o.wells} 口井</span>
             </label>
           ))}
         </div>

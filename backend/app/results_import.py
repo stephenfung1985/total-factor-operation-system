@@ -281,7 +281,7 @@ def _write(conn, r: dict, filename: str, batch_id: int, user: dict) -> int:
     contract = money(_num(head.get('合同收入（元）')) or 0)
     conn.execute('DELETE FROM well_deleted WHERE well_id=?', (wid,))   # 已删除的历史数据井导入即恢复
     if not conn.execute('SELECT 1 FROM well WHERE well_id=?', (wid,)).fetchone():   # 同一口井的多个月份在同一批里，只建一次
-        conn.execute("INSERT INTO well VALUES (?,?,?,?,?,?,?,?,?,?, '正钻')",
+        conn.execute("INSERT INTO well VALUES (?,?,?,?,?,?,?,?,?,?, '完井')",
                      (wid, _s(head.get('市场分布')) or '—', _s(head.get('区块')) or '—', _s(head.get('井别')) or '—',
                       _s(head.get('井型')) or '—', SECTIONS.index(phase) + 1 if phase in SECTIONS else 1,
                       _num(head.get('设计井深（米）')) or 0, depth, _s(head.get('甲方单位')) or None, contract))

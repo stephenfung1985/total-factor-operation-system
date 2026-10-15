@@ -337,7 +337,7 @@ select.input { appearance: auto; }
 .comp-head { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
 .comp-bar { display: flex; height: 26px; border-radius: 8px; overflow: hidden; background: var(--fill2); }
 .comp-bar span { display: flex; align-items: center; justify-content: center; font-size: 12px; color: #fff; min-width: 0; }
-.comp-bar.empty { align-items: center; justify-content: center; font-size: 12px; color: var(--text2); }
+.comp-bar.blank { align-items: center; justify-content: center; font-size: 12px; color: var(--text2); }
 .wp { display: flex; flex-direction: column; gap: 2px; }
 .wp-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) 84px; align-items: center; min-height: 30px; border: none; background: transparent; border-radius: 8px; padding: 0 8px; text-align: left; color: var(--text); font-size: 13px; }
 .wp-row:hover { background: var(--fill); }
@@ -390,3 +390,45 @@ select.input { appearance: auto; }
 .grid-row.line:hover .row-x.del, .row-x.del:focus-visible { opacity: 1; }
 .row-x.del:hover { background: var(--bad); color: #fff; }
 .grid-row.line[role="button"] { cursor: pointer; }
+
+/* 经营总览：版面与图表 */
+.period select { cursor: pointer; }
+.kpi .delta { font-size: 12px; white-space: nowrap; color: var(--text2); }
+.kpi .delta.good { color: var(--good); }
+.kpi .delta.bad { color: var(--bad); }
+.charts { grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }
+.rank { display: flex; flex-direction: column; gap: 2px; }
+.rank-row { display: grid; grid-template-columns: minmax(64px, 110px) minmax(0, 1fr) 96px; align-items: center; gap: 8px; min-height: 30px; padding: 0 8px; border: none; border-radius: 8px; background: transparent; color: var(--text); font-size: 13px; text-align: left; width: 100%; }
+div.rank-row { cursor: default; }
+.rank-row.pick { cursor: pointer; transition: background-color .15s ease, transform .12s ease; }
+.rank-row.pick:hover { background: var(--fill); }
+.rank-row.pick:active { transform: scale(.992); }
+.rank-row.on { background: var(--sel); box-shadow: inset 0 0 0 1px var(--accent); }
+.rank-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rank-plot { position: relative; height: 16px; min-width: 0; }
+.rank-bar { position: absolute; top: 1px; height: 14px; border-radius: 3px; max-width: 100%; transition: width .3s ease, left .3s ease; }
+.rank-zero { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--sep); }
+.rank-val { text-align: right; white-space: nowrap; font-size: 13px; }
+.rank-val em { font-style: normal; font-size: 11px; color: var(--text2); margin-left: 6px; }
+.rank-gap { text-align: center; font-size: 11px; color: var(--text2); padding: 2px 0; }
+.wp2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 16px 28px; }
+.wp2-t { font-size: 12px; color: var(--text2); padding: 0 8px 4px; }
+.wp2-all { max-height: 300px; overflow-y: auto; padding-right: 4px; border-top: 1px solid var(--sep2); padding-top: 8px; }
+.ov-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ov-search { width: 240px; max-width: 100%; height: 36px; font-size: 14px; }
+.ov-count { margin-left: auto; white-space: nowrap; }
+.chip-x { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px 0 12px; border: 1px solid var(--accent); border-radius: 16px; background: var(--sel); color: var(--accent); font-size: 13px; white-space: nowrap; }
+.chip-x:hover { background: var(--infobg); }
+.ov-sum { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.more { width: 100%; height: 40px; border: none; border-top: 1px solid var(--sep2); background: transparent; color: var(--accent); font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 4px; transition: background-color .15s ease; }
+.more:hover { background: var(--fill); }
+
+/* 总览指标卡：窄屏 2 列、中屏 3 列、宽屏一排 6 列，数字与单位始终同一行 */
+.kpis.board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 760px) { .kpis.board { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 1560px) { .kpis.board { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+.kpis.board .kpi .v b { font-size: clamp(20px, 2vw, 28px); }
+.ov-none { flex-direction: row; align-items: center; justify-content: space-between; padding: 14px 24px; }
+.ov-none h2 { margin: 0; font-size: 17px; }
+.ms-actions button.on { background: var(--sel); font-weight: 600; }
+.ms-actions button { white-space: nowrap; }

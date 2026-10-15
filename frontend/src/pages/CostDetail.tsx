@@ -1,12 +1,18 @@
 import { useMemo, useState } from 'react';
 import { api, download, type CostMatrix, type CostOptions } from '../api';
 import type { PageProps } from '../App';
-import { PageHead, Seg, useLoad, useToast, yuan, Icon } from '../ui';
+import { fmt, PageHead, Seg, useLoad, useToast, yuan, Icon } from '../ui';
 
 type Dim = 'period' | 'market' | 'block' | 'team';
 const DIMS: { id: Dim; label: string }[] = [
   { id: 'period', label: '时间' }, { id: 'market', label: '市场' }, { id: 'block', label: '区块' }, { id: 'team', label: '队伍' },
 ];
+
+type Metric = 'amount' | 'per_meter' | 'per_rig';
+const METRICS: { id: Metric; label: string; unit: string }[] = [
+  { id: 'amount', label: '金额', unit: '元' }, { id: 'per_meter', label: '米成本', unit: '元/米' }, { id: 'per_rig', label: '单位成本', unit: '元/台月' },
+];
+const money = (v: number | null | undefined, m: Metric) => (v === null || v === undefined || v === 0 ? '-' : m === 'amount' ? yuan(v) : fmt(v, 2));
 
 export default function CostDetail({ me }: PageProps) {
   const toast = useToast();
@@ -18,6 +24,8 @@ export default function CostDetail({ me }: PageProps) {
   const [view, setView] = useState<Dim>('period');
   const [exportDims, setExportDims] = useState<Dim[]>(['period', 'market', 'block', 'team']);
   const [withDetail, setWithDetail] = useState(true);
+  const [withUnit, setWithUnit] = useState(true);
+  const [metric, setMetric] = useState<Metric>('amount');
   const [busy, setBusy] = useState(false);
 
   const params = useMemo(() => {
@@ -47,6 +55,7 @@ export default function CostDetail({ me }: PageProps) {
       const p = new URLSearchParams(params);
       p.set('by', exportDims.join(','));
       p.set('detail', String(withDetail));
+      p.set('unit', String(withUnit));
       await download(`/api/cost-detail/export.xlsx?${p}`, '费用明细.xlsx');
       toast('已导出');
     } catch (e) {
@@ -101,6 +110,7 @@ export default function CostDetail({ me }: PageProps) {
             {DIMS.map((d) => (
               <label key={d.id}><input type="checkbox" checked={exportDims.includes(d.id)} onChange={() => toggleDim(d.id)} />按{d.label}</label>
             ))}
+            <label><input type="checkbox" checked={withUnit} onChange={(e) => setWithUnit(e.target.checked)} />米成本、单位成本（每个维度各一张表）</label>
             <label><input type="checkbox" checked={withDetail} onChange={(e) => setWithDetail(e.target.checked)} />事项明细（逐笔，便于 Excel 透视）</label>
           </div>
         </div>
@@ -109,6 +119,7 @@ export default function CostDetail({ me }: PageProps) {
       <section className="card list">
         <div className="card-head center">
           <h2>预览</h2>
+          <Seg label="成本口径" value={metric} onChange={setMetric} options={METRICS.map((x) => ({ id: x.id, label: x.label }))} />
           <Seg label="预览维度" value={view} onChange={setView} options={DIMS.map((d) => ({ id: d.id, label: '按' + d.label }))} />
         </div>
         <div className="scroll-x" style={{ maxHeight: 560, overflow: 'auto' }}>
@@ -118,7 +129,7 @@ export default function CostDetail({ me }: PageProps) {
                 <tr>
                   <th className="name">成本科目</th>
                   {data.columns.map((c) => <th key={c.key}>{c.label}</th>)}
-                  <th>合计（元）</th>
+                  <th>合计（{METRICS.find((x) => x.id === metric)!.unit}）</th>
                 </tr>
               </thead>
               <tbody>
@@ -127,20 +138,38 @@ export default function CostDetail({ me }: PageProps) {
                   {data.columns.map((c) => <td key={c.key} className="r num">{c.wells}</td>)}
                   <td />
                 </tr>
+                <tr className="wells">
+                  <td className="name">进尺（米）</td>
+                  {data.columns.map((c) => <td key={c.key} className="r num">{fmt(c.footage, 0)}</td>)}
+                  <td className="r num">{fmt(data.footage, 0)}</td>
+                </tr>
+                <tr className="wells">
+                  <td className="name">钻机台月</td>
+                  {data.columns.map((c) => <td key={c.key} className="r num">{fmt(c.rig_months, 2)}</td>)}
+                  <td className="r num">{fmt(data.rig_months, 2)}</td>
+                </tr>
                 {data.rows.map((r) => (
                   <tr key={r.code} className={r.is_leaf ? '' : 'grp'}>
                     <td className="name" style={{ paddingLeft: 12 + (r.level - 1) * 14 }}>{r.name}</td>
-                    {data.columns.map((c) => (
-                      <td key={c.key} className={'r num' + (r.values[c.key] ? '' : ' zero')}>{r.values[c.key] ? yuan(r.values[c.key]) : '-'}</td>
-                    ))}
-                    <td className="r num bold">{yuan(r.total)}</td>
+                    {data.columns.map((c) => {
+                      const v = metric === 'amount' ? r.values[c.key] : r[metric][c.key];
+                      return <td key={c.key} className={'r num' + (v ? '' : ' zero')}>{money(v, metric)}</td>;
+                    })}
+                    <td className="r num bold">{money(metric === 'amount' ? r.total : metric === 'per_meter' ? r.per_meter_total : r.per_rig_total, metric)}</td>
                   </tr>
                 ))}
                 <tr className="total">
                   <td className="name">合计（叶子科目）</td>
-                  {data.columns.map((c) => <td key={c.key} className="r num">{yuan(c.total)}</td>)}
-                  <td className="r num">{yuan(data.grand_total)}</td>
+                  {data.columns.map((c) => <td key={c.key} className="r num">{money(metric === 'amount' ? c.total : c[metric], metric)}</td>)}
+                  <td className="r num">{money(metric === 'amount' ? data.grand_total : data[metric], metric)}</td>
                 </tr>
+                {metric === 'amount' && [['米成本（元/米）', 'per_meter'], ['单位成本（元/台月）', 'per_rig']].map(([label, key]) => (
+                  <tr key={key} className="wells">
+                    <td className="name">{label}</td>
+                    {data.columns.map((c) => <td key={c.key} className="r num">{money(c[key as 'per_meter' | 'per_rig'], 'per_meter')}</td>)}
+                    <td className="r num">{money(data[key as 'per_meter' | 'per_rig'], 'per_meter')}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           )}
@@ -149,7 +178,7 @@ export default function CostDetail({ me }: PageProps) {
           {!data && !error && !bad && <div className="loading">加载中…</div>}
         </div>
         {data && <div className="small muted" style={{ padding: '10px 24px 14px' }}>
-          金额取经济事项有效金额合计（冲销已抵消），单位：元；共 {data.event_count} 笔事项。市场、区块取单井基础信息，队伍取事项发生时的施工队伍。
+          金额取经济事项有效金额合计（冲销已抵消），单位：元；共 {data.event_count} 笔事项。市场、区块取单井基础信息，队伍取事项发生时的施工队伍。进尺为已审核日报进尺合计，钻机台月 = 施工天数 ÷ 当月天数；米成本 = 有进尺井·月的金额 ÷ 进尺（历史导入月份没有进尺，不计入），单位成本 = 金额 ÷ 钻机台月。
         </div>}
       </section>
     </>

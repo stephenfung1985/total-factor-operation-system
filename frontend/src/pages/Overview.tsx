@@ -1,32 +1,47 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, download, type ExportRow, type ItemEvents, type Overview as OV, type OverviewWell, type ResultImport, type Trace, type TreeNode, type WellResult } from '../api';
+import { api, download, type ExportRow, type ItemEvents, type KpiSum, type Overview as OV, type OverviewWell, type ResultImport, type Trace, type TreeNode, type WellResult } from '../api';
 import type { PageProps } from '../App';
-import OverviewCharts from './OverviewCharts';
-import { Drawer, fmt, Icon, Kpis, Modal, PageHead, pct, periodLabel, useLoad, useToast, wan, yuan, type Crumb } from '../ui';
+import OverviewCharts, { DIMS, DONE, type DimFilter } from './OverviewCharts';
+import { Drawer, fmt, Icon, Kpis, Modal, PageHead, pct, periodLabel, PeriodPicker, useLoad, useToast, wan, yuan, type Crumb, type KpiItem } from '../ui';
 
 const WELL_COLS = '0.8fr 0.8fr 0.8fr 1.2fr 0.6fr 1fr 1fr 1fr 0.8fr 1fr 0.8fr 1fr 24px';
 const DEPT_COLS = '0.8fr 0.8fr 0.8fr 1.2fr 0.6fr 1fr 1fr 1fr 1fr 24px';
 const TREE_COLS = 'minmax(0, 2.4fr) 1fr 0.6fr 1.1fr 1.1fr 0.7fr 24px';
 const EV_COLS = '1fr 0.9fr 1fr 0.6fr 1.1fr 1.2fr 1.5fr 24px';
 
-function kpiSet(k: { revenue: number; total_cost: number; fixed: number; variable: number }, dept: boolean, full: boolean) {
+/** 与上期比较：金额类取相对变化，比率类取百分点；good / bad 按“越高越好 / 越低越好”着色。 */
+function delta(cur: number, prev: number | undefined, kind: 'amt' | 'rate', better: 'high' | 'low', label: string): KpiItem['delta'] {
+  if (prev === undefined || (kind === 'amt' && prev === 0)) return undefined;
+  const d = cur - prev;
+  const text = kind === 'rate' ? `${label} ${d >= 0 ? '+' : ''}${(d * 100).toFixed(1)} pp` : `${label} ${d >= 0 ? '+' : ''}${((d / Math.abs(prev)) * 100).toFixed(1)}%`;
+  if (Math.abs(d) < 1e-9) return { text, tone: 'flat' };
+  return { text, tone: (d > 0) === (better === 'high') ? 'good' : 'bad' };
+}
+
+function kpiSet(k: KpiSum, dept: boolean, o: { prev?: KpiSum; label?: string; full?: boolean } = {}): KpiItem[] {
+  const { prev, label = '环比', full } = o;
+  const cmp = (cur: number, p: number | undefined, better: 'high' | 'low') => delta(cur, p, 'amt', better, label);
   if (dept) {
     return [
-      { label: '归口成本合计', value: wan(k.total_cost), unit: '万元' },
-      { label: '其中：固定成本', value: wan(k.fixed), unit: '万元' },
-      { label: '其中：变动成本', value: wan(k.variable), unit: '万元' },
+      { label: '归口成本合计', value: wan(k.total_cost), unit: '万元', delta: cmp(k.total_cost, prev?.total_cost, 'low') },
+      { label: '其中：固定成本', value: wan(k.fixed), unit: '万元', delta: cmp(k.fixed, prev?.fixed, 'low') },
+      { label: '其中：变动成本', value: wan(k.variable), unit: '万元', delta: cmp(k.variable, prev?.variable, 'low') },
     ];
   }
   const gm = k.revenue - k.variable;
   const net = k.revenue - k.total_cost;
+  const pgm = prev ? prev.revenue - prev.variable : undefined;
+  const pnet = prev ? prev.revenue - prev.total_cost : undefined;
+  const rate = (a: number, b: number | undefined, base: number, pbase: number | undefined) =>
+    delta(base ? a / base : 0, b !== undefined && pbase ? b / pbase : undefined, 'rate', 'high', label);
   return [
-    { label: '形象收入', value: wan(k.revenue), unit: '万元' },
-    { label: '总成本', value: wan(k.total_cost), unit: '万元' },
+    { label: '形象收入', value: wan(k.revenue), unit: '万元', delta: cmp(k.revenue, prev?.revenue, 'high') },
+    { label: '总成本', value: wan(k.total_cost), unit: '万元', delta: cmp(k.total_cost, prev?.total_cost, 'low') },
     ...(full ? [{ label: '固定成本', value: wan(k.fixed), unit: '万元' }, { label: '变动成本', value: wan(k.variable), unit: '万元' }] : []),
-    { label: '毛益额', value: wan(gm), unit: '万元' },
-    { label: '毛益率', value: pct(gm, k.revenue), unit: '%' },
-    { label: '净利润', value: wan(net), unit: '万元' },
-    { label: '利润率', value: pct(net, k.revenue), unit: '%' },
+    { label: '毛益额', value: wan(gm), unit: '万元', delta: cmp(gm, pgm, 'high') },
+    { label: '毛益率', value: pct(gm, k.revenue), unit: '%', delta: rate(gm, pgm, k.revenue, prev?.revenue) },
+    { label: '净利润', value: wan(net), unit: '万元', delta: cmp(net, pnet, 'high') },
+    { label: '利润率', value: pct(net, k.revenue), unit: '%', delta: rate(net, pnet, k.revenue, prev?.revenue) },
   ];
 }
 
@@ -35,19 +50,15 @@ export default function Overview({ me, route, setRoute }: PageProps) {
   const periods = useLoad(() => api.get<string[]>('/api/periods'), []);
   const period = route.period || periods.data?.[0] || '';
   const navLabel = me.nav.flatMap((g) => g.items).find((i) => i.id === 'overview')?.label || '经营总览';
-  const go = (well?: string, item?: string) => setRoute({ screen: 'overview', well, item, period });
+  const go = (well?: string, item?: string, p?: string) => setRoute({ screen: 'overview', well, item, period: p ?? period });
 
   const crumbs: Crumb[] = [{ label: navLabel, go: route.well ? () => go() : undefined }];
   if (route.well) crumbs.push({ label: route.well, go: route.item ? () => go(route.well) : undefined });
 
-  const periodPicker = (
-    <label className="pill">
-      {Icon.calendar()}
-      <select aria-label="会计期间" value={period} onChange={(e) => setRoute({ ...route, period: e.target.value })}>
-        {(periods.data || []).map((p) => <option key={p} value={p}>{periodLabel(p)}</option>)}
-      </select>
-    </label>
+  const pickerFor = (allowYear: boolean) => (
+    <PeriodPicker value={period} periods={periods.data || []} allowYear={allowYear} onChange={(p) => setRoute({ ...route, period: p })} />
   );
+  const periodPicker = pickerFor(false);
 
   if (!period) return <div className="loading">{periods.error || '加载中…'}</div>;
   if (route.well && route.item) {
@@ -56,12 +67,15 @@ export default function Overview({ me, route, setRoute }: PageProps) {
   if (route.well) {
     return <Level1 well={route.well} period={period} crumbs={crumbs} picker={periodPicker} dept={dept} open={(c) => go(route.well, c)} />;
   }
-  return <Level0 period={period} periods={periods.data || []} title={navLabel} picker={periodPicker} dept={dept} open={(w) => go(w)}
+  return <Level0 period={period} title={navLabel} picker={pickerFor(true)} dept={dept} open={(w, p) => go(w, undefined, p)}
     canImport={me.role === 'finance'} onImported={(p) => { periods.reload(); setRoute({ screen: 'overview', period: p }); }} />;
 }
 
-function Level0({ period, periods, title, picker, dept, open, canImport, onImported }: {
-  period: string; periods: string[]; title: string; picker: React.ReactNode; dept: boolean; open: (w: string) => void;
+type Sort = 'net' | 'revenue' | 'cost' | 'id';
+const SORTS: { id: Sort; label: string }[] = [{ id: 'net', label: '净利润（高→低）' }, { id: 'revenue', label: '形象收入' }, { id: 'cost', label: '总成本' }, { id: 'id', label: '井号' }];
+
+function Level0({ period, title, picker, dept, open, canImport, onImported }: {
+  period: string; title: string; picker: React.ReactNode; dept: boolean; open: (w: string, period?: string) => void;
   canImport: boolean; onImported: (period: string) => void;
 }) {
   const { data, error, reload } = useLoad(() => api.get<OV>(`/api/overview?period=${period}`), [period]);
@@ -69,10 +83,23 @@ function Level0({ period, periods, title, picker, dept, open, canImport, onImpor
   const fileRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [del, setDel] = useState<string | null>(null);
+  const [q, setQ] = useState('');
+  const [sort, setSort] = useState<Sort>(dept ? 'cost' : 'net');
+  const [filter, setFilter] = useState<DimFilter | null>(null);
   const tpl = () => download('/api/results/template.xlsx', '单井经营情况批量导入模板.xlsx').catch((e: Error) => toast(e.message, true));
+  useEffect(() => setFilter(null), [period]);
+  const rows = useMemo(() => {
+    if (!data) return [];
+    const kw = q.trim().toLowerCase();
+    const list = data.wells.filter((w) => (!filter || (w[filter.dim] || '—') === filter.value)
+      && (!kw || [w.well_id, w.block, w.team, w.market, w.well_type].some((x) => (x || '').toLowerCase().includes(kw))));
+    const key = (w: OverviewWell) => (sort === 'net' ? w.revenue - w.total_cost : sort === 'revenue' ? w.revenue : w.total_cost);
+    return [...list].sort((a, b) => (sort === 'id' ? a.well_id.localeCompare(b.well_id) : key(b) - key(a)));
+  }, [data, q, sort, filter]);
+  const isYear = period.length === 4;
   return (
     <>
-      <PageHead title={title} sub={data ? '数据范围：' + data.scope : undefined}
+      <PageHead title={title} sub={data ? `数据范围：${data.scope}${isYear ? ` · ${period} 年累计（${data.months.length} 个月）` : ''}` : undefined}
         right={
           <div className="head-actions">
             {canImport && (
@@ -85,14 +112,29 @@ function Level0({ period, periods, title, picker, dept, open, canImport, onImpor
             {picker}
           </div>
         } />
-      <ResultImportModal files={files} onClose={() => setFiles([])} onDone={(p) => { if (p === period) reload(); else onImported(p); }} />
+      <ResultImportModal files={files} onClose={() => setFiles([])} onDone={(p) => { if (p.slice(0, isYear ? 4 : 7) === period) reload(); else onImported(p); }} />
       <DeleteWellModal well={del} onClose={() => setDel(null)} onDone={() => { setDel(null); reload(); }} />
       {error && <div className="notice">{error}</div>}
       {data && (
         <>
-          <OverviewCharts periods={periods} period={period} wells={data.wells} dept={dept} open={open} />
-          {[{ title: '正钻井', rows: data.wells.filter((w) => !DONE.includes(w.status)) },
-            { title: '完成井', rows: data.wells.filter((w) => DONE.includes(w.status)) }].map((g) => (
+          <Kpis board items={kpiSet(data.sum, dept, { prev: data.prev?.sum, label: isYear ? '同比' : '环比' })} />
+          <OverviewCharts data={data} period={period} dept={dept} open={open} filter={filter} onFilter={setFilter} />
+          <div className="ov-bar" role="group" aria-label="井列表筛选">
+            <input className="input ov-search" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索井号、区块、队伍" aria-label="搜索井" />
+            <label className="pill">排序
+              <select aria-label="排序" value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
+                {SORTS.filter((x) => !(dept && (x.id === 'net' || x.id === 'revenue'))).map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+              </select>
+            </label>
+            {filter && (
+              <button type="button" className="chip-x" onClick={() => setFilter(null)} aria-label="清除筛选">
+                {DIMS.find((d) => d.id === filter.dim)?.label}：{filter.value}{Icon.close()}
+              </button>
+            )}
+            <span className="small muted ov-count">共 {rows.length} / {data.wells.length} 口</span>
+          </div>
+          {[{ title: '正钻井', rows: rows.filter((w) => !DONE.includes(w.status)) },
+            { title: '完成井', rows: rows.filter((w) => DONE.includes(w.status)) }].map((g) => (
             <WellGroup key={g.title} title={g.title} rows={g.rows} dept={dept} open={open} onDelete={canImport ? setDel : undefined} />
           ))}
         </>
@@ -158,7 +200,7 @@ function Level1({ well, period, crumbs, picker, dept, open }: {
               )}
             </div>
             <div style={{ borderTop: '1px solid var(--sep2)', paddingTop: 18 }}>
-              <Kpis flat items={kpiSet(data.kpi, dept, true)} />
+              <Kpis flat items={kpiSet(data.kpi, dept, { full: true })} />
             </div>
           </section>
 
@@ -443,41 +485,44 @@ function ResultImportModal({ files, onClose, onDone }: { files: File[]; onClose:
   );
 }
 
-const DONE = ['完钻', '完井', '已结算'];
+const PAGE = 10;
 
-function WellGroup({ title, rows, dept, open, onDelete }: { title: string; rows: OverviewWell[]; dept: boolean; open: (w: string) => void; onDelete?: (w: string) => void }) {
+function WellGroup({ title, rows, dept, open, onDelete }: { title: string; rows: OverviewWell[]; dept: boolean; open: (w: string, period?: string) => void; onDelete?: (w: string) => void }) {
   const cols = (dept ? DEPT_COLS : WELL_COLS) + (onDelete ? ' 32px' : '');
-  const sum = { revenue: 0, total_cost: 0, fixed: 0, variable: 0 };
-  rows.forEach((w) => { sum.revenue += w.revenue; sum.total_cost += w.total_cost; sum.fixed += w.fixed; sum.variable += w.variable; });
+  const [all, setAll] = useState(false);
+  const shown = all ? rows : rows.slice(0, PAGE);
+  const rev = rows.reduce((a, w) => a + w.revenue, 0);
+  const cost = rows.reduce((a, w) => a + w.total_cost, 0);
+  if (rows.length === 0) {
+    return <section className="card pad ov-none"><h2>{title}<span className="muted" style={{ fontWeight: 400, marginLeft: 8 }}>0 口</span></h2><span className="small muted">本期间没有{title}经营数据</span></section>;
+  }
   return (
     <>
-      <h3 style={{ margin: '20px 0 8px' }}>{title}</h3>
-      <Kpis items={kpiSet(sum, dept, false)} />
       <section className="card list">
         <div className="card-head">
-          <h2>{title}单井经营结果（{rows.length} 口）</h2>
-          <div className="hint">点击任一口井，下钻到收入与成本科目</div>
+          <h2>{title}<span className="muted" style={{ fontWeight: 400, marginLeft: 8 }}>{rows.length} 口</span></h2>
+          <div className="hint ov-sum">{dept ? `归口成本 ${wan(cost)}` : `收入 ${wan(rev)} · 成本 ${wan(cost)} · 净利润 ${wan(rev - cost)}`} · 单位：万元 · 点击下钻</div>
         </div>
         <div className="scroll-x">
           <div className="nowrap" style={{ minWidth: dept ? 820 : 1000 }}>
             <div className="grid-row grid-head" style={{ gridTemplateColumns: cols }}>
               <span>井号</span><span>区块</span><span>井型</span><span>队伍</span><span>开次</span>
               {dept ? (
-                <><span className="r">归口成本（万元）</span><span className="r">固定（万元）</span><span className="r">变动（万元）</span></>
+                <><span className="r">归口成本</span><span className="r">固定</span><span className="r">变动</span></>
               ) : (
-                <><span className="r">形象收入（万元）</span><span className="r">总成本（万元）</span><span className="r">毛益额（万元）</span>
-                  <span className="r">毛益率</span><span className="r">净利润（万元）</span><span className="r">利润率</span></>
+                <><span className="r">形象收入</span><span className="r">总成本</span><span className="r">毛益额</span>
+                  <span className="r">毛益率</span><span className="r">净利润</span><span className="r">利润率</span></>
               )}
               <span>备注</span><span />{onDelete && <span />}
             </div>
             {rows.length === 0 && <div className="empty">本期间没有{title}经营数据</div>}
-            {rows.map((w) => {
+            {shown.map((w) => {
               const gm = w.revenue - w.variable;
               const net = w.revenue - w.total_cost;
               return (
                 <div key={w.well_id} role="button" tabIndex={0} className="grid-row line" aria-label={'下钻到 ' + w.well_id}
-                  style={{ gridTemplateColumns: cols }} onClick={() => open(w.well_id)}
-                  onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(w.well_id); } }}>
+                  style={{ gridTemplateColumns: cols }} onClick={() => open(w.well_id, w.last_period)}
+                  onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(w.well_id, w.last_period); } }}>
                   <span className="bold">{w.well_id}</span><span>{w.block}</span><span>{w.well_type}</span><span>{w.team}</span><span>{w.phase}</span>
                   {dept ? (
                     <><span className="r num bold">{wan(w.total_cost)}</span><span className="r num">{wan(w.fixed)}</span><span className="r num">{wan(w.variable)}</span></>
@@ -497,6 +542,9 @@ function WellGroup({ title, rows, dept, open, onDelete }: { title: string; rows:
             })}
           </div>
         </div>
+        {rows.length > PAGE && (
+          <button type="button" className="more" aria-expanded={all} onClick={() => setAll(!all)}>{all ? '收起' : `显示全部 ${rows.length} 口`}{Icon.down(12)}</button>
+        )}
       </section>
     </>
   );

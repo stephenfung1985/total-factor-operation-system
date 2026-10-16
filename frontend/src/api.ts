@@ -115,7 +115,6 @@ export interface Overview {
   period: string; months: string[]; wells: OverviewWell[]; sum: KpiSum; show_revenue: boolean; scope: string;
   prev: { period: string; sum: KpiSum } | null; structure: { code: string; name: string; behavior: string; amount: number }[];
 }
-export interface TrendPoint extends KpiSum { period: string; well_count: number }
 
 export interface TreeNode {
   code: string; name: string; level: number; is_leaf: boolean; parent: string | null; dept: string | null;

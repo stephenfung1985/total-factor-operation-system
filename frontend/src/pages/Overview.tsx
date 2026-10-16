@@ -18,19 +18,15 @@ function delta(cur: number, prev: number | undefined, kind: 'amt' | 'rate', bett
   return { text, tone: (d > 0) === (better === 'high') ? 'good' : 'bad' };
 }
 
-/** 决策层首屏指标卡：规模（井数、进尺）→ 结果（净利润、利润率、百元收入营业成本）→ 效率（每米成本、每台月利润、非生产时间）→ 风险（亏损井）。 */
+/** 首屏指标卡：规模（井数、进尺）→ 收入与毛益（形象收入、毛益额、毛益率）→ 利润（净利润、利润率、百元收入营业成本）。 */
 function execKpis(s: OverviewSum, prev: OverviewSum | undefined, label: string): KpiItem[] {
+  const gm = s.revenue - s.variable;
   const net = s.revenue - s.total_cost;
+  const pgm = prev ? prev.revenue - prev.variable : undefined;
   const pnet = prev ? prev.revenue - prev.total_cost : undefined;
-  const perM = (x: OverviewSum) => (x.footage ? x.cost_with_footage / x.footage : undefined);
-  const perRig = (x: OverviewSum) => (x.rig_months ? x.net_with_rig / x.rig_months : undefined);
-  const npt = (x: OverviewSum) => (x.hours_total ? x.npt_hours / x.hours_total : undefined);
   const opt = (cur: number | undefined, p: number | undefined, kind: 'amt' | 'rate', better: 'high' | 'low') =>
     (cur === undefined || p === undefined ? undefined : delta(cur, p, kind, better, label));
-  const pm = perM(s);
-  const pr = perRig(s);
-  const nt = npt(s);
-  const lossDelta = prev ? s.loss_wells - prev.loss_wells : undefined;
+  const ratio = (a: number | undefined, base: number | undefined) => (a !== undefined && base ? a / base : undefined);
   const wellDelta = prev ? s.well_count - prev.well_count : undefined;
   const per100 = (x: OverviewSum) => (x.revenue ? (x.total_cost / x.revenue) * 100 : undefined);   // 百元收入营业成本 = 总成本 ÷ 形象收入 × 100
   const c100 = per100(s);
@@ -38,14 +34,12 @@ function execKpis(s: OverviewSum, prev: OverviewSum | undefined, label: string):
     { label: '井数', value: String(s.well_count), unit: '口',
       delta: wellDelta === undefined ? undefined : { text: `${label} ${wellDelta > 0 ? '+' : ''}${wellDelta} 口`, tone: wellDelta === 0 ? 'flat' : wellDelta > 0 ? 'good' : 'bad' } },
     { label: '进尺', value: fmt(s.footage, 0), unit: '米', delta: opt(s.footage, prev?.footage, 'amt', 'high') },
-    { label: '净利润', value: wan(net), unit: '万元', delta: delta(net, pnet, 'amt', 'high', label) },
-    { label: '利润率', value: pct(net, s.revenue), unit: '%', delta: opt(s.revenue ? net / s.revenue : undefined, prev && prev.revenue ? (pnet as number) / prev.revenue : undefined, 'rate', 'high') },
+    { label: '形象收入', value: wan(s.revenue), unit: '万元', delta: opt(s.revenue, prev?.revenue, 'amt', 'high') },
+    { label: '毛益额', value: wan(gm), unit: '万元', delta: opt(gm, pgm, 'amt', 'high') },
+    { label: '毛益率', value: pct(gm, s.revenue), unit: '%', delta: opt(ratio(gm, s.revenue), ratio(pgm, prev?.revenue), 'rate', 'high') },
+    { label: '净利润', value: wan(net), unit: '万元', delta: opt(net, pnet, 'amt', 'high') },
+    { label: '利润率', value: pct(net, s.revenue), unit: '%', delta: opt(ratio(net, s.revenue), ratio(pnet, prev?.revenue), 'rate', 'high') },
     { label: '百元收入营业成本', value: c100 === undefined ? '—' : fmt(c100, 2), unit: '元', delta: opt(c100, prev && per100(prev), 'amt', 'low') },
-    { label: '每米成本', value: pm === undefined ? '—' : fmt(pm, 0), unit: '元/米', delta: opt(pm, prev && perM(prev), 'amt', 'low') },
-    { label: '每台月利润', value: pr === undefined ? '—' : wan(pr), unit: '万元/台月', delta: opt(pr, prev && perRig(prev), 'amt', 'high') },
-    { label: '非生产时间', value: nt === undefined ? '—' : (nt * 100).toFixed(1), unit: '%', delta: opt(nt, prev && npt(prev), 'rate', 'low') },
-    { label: '亏损井', value: String(s.loss_wells), unit: `口 · ${wan(s.loss_amount)} 万元`,
-      delta: lossDelta === undefined ? undefined : { text: `${label} ${lossDelta > 0 ? '+' : ''}${lossDelta} 口`, tone: lossDelta === 0 ? 'flat' : lossDelta > 0 ? 'bad' : 'good' } },
   ];
 }
 

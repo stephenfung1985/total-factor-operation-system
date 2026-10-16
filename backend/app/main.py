@@ -7,12 +7,12 @@ import os
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import accounts, allocation, analysis, auth, costdetail, engine, excel, reports, results_import, rules, wellinfo
+from . import accounts, ai, aiparse, allocation, analysis, auth, costdetail, engine, excel, reports, results_import, rules, wellinfo
 from .db import init_db, log, rows, transaction
 
 def docs_kwargs() -> dict:
@@ -565,6 +565,50 @@ def rule_new_version(rid: int, body: NewVersion, user=User):
     auth.require(user, 'finance')
     with transaction() as c:
         return rules.new_version(c, user, rid, body.valid_from)
+
+
+# ---------- AI 规则解析（第一期，管理端）：依据文件 → 规则草稿 ----------
+
+@app.get('/api/ai/status')
+def ai_status(user=User):
+    auth.require(user, 'finance')
+    return {**ai.status(), 'doc_types': aiparse.DOC_TYPES, 'max_chars': aiparse.MAX_CHARS}
+
+
+@app.get('/api/ai/docs')
+def ai_docs(user=User):
+    auth.require(user, 'finance')
+    with transaction() as c:
+        return aiparse.list_docs(c)
+
+
+@app.post('/api/ai/docs')
+async def ai_upload(file: UploadFile = File(...), doc_type: str = Form(''), doc_name: str = Form(''), doc_no: str = Form(''),
+                    counterparty: str = Form(''), valid_from: str = Form(''), user=User):
+    auth.require(user, 'finance')
+    data = await _read_upload(file)
+    with transaction() as c:
+        return aiparse.upload(c, file.filename or '依据文件', data, {'doc_type': doc_type, 'doc_name': doc_name, 'doc_no': doc_no,
+                                                                     'counterparty': counterparty, 'valid_from': valid_from}, user)
+
+
+@app.post('/api/ai/docs/{doc_id:int}/parse')
+def ai_parse(doc_id: int, user=User):
+    """AI 解析成规则草稿（待确认）。失败也留任务记录：先提交事务，再返回 502。"""
+    auth.require(user, 'finance')
+    with transaction() as c:
+        out = aiparse.parse(c, doc_id, user)
+    if not out['ok']:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=502, content={'detail': out['error'], 'task': out['task']})
+    return out
+
+
+@app.get('/api/ai/tasks')
+def ai_tasks(user=User):
+    auth.require(user, 'finance')
+    with transaction() as c:
+        return aiparse.list_tasks(c)
 
 
 # ---------- 费用分摊（企划财务部） ----------

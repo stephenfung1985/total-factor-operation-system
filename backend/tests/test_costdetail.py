@@ -153,8 +153,8 @@ def test_rig_months_follow_work_period_days(client):
     assert get(client, FIN, 'team').json()['footage'] > 0
 
 
-def test_meter_cost_ignores_months_without_footage(client):
-    """模板导入的历史月份没有进尺，不能进米成本分子，否则会虚高。"""
+def test_history_well_footage_takes_actual_depth(client):
+    """模板导入的历史井没有日报：进尺取实际井深，计入导入月份；米成本、台月成本照算。"""
     import openpyxl as xl
     wb = xl.load_workbook(BytesIO(client.get('/api/wells/W001/export.xlsx?period=2026-08', headers=FIN).content))
     ws = wb.active
@@ -165,5 +165,9 @@ def test_meter_cost_ignores_months_without_footage(client):
     assert client.post('/api/results/import?commit=true', files={'file': ('h.xlsx', buf.getvalue())}, headers=FIN).status_code == 200
     m = get(client, FIN, 'period', start='2026-07', end='2026-07').json()
     col = m['columns'][0]
-    assert col['total'] > 0 and col['footage'] == 0 and col['cost_with_footage'] == 0 and col['per_meter'] is None
+    depth = ws.cell(rows['实际井深（米）'], 2).value
+    assert depth and col['footage'] == pytest.approx(depth) and col['cost_with_footage'] == col['total']
+    assert col['per_meter'] == pytest.approx(col['total'] / depth, abs=0.01)
+    o = client.get('/api/overview?period=2026-07', headers=FIN).json()
+    assert next(w for w in o['wells'] if w['well_id'] == 'H900')['footage'] == pytest.approx(depth)
     assert col['rig_months'] == pytest.approx(1.0, abs=0.001) and col['per_rig'] == pytest.approx(col['total'], abs=0.01)   # 台月成本照算

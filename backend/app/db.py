@@ -89,6 +89,21 @@ def _add_columns(conn) -> None:
         if col not in have:
             conn.execute(f'ALTER TABLE {table} ADD COLUMN {col} {ddl}')
     conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS ix_user_username ON app_user (username)')
+    _widen_pool_basis(conn)
+
+
+def _widen_pool_basis(conn) -> None:
+    """旧库的 cost_pool.basis 约束只允许 队天 / 进尺：按新表结构重建，数据原样保留。"""
+    r = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='cost_pool'").fetchone()
+    if not r or "'台月'" in r['sql']:
+        return
+    ddl = SCHEMA.read_text(encoding='utf-8')
+    start = ddl.index('CREATE TABLE IF NOT EXISTS cost_pool')
+    create = ddl[start:ddl.index(');', start) + 2]
+    conn.execute('ALTER TABLE cost_pool RENAME TO cost_pool_old')
+    conn.execute(create)
+    conn.execute('INSERT INTO cost_pool SELECT * FROM cost_pool_old')
+    conn.execute('DROP TABLE cost_pool_old')
 
 
 def now() -> str:

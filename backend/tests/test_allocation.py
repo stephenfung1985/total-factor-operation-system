@@ -133,3 +133,53 @@ def test_info_library_is_role_scoped(client):
     assert not ({'captain', 'staff_total', 'reg_lag'} & keys(aq))
     assert all('captain' not in r and 'staff' not in r for r in aq['rows']) and len(aq['rows']) == len(fin['rows'])
     assert 'staff_total' in keys(hr) and 'captain' not in keys(hr) and all('staff' in r for r in hr['rows'])
+
+
+# ---------- 元/台月：年度池 ----------
+
+def test_rig_month_basis_annual_pool(client):
+    body = {'period': '2026', 'item_code': 'C1-03-03', 'basis': '台月', 'amount': 1200000}
+    pv = client.post('/api/allocation/preview', json=body, headers=H('u_fin')).json()
+    assert pv['unit'] == '台月' and pv['period'] == '2026'
+    assert pv['rate'] == pytest.approx(1200000 / pv['basis_total'], rel=1e-5)    # 标准 = 费用池 ÷ 全年实际钻机台月
+    # 8 月各井已有历史导入，跳过不分；其余井月按 标准 × 当月台月
+    assert {s['period'] for s in pv['skipped']} == {'2026-08'}
+    assert '2026-08' not in {s['period'] for s in pv['shares']}
+    for s in pv['shares']:
+        assert s['amount'] == pytest.approx(pv['rate'] * s['w'], abs=1)
+    out = client.post('/api/allocation/pools', json=body, headers=H('u_fin')).json()
+    d = client.get(f"/api/allocation/pools/{out['pool_id']}", headers=H('u_fin')).json()
+    assert d['total'] == pv['allocated'] and d['rate'] == pytest.approx(pv['rate'], abs=0.01)
+    assert {e['period'] for e in d['events']} == {s['period'] for s in pv['shares']}
+    ev = client.get('/api/wells/W001/items/C1-03-03/events?period=2026-09', headers=H('u_fin')).json()['events']
+    a = next(e for e in ev if e['origin'] == '分摊')
+    t = client.get(f"/api/events/{a['event_id']}/trace", headers=H('u_fin')).json()
+    assert '元/台月' in t['formula']
+    assert client.post(f"/api/allocation/pools/{out['pool_id']}/void", headers=H('u_fin')).json()['reversed'] == len(d['events'])
+
+
+def test_rig_months_split_by_calendar_month(client):
+    from datetime import date
+    from app.allocation import rig_months
+    from app.db import connect
+    c = connect()
+    c.execute("INSERT INTO team_well_period (team_id, well_id, phase, start_at, end_at) "
+              "SELECT team_id, 'W001', '测试', '2025-01-17', '2025-03-15' FROM team LIMIT 1")
+    rows = [r for r in rig_months(c, '2025', None, today=date(2025, 12, 31)) if r['well_id'] == 'W001']
+    c.close()
+    got = {r['period']: round(r['w'], 4) for r in rows}
+    assert got == {'2025-01': round(15 / 31, 4), '2025-02': 1.0, '2025-03': round(15 / 31, 4)}
+
+
+def test_annual_and_monthly_pools_cannot_overlap(client):
+    from app.db import connect
+    c = connect()
+    c.execute("INSERT INTO cost_pool (period, item_code, basis, amount, status, created_by, created_at) "
+              "VALUES ('2026', 'C1-05', '台月', 1, '有效', 't', 't')")
+    c.commit()
+    c.close()
+    rid = _submitted(client)
+    client.post(f'/api/reports/{rid}/approve', json={}, headers=H('u_dept'))
+    r = client.post('/api/allocation/preview', json={'period': '2026-10', 'item_code': 'C1-05', 'basis': '队天', 'amount': 1000},
+                    headers=H('u_fin'))
+    assert r.status_code == 409 and '重叠' in r.json()['detail']

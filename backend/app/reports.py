@@ -1,8 +1,8 @@
 """成本日报：一井一队一天一张，只报量、不含金额。
 
 表体按事实类型分段（见 report_lines.SECTIONS）：进尺与工况 → 能耗与材料 → 设备在用 → 外包技术服务 → 运输与环保。
-每段只列需要基层采集、参与成本计算的报量项目；默认显示常用项目、本井规则计价的项目和近 30 天报过的项目，
-其余可按需添加。没有已发布规则的量也可以报，由归口部室据此补规则。
+每段只列本井当天有已发布规则计价、参与科目费用计算的报量项目；没有规则的项目不让基层白填
+（旧日报或 Excel 里已有数量的仍保留显示，提交时提示由归口部室补规则）。
 人员出勤不再逐日填报：人工费、伙食费、补贴按基础信息中的人员数量核算（见 staff_on）。
 """
 from datetime import date as Date, timedelta
@@ -76,7 +76,7 @@ def line_defs(conn, well_id: str, date: str, team_id: str | None) -> list[dict]:
             'needs_doc': bool(ln['needs_doc']), 'core': bool(ln['core']),
             'rules': own + [c for c in by_fact.get(ln['fact_type'], []) if c not in own],
             'priced': bool(own) or bool(by_fact.get(ln['fact_type'])), 'recent': k in recent,
-            'show': bool(ln['core']) or bool(own) or k in recent,
+            'show': bool(own) or bool(by_fact.get(ln['fact_type'])),   # 只显示参与规则计价（科目费用计算）的项目
         })
     return out
 

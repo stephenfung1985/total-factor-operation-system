@@ -281,10 +281,10 @@ CREATE TABLE IF NOT EXISTS approval_log (
 -- 费用池：企划财务部按月录入月末财务取数，按分摊标准分到队、到井；分摊结果以“分摊”类事项写入经济事项
 CREATE TABLE IF NOT EXISTS cost_pool (
   pool_id       INTEGER PRIMARY KEY AUTOINCREMENT,
-  period        TEXT NOT NULL,        -- YYYY-MM
+  period        TEXT NOT NULL,        -- YYYY-MM（队天、进尺）或 YYYY（台月，年度池）
   item_code     TEXT NOT NULL REFERENCES cost_item(item_code),
   scope_team_id TEXT REFERENCES team(team_id),   -- 为空表示全部在施队伍
-  basis         TEXT NOT NULL CHECK (basis IN ('队天', '进尺')),
+  basis         TEXT NOT NULL CHECK (basis IN ('队天', '进尺', '台月')),
   amount        REAL NOT NULL,
   note          TEXT,
   status        TEXT NOT NULL CHECK (status IN ('有效', '已作废')),

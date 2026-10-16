@@ -1,5 +1,5 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { api, download, type Check, type LineDef, type Report, type ReportCatalog, type ReportSection } from '../api';
+import { useEffect, useRef, useState } from 'react';
+import { api, download, type Check, type Report, type ReportCatalog } from '../api';
 import type { PageProps } from '../App';
 import { fmt, Icon, PageHead, today, useLoad, useToast } from '../ui';
 
@@ -7,7 +7,6 @@ interface Mine { report_id: number; well_id: string; report_date: string; versio
 interface Draft { depth_start: number; depth_end: number; hours: Record<string, number>; lines: Record<string, number>; notes: Record<string, string> }
 
 const STATUS_TAG: Record<string, string> = { 草稿: '', 驳回: 'bad', 已提交: 'warn', 已审核: 'good', 新建: '' };
-const CN = ['一', '二', '三', '四', '五', '六'];
 const NOTE_LABEL: Record<string, string> = { equip: '设备编号', service: '签证单号', logistics: '单据号' };
 
 export default function DailyReport(_: PageProps) {
@@ -19,7 +18,6 @@ export default function DailyReport(_: PageProps) {
   const [date, setDate] = useState('');
   const [rep, setRep] = useState<Report | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [added, setAdded] = useState<Set<string>>(new Set());
   const [checks, setChecks] = useState<Check[]>([]);
   const [busy, setBusy] = useState(false);
   const [range, setRange] = useState({ start: '', end: '' });
@@ -37,7 +35,6 @@ export default function DailyReport(_: PageProps) {
     setRep(r);
     setDraft({ depth_start: r.depth_start, depth_end: r.depth_end, hours: { ...r.hours }, lines: { ...r.lines }, notes: { ...(r.notes || {}) } });
     setChecks(r.checks);
-    setAdded(new Set());
   };
   const load = async (w = well, d = date) => {
     if (!w || !d) return;
@@ -106,35 +103,31 @@ export default function DailyReport(_: PageProps) {
   const sections = cat.data?.sections ?? [];
   const conds = cat.data?.work_conditions ?? [];
   const defs = rep?.line_defs ?? [];
-  const visible = (d: LineDef) => {
-    const has = draft && (draft.lines[d.key] !== undefined && draft.lines[d.key] !== null && Number(draft.lines[d.key]) !== 0);
-    return editable ? d.show || !!has || added.has(d.key) : !!has;
-  };
+  const hasVal = (k: string) => !!draft && Number(draft.lines[k] || 0) !== 0;
+  // 只列参与科目费用计算（有已发布规则计价）的项目；旧数据里已有数量的无规则项目保留，便于清除
+  const rowsOf = (sec: string) => defs.filter((d) => d.section === sec && (d.priced || hasVal(d.key)));
+  const lineSecs = sections.filter((x) => x.id !== 'drill' && rowsOf(x.id).length > 0);
   const total = draft ? conds.reduce((a, h) => a + (Number(draft.hours[h]) || 0), 0) : 0;
   const footage = draft ? draft.depth_end - draft.depth_start : 0;
   const blocks = checks.filter((c) => c.level === '阻断');
-  const warns = checks.filter((c) => c.level === '警告');
-  const tips = checks.filter((c) => c.level === '提示');
+  const warns = checks.filter((c) => c.level !== '阻断');
   const setHour = (h: string, v: string) => setDraft((d) => d && { ...d, hours: { ...d.hours, [h]: parseFloat(v) || 0 } });
   const setLine = (k: string, v: string) => setDraft((d) => d && { ...d, lines: { ...d.lines, [k]: v === '' ? 0 : parseFloat(v) || 0 } });
   const setNote = (k: string, v: string) => setDraft((d) => d && { ...d, notes: { ...d.notes, [k]: v } });
-  const removeLine = (k: string) => {
-    setDraft((d) => {
-      if (!d) return d;
-      const lines = { ...d.lines };
-      const notes = { ...d.notes };
-      delete lines[k];
-      delete notes[k];
-      return { ...d, lines, notes };
-    });
-    setAdded((s) => { const n = new Set(s); n.delete(k); return n; });
-  };
-  const sectionCount = (id: string) => defs.filter((d) => d.section === id && Number(draft?.lines[d.key] || 0) > 0).length;
-  const jump = (id: string) => document.getElementById('sec-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const clearLine = (k: string) => setDraft((d) => {
+    if (!d) return d;
+    const lines = { ...d.lines };
+    const notes = { ...d.notes };
+    delete lines[k];
+    delete notes[k];
+    return { ...d, lines, notes };
+  });
+  const left = 24 - total;
+  const staff = Object.entries(rep?.staff || {});
 
   return (
     <>
-      <PageHead title="成本日报" sub="一井一队一天一张，只报量、不含金额；只填需要基层采集、参与成本计算的量"
+      <PageHead title="成本日报" sub="一井一队一天一张，只报量、不填金额；只列本井当天参与费用计算的项目"
         right={
           <div className="head-actions">
             <label className="pill">井号
@@ -149,88 +142,89 @@ export default function DailyReport(_: PageProps) {
 
       {rep && draft && (
         <>
-          <nav className="sec-nav" aria-label="日报分段">
-            {sections.map((s, i) => {
-              const n = s.id === 'drill' ? (Math.abs(total - 24) < 1e-6 ? '✓' : `${total}h`) : sectionCount(s.id) ? `${sectionCount(s.id)} 项` : '';
-              return (
-                <button key={s.id} type="button" onClick={() => jump(s.id)}>
-                  <span className="no">{CN[i]}</span>{s.title}{n && <span className="cnt">{n}</span>}
-                </button>
-              );
-            })}
-          </nav>
+          <div className="rep-bar">
+            <span className={'tag ' + (STATUS_TAG[rep.status] || '')}>{rep.status === '新建' ? '未保存' : rep.status}{rep.version > 1 ? ` · v${rep.version}` : ''}</span>
+            {[['队伍', rep.header.team], ['区块', rep.header.block], ['井型', rep.header.well_type], ['开次', rep.header.phase]].map(([k, v]) => (
+              <span key={k}><span className="muted">{k}</span> {v}</span>
+            ))}
+            <span className="muted">人员按基础信息自动核算：{staff.length ? staff.map(([k, v]) => `${k} ${v}`).join(' · ') + ' 人' : '未填写'}</span>
+          </div>
+          {rep.status === '驳回' && rep.review_comment && <div className="notice">审核驳回：{rep.review_comment}</div>}
+          {rep.status === '新建' && rep.carried && <div className="notice info">在用设备已沿用上一张日报，请按当天实际修改。</div>}
+
           <div className="split">
             <div className="grow">
               <section className="card pad">
-                <div className="sec-head">
-                  <h3>表头 <span className={'tag ' + (STATUS_TAG[rep.status] || '')}>{rep.status}{rep.version > 1 ? ` · 版本 ${rep.version}` : ''}</span></h3>
-                  <span className="small muted">选定井号后自动带出，不可手改</span>
+                <div className="sec-head"><h3><span className="step-no">1</span>进尺与工况</h3><span className="small muted">井深填当天起止，进尺自动算</span></div>
+                <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
+                  <label className="field">起始井深（米）<input className="input" type="number" inputMode="decimal" disabled={!editable} value={draft.depth_start}
+                    onChange={(e) => setDraft({ ...draft, depth_start: parseFloat(e.target.value) || 0 })} /></label>
+                  <label className="field">结束井深（米）<input className="input" type="number" inputMode="decimal" disabled={!editable} value={draft.depth_end}
+                    onChange={(e) => setDraft({ ...draft, depth_end: parseFloat(e.target.value) || 0 })} /></label>
+                  <div className="field"><span>进尺</span><span className={'readout' + (footage < 0 ? ' bad' : '')}>{fmt(footage, 0)} 米</span></div>
                 </div>
-                <div className="kv-grid">
-                  {[['井号', rep.header.well_id], ['日期', rep.header.date], ['队伍', rep.header.team], ['区块', rep.header.block],
-                    ['井型', rep.header.well_type], ['当前开次', rep.header.phase]].map(([k, v]) => (
-                    <div key={k} className="kv"><span className="k">{k}</span><span className="v">{v}</span></div>
+                <div className="hours-head">
+                  <span className="bold">工况时间（小时）</span>
+                  <span className={Math.abs(left) < 1e-6 ? 'ok' : 'bad'}>
+                    合计 {fmt(total, 1)} · {Math.abs(left) < 1e-6 ? '已满 24 小时' : left > 0 ? `还差 ${fmt(left, 1)} 小时` : `超出 ${fmt(-left, 1)} 小时`}
+                  </span>
+                </div>
+                <div className="hours-grid">
+                  {conds.map((h) => (
+                    <label key={h} className={'hour' + (Number(draft.hours[h]) > 0 ? ' on' : '')}>
+                      <span>{h}</span>
+                      <input className="input num" type="number" step="0.5" min="0" inputMode="decimal" disabled={!editable} value={draft.hours[h] || ''} placeholder="0"
+                        onChange={(e) => setHour(h, e.target.value)} aria-label={h + '（小时）'} />
+                    </label>
                   ))}
                 </div>
-                <div className="notice info">
-                  人工费、伙食费、补贴按“基础信息”中的人员数量核算，不用逐日填出勤：{(() => {
-                    const e = Object.entries(rep.staff || {});
-                    return e.length ? e.map(([k, v]) => `${k} ${v} 人`).join('、') : '基础信息中尚未填写人员数量';
-                  })()}。
-                </div>
-                {rep.status === '驳回' && rep.review_comment && <div className="notice">审核驳回：{rep.review_comment}</div>}
-                {rep.status === '新建' && rep.carried && <div className="notice info">在用设备已沿用上一张日报，请按当天实际修改。</div>}
               </section>
 
-              {sections.map((s, i) => s.id === 'drill' ? (
-                <section key={s.id} id="sec-drill" className="card pad rsec">
-                  <SecHead no={CN[i]} s={s} />
-                  <div className="form-grid">
-                    <label className="field">起始井深（米）<input className="input" type="number" disabled={!editable} value={draft.depth_start}
-                      onChange={(e) => setDraft({ ...draft, depth_start: parseFloat(e.target.value) || 0 })} /></label>
-                    <label className="field">结束井深（米）<input className="input" type="number" disabled={!editable} value={draft.depth_end}
-                      onChange={(e) => setDraft({ ...draft, depth_end: parseFloat(e.target.value) || 0 })} /></label>
-                    <div className="field"><span>进尺（自动计算）</span><span className="readout">{fmt(footage, 0)} 米</span></div>
-                  </div>
-                  <div className="sub-title">工况时间<span className="small muted">合计必须等于 24 小时</span></div>
-                  <div className="hours-grid">
-                    {conds.map((h) => (
-                      <label key={h} className="hour">
-                        <span>{h}</span>
-                        <input className="input num" type="number" step="0.5" min="0" disabled={!editable} value={draft.hours[h] || ''} placeholder="0"
-                          onChange={(e) => setHour(h, e.target.value)} aria-label={h + '（小时）'} />
-                      </label>
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14 }}>
-                    <span className="muted">合计</span>
-                    {Math.abs(total - 24) < 1e-6 ? <span className="ok">{total} 小时 · 校验通过</span> : <span className="bad">{total} 小时 · 必须等于 24 小时</span>}
+              {lineSecs.map((sec, i) => (
+                <section key={sec.id} className="card pad">
+                  <div className="sec-head"><h3><span className="step-no">{i + 2}</span>{sec.title}</h3><span className="small muted">{sec.how}</span></div>
+                  <div className="rlines">
+                    {rowsOf(sec.id).map((d) => {
+                      const note = NOTE_LABEL[sec.id];
+                      return (
+                        <div key={d.key} className={'rline' + (hasVal(d.key) ? ' on' : '')}>
+                          <span className="rl-name" title={`${d.item_code} ${d.item_name}`}>
+                            {d.label}{d.group !== d.label && <small>{d.group}</small>}
+                            {!d.priced && <span className="tag warn">暂无规则</span>}
+                          </span>
+                          <span className="qty">
+                            <input className="input" type="number" min="0" step="any" inputMode="decimal" disabled={!editable} aria-label={`${d.label}（${d.unit}）`}
+                              value={draft.lines[d.key] || ''} placeholder="0" onChange={(e) => setLine(d.key, e.target.value)} />
+                            <em>{d.unit}</em>
+                          </span>
+                          {note ? (
+                            <input className="input rl-note" disabled={!editable} aria-label={d.label + note} value={draft.notes[d.key] ?? ''}
+                              placeholder={d.needs_doc ? `${note}（必填）` : `${note}（选填）`} onChange={(e) => setNote(d.key, e.target.value)} />
+                          ) : <span />}
+                          {editable && !d.priced
+                            ? <button type="button" className="row-x" aria-label={'清除' + d.label} onClick={() => clearLine(d.key)}>{Icon.close()}</button>
+                            : <span />}
+                        </div>
+                      );
+                    })}
                   </div>
                 </section>
-              ) : (
-                <LineSection key={s.id} no={CN[i]} s={s} defs={defs.filter((d) => d.section === s.id)} visible={visible} editable={editable}
-                  draft={draft} setLine={setLine} setNote={setNote} remove={removeLine}
-                  add={(k) => setAdded((x) => new Set(x).add(k))} />
               ))}
+              {lineSecs.length === 0 && <div className="card pad muted">本井当天没有需要报量的规则计价项目，只填进尺与工况即可。</div>}
             </div>
 
-            <aside className="aside">
-              <section className="card pad sticky" style={{ gap: 12 }}>
-                <h3>校验结果</h3>
-                <div className="stat-pair" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
-                  <div className="stat"><span>阻断</span><b>{blocks.length}</b></div>
-                  <div className="stat"><span>警告</span><b>{warns.length}</b></div>
-                  <div className="stat"><span>提示</span><b>{tips.length}</b></div>
+            <aside className="aside sticky">
+              <section className="card pad" style={{ gap: 12 }}>
+                <div className="sec-head">
+                  <h3>{editable ? '检查并提交' : '处理状态'}</h3>
+                  {editable && <span className={'tag ' + (blocks.length ? 'bad' : 'good')}>{blocks.length ? `${blocks.length} 项需修改` : '可以提交'}</span>}
                 </div>
-                {checks.length === 0 && <div className="msg">全部校验通过</div>}
-                {[...blocks, ...warns, ...tips].map((m, i) => (
-                  <div key={i} className={'msg' + (m.level === '阻断' ? ' block' : '')}>· {m.level}：{m.message}</div>
-                ))}
+                {editable && checks.length === 0 && <div className="msg">全部校验通过</div>}
+                {editable && blocks.map((m, i) => <div key={'b' + i} className="msg block">· {m.message}</div>)}
+                {editable && warns.map((m, i) => <div key={'w' + i} className="msg">· {m.level}：{m.message}</div>)}
                 {editable && (
                   <>
-                    <button type="button" className="btn primary" disabled={busy || blocks.length > 0} onClick={onSubmit}>
-                      {blocks.length > 0 ? '存在阻断项，不能提交' : '提交日报'}
-                    </button>
+                    <button type="button" className="btn primary" disabled={busy || blocks.length > 0} onClick={onSubmit}>提交日报</button>
                     <button type="button" className="btn" disabled={busy} onClick={onSave}>保存草稿</button>
                   </>
                 )}
@@ -242,114 +236,32 @@ export default function DailyReport(_: PageProps) {
                   </>
                 )}
               </section>
-              <section className="card pad" style={{ gap: 10 }}>
-                <h3>Excel 模板</h3>
-                <div className="hint" style={{ lineHeight: '19px' }}>按井号和日期区间导出，每天一个工作表、按段排列；离线填好后导入。导入先存为草稿，校验与线上一致。</div>
+              <details className="card pad" style={{ gap: 10 }}>
+                <summary className="bold" style={{ cursor: 'pointer' }}>离线填报（Excel）</summary>
+                <div className="hint" style={{ lineHeight: '19px', whiteSpace: 'normal' }}>按日期区间导出，每天一个工作表；离线填好后导入，先存为草稿再逐张提交。</div>
                 <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
                   <label className="field">开始<input className="input" type="date" value={range.start} onChange={(e) => setRange({ ...range, start: e.target.value })} /></label>
                   <label className="field">结束<input className="input" type="date" value={range.end} onChange={(e) => setRange({ ...range, end: e.target.value })} /></label>
                 </div>
                 <div className="btn-row">
-                  <button type="button" className="btn link" disabled={busy} onClick={onExport}>导出模板</button>
-                  <button type="button" className="btn link" disabled={busy} onClick={() => fileRef.current?.click()}>导入 Excel</button>
+                  <button type="button" className="btn" disabled={busy} onClick={onExport}>导出模板</button>
+                  <button type="button" className="btn" disabled={busy} onClick={() => fileRef.current?.click()}>导入 Excel</button>
                   <input ref={fileRef} type="file" accept=".xlsx" hidden onChange={(e) => e.target.files?.[0] && onImport(e.target.files[0])} />
                 </div>
-              </section>
-              {cat.data && (
-                <section className="card pad" style={{ gap: 8 }}>
-                  <details className="nc">
-                    <summary><h3 style={{ display: 'inline' }}>不由基层填报的费用</h3><span className="small muted"> · {cat.data.not_collected.reduce((a, g) => a + g.items.length, 0)} 项</span></summary>
-                    {cat.data.not_collected.map((g) => (
-                      <div key={g.reason} className="nc-group">
-                        <div className="small bold">{g.reason}</div>
-                        <div className="small muted">{g.items.map((x) => x.item_name.replace(/^（\d+）|^\d+\./, '')).join('、')}</div>
-                      </div>
-                    ))}
-                  </details>
-                </section>
-              )}
+              </details>
               {rep.history.length > 0 && (
-                <section className="card pad" style={{ gap: 8 }}>
-                  <h3>处理记录</h3>
+                <details className="card pad" style={{ gap: 8 }}>
+                  <summary className="bold" style={{ cursor: 'pointer' }}>处理记录（{rep.history.length}）</summary>
                   {rep.history.map((h, i) => (
                     <div key={i} className="msg">{h.operated_at.slice(5, 16)} · {h.action} · {h.operator}{h.comment ? '：' + h.comment : ''}</div>
                   ))}
-                </section>
+                </details>
               )}
             </aside>
           </div>
         </>
       )}
     </>
-  );
-}
-
-function SecHead({ no, s }: { no: string; s: ReportSection }) {
-  return (
-    <div className="rsec-head">
-      <h3><span className="sec-no">{no}</span>{s.title}<small>{s.fact}</small></h3>
-      <div className="small muted">{s.how}；计入：{s.drives}</div>
-    </div>
-  );
-}
-
-function LineSection({ no, s, defs, visible, editable, draft, setLine, setNote, remove, add }: {
-  no: string; s: ReportSection; defs: LineDef[]; visible: (d: LineDef) => boolean; editable: boolean; draft: Draft;
-  setLine: (k: string, v: string) => void; setNote: (k: string, v: string) => void; remove: (k: string) => void; add: (k: string) => void;
-}) {
-  const rows = defs.filter(visible);
-  const hidden = defs.filter((d) => !visible(d));
-  const groups = useMemo(() => [...new Set(rows.map((d) => d.group))], [rows]);
-  const noteLabel = NOTE_LABEL[s.id];
-  if (!editable && rows.length === 0) return null;
-  return (
-    <section id={'sec-' + s.id} className="card pad rsec">
-      <SecHead no={no} s={s} />
-      {rows.length > 0 && (
-        <table className="ftable rtable">
-          <thead>
-            <tr><th>项目</th><th>数量</th><th>单位</th>{noteLabel && <th>{noteLabel}{s.id !== 'equip' && ' *'}</th>}<th>计价</th>{editable && <th />}</tr>
-          </thead>
-          <tbody>
-            {groups.map((g) => (
-              <Fragment key={g}>
-                {(groups.length > 1 || rows.filter((d) => d.group === g).length > 1) && <tr className="sub"><td colSpan={noteLabel ? 6 : 5}>{g}</td></tr>}
-                {rows.filter((d) => d.group === g).map((d) => (
-                  <tr key={d.key}>
-                    <td className="lbl">{d.label}<div className="small muted" style={{ fontWeight: 400 }}>{d.item_code} {d.item_name.replace(/^（\d+）|^\d+\./, '')}</div></td>
-                    <td><input className="input num" type="number" min="0" step="any" disabled={!editable} aria-label={d.label + '（' + d.unit + '）'}
-                      value={draft.lines[d.key] ?? ''} placeholder="0" onChange={(e) => setLine(d.key, e.target.value)} /></td>
-                    <td className="muted">{d.unit}</td>
-                    {noteLabel && (
-                      <td><input className="input" style={{ height: 38, fontSize: 14, maxWidth: 180 }} disabled={!editable} aria-label={d.label + noteLabel}
-                        value={draft.notes[d.key] ?? ''} placeholder={d.needs_doc ? '必填' : '选填'} onChange={(e) => setNote(d.key, e.target.value)} /></td>
-                    )}
-                    <td>{d.priced
-                      ? <span className="tag info" title={'参与规则：' + d.rules.join('、')}>规则计价</span>
-                      : <span className="tag" title={`暂无已发布规则，由${d.dept || '归口'}部室补规则`}>暂无规则</span>}</td>
-                    {editable && <td>{!d.core && <button type="button" className="row-x" aria-label={'移除' + d.label} onClick={() => remove(d.key)}>{Icon.close()}</button>}</td>}
-                  </tr>
-                ))}
-              </Fragment>
-            ))}
-          </tbody>
-        </table>
-      )}
-      {editable && hidden.length > 0 && (
-        <label className="add-line">
-          <span>＋ 添加项目</span>
-          <select value="" onChange={(e) => e.target.value && add(e.target.value)} aria-label={'添加' + s.title + '项目'}>
-            <option value="">从 {hidden.length} 项中选择…</option>
-            {[...new Set(hidden.map((d) => d.group))].map((g) => (
-              <optgroup key={g} label={g}>
-                {hidden.filter((d) => d.group === g).map((d) => <option key={d.key} value={d.key}>{d.label}（{d.unit}）{d.priced ? ' · 规则计价' : ''}</option>)}
-              </optgroup>
-            ))}
-          </select>
-        </label>
-      )}
-      {editable && rows.length === 0 && hidden.length > 0 && <div className="small muted">当天没有发生可不填。</div>}
-    </section>
   );
 }
 

@@ -48,7 +48,11 @@ function kpiSet(k: KpiSum, dept: boolean, o: { prev?: KpiSum; label?: string; fu
 export default function Overview({ me, route, setRoute }: PageProps) {
   const dept = me.role === 'dept';
   const periods = useLoad(() => api.get<string[]>('/api/periods'), []);
-  const period = route.period || periods.data?.[0] || '';
+  // 总览默认展示当年全年累计（当年还没有数据则取最近有数据的年份）；下钻到单井时默认最近一个月
+  const list = periods.data || [];
+  const thisYear = String(new Date().getFullYear());
+  const defaultYear = list.some((p) => p.startsWith(thisYear)) ? thisYear : list[0]?.slice(0, 4) || '';
+  const period = route.period || (route.well ? list[0] : defaultYear) || '';
   const navLabel = me.nav.flatMap((g) => g.items).find((i) => i.id === 'overview')?.label || '经营总览';
   const go = (well?: string, item?: string, p?: string) => setRoute({ screen: 'overview', well, item, period: p ?? period });
 

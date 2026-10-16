@@ -672,6 +672,13 @@ def info_revise(rid: int, user=User):
         return wellinfo.view(c, wellinfo._load(c, nid), user['team_id'])
 
 
+@app.get('/api/wellinfo/library')
+def info_library(user=User):
+    """基础信息库：各角色都能查看，字段与范围按角色裁剪（本队只看本队井，部室不看队长与人员，人事部室除外）。"""
+    with transaction() as c:
+        return wellinfo.library(c, user)
+
+
 @app.get('/api/wellinfo/summary')
 def info_summary(user=User):
     auth.require(user, 'finance')

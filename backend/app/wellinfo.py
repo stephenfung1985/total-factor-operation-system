@@ -441,6 +441,43 @@ def summary(conn) -> list[dict]:
     return out
 
 
+# ---------- 基础信息库（按角色裁剪字段） ----------
+
+LIB_BASE = [('well_id', '井号'), ('team_no', '队号'), ('market', '市场'), ('block', '区块'), ('well_category', '井别'),
+            ('well_type', '井型'), ('spud_sections', '开次'), ('design_depth', '设计井深（米）'), ('status', '状态'),
+            ('client', '甲方单位'), ('rig_type', '钻机类型'), ('pre_days', '钻前周期（天）'), ('drill_days', '钻井周期（天）'),
+            ('completion_days', '完井周期（天）')]
+LIB_FULL = [('captain', '队长'), ('staff_total', '人员合计'), ('reg_lag', '登记滞后'), ('comp_lag', '完井填报滞后'),
+            ('submitted_at', '提交时间')]
+LIB_STAFF = [('staff_total', '人员合计')]
+
+
+def library_columns(user: dict) -> list[tuple[str, str]]:
+    """基础信息库可见字段：管理层、本队看全部；专业部室只看井的基础与周期信息，人事部室另可看人员数量。"""
+    if user['role'] in ('finance', 'team'):
+        return LIB_BASE + LIB_FULL
+    return LIB_BASE + (LIB_STAFF if user.get('dept') == '人事' else [])
+
+
+def library(conn, user: dict) -> dict:
+    cols = library_columns(user)
+    keys = [k for k, _ in cols]
+    show_staff = 'staff_total' in keys
+    rows = []
+    for r in summary(conn):
+        if user['role'] == 'team' and r['team_id'] != user['team_id']:
+            continue
+        d = r['derived']
+        flat = {**r, **d, 'team_no': _team(conn, r['team_id'])['team_no']}
+        row = {k: flat.get(k) for k in keys}
+        row['milestones'] = {k: v for k, v in r['milestones'].items() if v}
+        if show_staff:
+            row['staff'] = {k: v for k, v in r['staff'].items() if v}
+        rows.append(row)
+    return {'columns': [{'key': k, 'label': l} for k, l in cols], 'rows': rows, 'role': user['role'], 'scope': user['scope_label'],
+            'staff_visible': show_staff}
+
+
 def _pending(conn, well_id: str, team_id: str) -> dict | None:
     r = conn.execute("SELECT report_id, return_comment, returned_by, returned_at FROM well_info_report WHERE well_id=? "
                      "AND team_id=? AND status='草稿' AND return_comment IS NOT NULL", (well_id, team_id)).fetchone()

@@ -15,7 +15,7 @@ def H(user):
     return {'X-User-Id': user}
 
 
-DEPT_ID = {'物资': 'wz', '安全': 'aq'}
+DEPT_ID = {'物资': 'wz', '安全': 'aq', '人事': 'rs'}
 
 
 def _add_dept(dept):
@@ -114,3 +114,22 @@ def test_allocation_splits_by_basis_with_tail_to_last_well():
     from app.allocation import shares
     sh = shares(100, [{'w': 1, 'well_id': 'A'}, {'w': 1, 'well_id': 'B'}, {'w': 1, 'well_id': 'C'}])
     assert [s['amount'] for s in sh] == [33, 33, 34]
+
+
+# ---------- 基础信息库按角色裁剪 ----------
+
+def test_info_library_is_role_scoped(client):
+    _add_dept('人事')
+    _add_dept('安全')
+    fin = client.get('/api/wellinfo/library', headers=H('u_fin')).json()
+    team = client.get('/api/wellinfo/library', headers=H('u_team')).json()
+    aq = client.get('/api/wellinfo/library', headers=H('u_aq')).json()
+    hr = client.get('/api/wellinfo/library', headers=H('u_rs')).json()
+    keys = lambda d: {c['key'] for c in d['columns']}
+    assert fin['rows'] and {'captain', 'staff_total', 'reg_lag'} <= keys(fin)
+    assert all('captain' in r and 'staff' in r for r in fin['rows'])
+    assert {r['well_id'] for r in team['rows']} <= {r['well_id'] for r in fin['rows']} and len(team['rows']) <= len(fin['rows'])
+    assert all(r['team_no'] == team['rows'][0]['team_no'] for r in team['rows'])
+    assert not ({'captain', 'staff_total', 'reg_lag'} & keys(aq))
+    assert all('captain' not in r and 'staff' not in r for r in aq['rows']) and len(aq['rows']) == len(fin['rows'])
+    assert 'staff_total' in keys(hr) and 'captain' not in keys(hr) and all('staff' in r for r in hr['rows'])

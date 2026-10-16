@@ -17,18 +17,20 @@ from .db import connect
 NAV = {
     'finance': [
         {'label': '经营', 'items': [{'id': 'overview', 'label': '经营总览'},
-                                  {'id': 'benchmark', 'label': '对标分析'}, {'id': 'costdetail', 'label': '费用导出'}]},
+                                  {'id': 'benchmark', 'label': '对标分析'}, {'id': 'costdetail', 'label': '费用导出'},
+                                  {'id': 'wellinfo', 'label': '基础信息库'}]},
         {'label': '规则', 'items': [{'id': 'masterdata', 'label': '主数据维护'}, {'id': 'rules', 'label': '规则库'},
                                   {'id': 'allocation', 'label': '费用分摊'}]},
         {'label': '系统', 'items': [{'id': 'perm', 'label': '角色与权限'}, {'id': 'batches', 'label': '历史记录'}]},
     ],
     'team': [
-        {'label': '填报', 'items': [{'id': 'wellreg', 'label': '基础信息'}, {'id': 'report', 'label': '成本日报'}]},
+        {'label': '填报', 'items': [{'id': 'wellreg', 'label': '新开井登记'}, {'id': 'report', 'label': '成本日报'}]},
         {'label': '经营', 'items': [{'id': 'overview', 'label': '本队单井收支'}]},
     ],
     'dept': [
         {'label': '规则', 'items': [{'id': 'rules', 'label': '规则确认'}, {'id': 'review', 'label': '日报审核'}]},
-        {'label': '经营', 'items': [{'id': 'overview', 'label': '归口科目分析'}, {'id': 'costdetail', 'label': '费用导出'}]},
+        {'label': '经营', 'items': [{'id': 'overview', 'label': '归口科目分析'}, {'id': 'costdetail', 'label': '费用导出'},
+                                  {'id': 'wellinfo', 'label': '基础信息库'}]},
     ],
 }
 
@@ -40,7 +42,8 @@ PERMS = [
     ('成本日报审核（部室只审归口科目所在日报）', ['', '审核', '查看']),
     ('依据文件与规则草稿', ['', '编辑', '查看']),
     ('规则发布审批', ['', '审核', '审核']),
-    ('基础信息填报（含人员数量，人工费按此核算）', ['编辑', '', '查看']),
+    ('新开井登记（基础信息填报，含人员数量，人工费按此核算）', ['编辑', '', '查看']),
+    ('基础信息库（本队 / 全部井；部室不含队长与人员，人事部室可看人员）', ['查看', '查看', '查看']),
     ('单井基础信息汇总、导入导出、退回修改', ['', '', '编辑']),
     ('费用科目树与主数据', ['查看', '查看', '编辑']),
     ('计算批次与手工重算', ['', '', '编辑']),

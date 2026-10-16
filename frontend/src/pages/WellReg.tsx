@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, type Check, type InfoDerived, type InfoFields, type InfoMine, type InfoOptions, type InfoRecord } from '../api';
 import type { PageProps } from '../App';
 import { fmt, Icon, PageHead, useLoad, useToast } from '../ui';
+import { WellLibrary } from './WellLibrary';
 
 const FIELD_KEYS: (keyof InfoFields)[] = ['well_id', 'period', 'market', 'captain', 'rig_type', 'client', 'block', 'well_category',
   'well_type', 'spud_sections', 'design_depth', 'milestones', 'staff'];
@@ -25,6 +26,7 @@ export default function WellReg(_: PageProps) {
   const [checks, setChecks] = useState<Check[]>([]);
   const [derived, setDerived] = useState<InfoDerived | null>(null);
   const [busy, setBusy] = useState(false);
+  const [libTick, setLibTick] = useState(0);
 
   useEffect(() => {
     if (sel !== null || !mine.data) return;
@@ -72,6 +74,7 @@ export default function WellReg(_: PageProps) {
       if (r.well_id !== sel) setSel(r.well_id);
       toast(ok(r));
       mine.reload();
+      setLibTick((n) => n + 1);
     } catch (e) {
       toast((e as Error).message, true);
     } finally {
@@ -96,7 +99,7 @@ export default function WellReg(_: PageProps) {
 
   return (
     <>
-      <PageHead title="基础信息" sub="按井登记，随施工进度更新节点与人员；提交后自动汇总到经营总览的单井基础信息"
+      <PageHead title="新开井登记" sub="新井开钻前登记基础信息，随施工进度更新节点与人员；提交后自动汇总到基础信息库和经营总览"
         right={
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <label className="pill">井号
@@ -108,6 +111,7 @@ export default function WellReg(_: PageProps) {
             {sel !== '' && <button type="button" className="btn primary sm" onClick={() => setSel('')}>登记新井</button>}
           </div>
         } />
+      <WellLibrary refresh={libTick} onPick={setSel} />
       {returned.length > 0 && (
         <div className="notice">企划财务部退回 {returned.length} 口井待修改：{returned.map((m) => m.well_id).join('、')}。在“井号”下拉中选择后修改并重新提交。</div>
       )}

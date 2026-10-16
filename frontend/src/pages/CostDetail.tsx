@@ -12,7 +12,7 @@ type Metric = 'amount' | 'per_meter' | 'per_rig';
 const METRICS: { id: Metric; label: string; unit: string }[] = [
   { id: 'amount', label: '金额', unit: '元' }, { id: 'per_meter', label: '米成本', unit: '元/米' }, { id: 'per_rig', label: '单位成本', unit: '元/台月' },
 ];
-const money = (v: number | null | undefined, m: Metric) => (v === null || v === undefined || v === 0 ? '-' : m === 'amount' ? yuan(v) : fmt(v, 2));
+const money = (v: number | null | undefined, _m: Metric) => (v === null || v === undefined || v === 0 ? '-' : yuan(v));   // 金额、米成本、单位成本都取整
 
 export default function CostDetail({ me }: PageProps) {
   const toast = useToast();

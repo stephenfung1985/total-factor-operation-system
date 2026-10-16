@@ -3,7 +3,7 @@ import type { Overview as OV, OverviewWell } from '../api';
 import { fmt, wan } from '../ui';
 
 /**
- * 经营总览首屏（决策层）：利润瀑布、单井排行（进尺榜 / 创收榜 / 创效榜）。
+ * 经营总览首屏（决策层）：利润瀑布、队伍排行（进尺榜 / 创收榜 / 创效榜）。
  * 视觉遵循 dataviz 规范：细柱（≤ 24px、数据端 4px 圆角、基线方角）、实线细网格、选择性直接标注、
  * 悬停提示（数值在前、名称在后）、每张图附屏幕阅读器可读的数据表；颜色只用强调蓝 + 中性灰，盈亏用状态色并配文字。
  */
@@ -68,11 +68,11 @@ const SrTable = ({ caption, head, rows }: { caption: string; head: string[]; row
   </div>
 );
 
-export default function ExecBoard({ data, open }: { data: OV; open: (w: string, period?: string) => void }) {
+export default function ExecBoard({ data }: { data: OV }) {
   return (
     <section className="exec" aria-label="决策层经营概览">
       <Waterfall data={data} />
-      <Rankings wells={data.wells} open={open} />
+      <Rankings wells={data.wells} />
     </section>
   );
 }
@@ -154,7 +154,7 @@ function Waterfall({ data }: { data: OV }) {
   );
 }
 
-// ---------- ③ 单井排行：进尺榜 / 创收榜 / 创效榜 ----------
+// ---------- ③ 队伍排行：进尺榜 / 创收榜 / 创效榜 ----------
 
 type Board = 'footage' | 'revenue' | 'net';
 const BOARDS: { id: Board; label: string; title: string; unit: string }[] = [
@@ -163,45 +163,60 @@ const BOARDS: { id: Board; label: string; title: string; unit: string }[] = [
   { id: 'net', label: '创效榜', title: '净利润', unit: '万元' },
 ];
 const TOP = 10;
+interface TeamRow { team: string; wells: number; footage: number; revenue: number; net: number }
 
-function Rankings({ wells, open }: { wells: OverviewWell[]; open: (w: string, period?: string) => void }) {
+/** 按施工队伍汇总本期各井（全年累计时以最近一个月的队伍为准，与井列表一致）。 */
+function teamRows(wells: OverviewWell[]): TeamRow[] {
+  const by = new Map<string, TeamRow>();
+  for (const w of wells) {
+    const k = w.team || '—';
+    const r = by.get(k) ?? { team: k, wells: 0, footage: 0, revenue: 0, net: 0 };
+    r.wells += 1;
+    r.footage += w.footage;
+    r.revenue += w.revenue;
+    r.net += w.net_profit;
+    by.set(k, r);
+  }
+  return [...by.values()];
+}
+
+function Rankings({ wells }: { wells: OverviewWell[] }) {
   const [board, setBoard] = useState<Board>('net');
   const b = BOARDS.find((x) => x.id === board)!;
-  const val = (w: OverviewWell) => (board === 'footage' ? w.footage : board === 'revenue' ? w.revenue : w.net_profit);
   const show = (v: number) => (board === 'footage' ? fmt(v, 0) : wan(v));
-  const list = useMemo(() => [...wells].sort((x, y) => val(y) - val(x)), [wells, board]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const list = useMemo(() => teamRows(wells).sort((x, y) => y[board] - x[board]), [wells, board]);
   const top = list.slice(0, TOP);
-  const max = Math.max(...top.map((w) => Math.abs(val(w))), 1);
-  const total = list.reduce((a, w) => a + val(w), 0);
-  const losses = board === 'net' ? list.filter((w) => w.net_profit < 0).length : 0;
+  const max = Math.max(...top.map((t) => Math.abs(t[board])), 1);
+  const total = list.reduce((a, t) => a + t[board], 0);
+  const losses = board === 'net' ? list.filter((t) => t.net < 0).length : 0;
   return (
     <div className="card pad exec-card">
       <div className="sec-head">
-        <h3>单井排行<small>{b.title} · {b.unit} · 点击下钻</small></h3>
+        <h3>队伍排行<small>{b.title} · {b.unit}</small></h3>
         <div className="seg" role="group" aria-label="排行维度">
           {BOARDS.map((x) => <button key={x.id} type="button" className={x.id === board ? 'on' : ''} aria-pressed={x.id === board} onClick={() => setBoard(x.id)}>{x.label}</button>)}
         </div>
       </div>
-      <div className="small muted">{list.length} 口 · 合计 {show(total)} {b.unit}{losses ? ` · 其中亏损 ${losses} 口` : ''}</div>
-      {list.length === 0 ? <div className="empty">本期间没有井</div> : (
+      <div className="small muted">{list.length} 支队伍 · {wells.length} 口井 · 合计 {show(total)} {b.unit}{losses ? ` · 其中亏损 ${losses} 支` : ''}</div>
+      {list.length === 0 ? <div className="empty">本期间没有数据</div> : (
         <div className="rank rank-wide">
-          {top.map((w, i): ReactNode => {
-            const v = val(w);
+          {top.map((t, i): ReactNode => {
+            const v = t[board];
             const neg = v < 0;
             return (
-              <button key={w.well_id} type="button" className="rank-row pick" onClick={() => open(w.well_id, w.last_period)}
-                title={`${w.well_id}：进尺 ${fmt(w.footage, 0)} 米 · 形象收入 ${wan(w.revenue)} 万元 · 净利润 ${wan(w.net_profit)} 万元`}>
-                <span className="rank-name"><em className="rank-sub" style={{ marginRight: 6 }}>{i + 1}</em>{w.well_id}<em className="rank-sub">{w.team}</em></span>
+              <div key={t.team} className="rank-row"
+                title={`${t.team}：${t.wells} 口井 · 进尺 ${fmt(t.footage, 0)} 米 · 形象收入 ${wan(t.revenue)} 万元 · 净利润 ${wan(t.net)} 万元`}>
+                <span className="rank-name"><em className="rank-sub" style={{ marginRight: 6 }}>{i + 1}</em>{t.team}<em className="rank-sub">{t.wells} 口</em></span>
                 <span className="rank-plot"><span className="rank-bar" style={{ width: (Math.abs(v) / max) * 100 + '%', background: neg ? 'var(--bad)' : board === 'net' ? 'var(--good)' : 'var(--accent)' }} /></span>
                 <span className={'rank-val num' + (neg ? ' neg' : '')}>{show(v)}</span>
-              </button>
+              </div>
             );
           })}
-          {list.length > top.length && <div className="rank-gap">其余 {list.length - top.length} 口见下方井列表</div>}
+          {list.length > top.length && <div className="rank-gap">其余 {list.length - top.length} 支队伍未列出</div>}
         </div>
       )}
-      <SrTable caption={`单井${b.label}`} head={['名次', '井号', '队伍', `${b.title}（${b.unit}）`]}
-        rows={list.map((w, i) => [i + 1, w.well_id, w.team, show(val(w))])} />
+      <SrTable caption={`队伍${b.label}`} head={['名次', '队伍', '井数', `${b.title}（${b.unit}）`]}
+        rows={list.map((t, i) => [i + 1, t.team, t.wells, show(t[board])])} />
     </div>
   );
 }

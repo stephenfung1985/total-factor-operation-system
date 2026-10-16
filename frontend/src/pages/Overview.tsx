@@ -136,7 +136,7 @@ function Level0({ period, title, picker, open, canImport, onImported }: {
       {data && (
         <>
           <Kpis board items={execKpis(data.sum, data.prev?.sum, isYear ? '同比' : '环比')} />
-          <ExecBoard data={data} />
+          <ExecBoard data={data} open={open} />
           <OverviewCharts data={data} />
           <div className="ov-bar" role="group" aria-label="井列表筛选">
             <input className="input ov-search" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索井号、区块、队伍" aria-label="搜索井" />

@@ -13,7 +13,6 @@ import Batches from './pages/Batches';
 import BenchmarkPage from './pages/Benchmark';
 import CostDetail from './pages/CostDetail';
 import Allocation from './pages/Allocation';
-import WellLibraryPage from './pages/WellLibrary';
 
 export interface Route { screen: string; well?: string; item?: string; period?: string }
 export interface PageProps { me: Me; route: Route; setRoute: (r: Route) => void }
@@ -120,7 +119,7 @@ export default function App() {
     const p = { me, route, setRoute };
     page = {
       overview: <Overview {...p} />, report: <DailyReport {...p} />, review: <Review {...p} />, rules: <Rules {...p} />,
-      wellreg: <WellReg {...p} />, masterdata: <MasterData {...p} />, perm: <Perm {...p} />, batches: <Batches {...p} />, benchmark: <BenchmarkPage {...p} />, costdetail: <CostDetail {...p} />, allocation: <Allocation {...p} />, wellinfo: <WellLibraryPage {...p} />,
+      wellreg: <WellReg {...p} />, masterdata: <MasterData {...p} />, perm: <Perm {...p} />, batches: <Batches {...p} />, benchmark: <BenchmarkPage {...p} />, costdetail: <CostDetail {...p} />, allocation: <Allocation {...p} />,
     }[route.screen] ?? null;
   }
 

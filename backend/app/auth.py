@@ -17,8 +17,7 @@ from .db import connect
 NAV = {
     'finance': [
         {'label': '经营', 'items': [{'id': 'overview', 'label': '经营总览'},
-                                  {'id': 'benchmark', 'label': '对标分析'}, {'id': 'costdetail', 'label': '费用导出'},
-                                  {'id': 'wellinfo', 'label': '基础信息库'}]},
+                                  {'id': 'benchmark', 'label': '对标分析'}, {'id': 'costdetail', 'label': '费用导出'}]},
         {'label': '规则', 'items': [{'id': 'masterdata', 'label': '主数据维护'}, {'id': 'rules', 'label': '规则库'},
                                   {'id': 'allocation', 'label': '费用分摊'}, {'id': 'review', 'label': '日报监控'}]},
         {'label': '系统', 'items': [{'id': 'perm', 'label': '角色与权限'}, {'id': 'batches', 'label': '历史记录'}]},
@@ -38,7 +37,7 @@ PERMS = [
     ('依据文件与规则维护（按部室提供的变化依据）', ['', '编辑']),
     ('规则发布：影响预览、发布、回滚', ['', '编辑']),
     ('新开井登记（基础信息填报，含人员数量，人工费按此核算）', ['编辑', '查看']),
-    ('基础信息库（本队 / 全部井）', ['查看', '查看']),
+    ('基础信息库（新开井登记页内，本队井）', ['查看', '']),
     ('单井基础信息汇总、导入导出、退回修改', ['', '编辑']),
     ('费用科目树与主数据', ['查看', '编辑']),
     ('计算批次与手工重算', ['', '编辑']),

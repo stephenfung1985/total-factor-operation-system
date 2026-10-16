@@ -115,7 +115,10 @@ export interface OpsSum {
   footage: number; cost_with_footage: number; rig_months: number; net_with_rig: number; cost_with_rig: number;
   hours_total: number; npt_hours: number; hours: Record<string, number>;
 }
-export interface OverviewWell extends KpiSum, OpsSum { well_id: string; market: string; block: string; well_type: string; team: string; phase: string; status: string; remark: string; last_period: string }
+export interface OverviewWell extends KpiSum, OpsSum {
+  well_id: string; market: string; block: string; well_type: string; team: string; phase: string; status: string; remark: string; last_period: string;
+  client: string; rig_type: string | null; rig_class: string | null;
+}
 export interface OverviewSum extends KpiSum, OpsSum { well_count: number; loss_wells: number; loss_amount: number }
 export interface Overview {
   period: string; months: string[]; wells: OverviewWell[]; sum: OverviewSum; show_revenue: boolean; scope: string;

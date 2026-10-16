@@ -1,17 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Overview as OV, OverviewWell } from '../api';
 import { fmt, wan } from '../ui';
-import type { Dim, DimFilter } from './OverviewCharts';
 
 /**
- * 经营总览首屏（决策层）：利润瀑布、成本 × 利润率四象限、非生产时间、亏损井。
+ * 经营总览首屏（决策层）：利润瀑布、亏损井。
  * 视觉遵循 dataviz 规范：细柱（≤ 24px、数据端 4px 圆角、基线方角）、实线细网格、选择性直接标注、
  * 悬停提示（数值在前、名称在后）、每张图附屏幕阅读器可读的数据表；颜色只用强调蓝 + 中性灰，盈亏用状态色并配文字。
  */
 
-const NPT = ['待命', '复杂情况'];
-const RIG_HOURS = 720;   // 1 台月按 30 天 × 24 小时折算
-const QUAD_DIMS: { id: Dim; label: string }[] = [{ id: 'team', label: '队伍' }, { id: 'block', label: '区块' }, { id: 'market', label: '市场' }];
 
 function useWidth(min = 280): [React.RefObject<HTMLDivElement | null>, number] {
   const ref = useRef<HTMLDivElement>(null);
@@ -72,14 +68,10 @@ const SrTable = ({ caption, head, rows }: { caption: string; head: string[]; row
   </div>
 );
 
-export default function ExecBoard({ data, open, filter, onFilter }: {
-  data: OV; open: (w: string, period?: string) => void; filter: DimFilter | null; onFilter: (f: DimFilter | null) => void;
-}) {
+export default function ExecBoard({ data, open }: { data: OV; open: (w: string, period?: string) => void }) {
   return (
     <section className="exec" aria-label="决策层经营概览">
       <Waterfall data={data} />
-      <Quadrant wells={data.wells} filter={filter} onFilter={onFilter} />
-      <NptCard data={data} />
       <LossWells wells={data.wells} open={open} />
     </section>
   );
@@ -160,169 +152,6 @@ function Waterfall({ data }: { data: OV }) {
       <SrTable caption="利润瀑布（万元）" head={['项目', '金额']} rows={steps.map((st) => [st.k, wan(st.kind === 'cost' ? st.a - st.b : st.b)])} />
     </div>
   );
-}
-
-// ---------- ③ 成本 × 利润率四象限 ----------
-
-interface Pt { name: string; x: number; y: number; footage: number; wells: number; revenue: number; net: number }
-
-function Quadrant({ wells, filter, onFilter }: { wells: OverviewWell[]; filter: DimFilter | null; onFilter: (f: DimFilter | null) => void }) {
-  const [dim, setDim] = useState<Dim>('team');
-  const [ref, W] = useWidth();
-  const [tip, setTip] = useState<Tip | null>(null);
-  const { pts, skipped, ax, ay } = useMemo(() => {
-    const g = new Map<string, { cf: number; f: number; rev: number; net: number; n: number }>();
-    for (const w of wells) {
-      const k = (w[dim] as string) || '—';
-      const o = g.get(k) || { cf: 0, f: 0, rev: 0, net: 0, n: 0 };
-      o.cf += w.cost_with_footage; o.f += w.footage; o.rev += w.revenue; o.net += w.net_profit; o.n += 1;
-      g.set(k, o);
-    }
-    const all = [...g.entries()];
-    const ok = all.filter(([, o]) => o.f > 0 && o.rev > 0);
-    const tot = ok.reduce((a, [, o]) => ({ cf: a.cf + o.cf, f: a.f + o.f, rev: a.rev + o.rev, net: a.net + o.net }), { cf: 0, f: 0, rev: 0, net: 0 });
-    return {
-      pts: ok.map(([name, o]) => ({ name, x: o.cf / o.f, y: o.net / o.rev, footage: o.f, wells: o.n, revenue: o.rev, net: o.net })) as Pt[],
-      skipped: all.length - ok.length,
-      ax: tot.f ? tot.cf / tot.f : 0, ay: tot.rev ? tot.net / tot.rev : 0,
-    };
-  }, [wells, dim]);
-  const H = 300;
-  const P = { l: 52, r: 20, t: 18, b: 40 };
-  const xs = pts.map((p) => p.x);
-  const ys = pts.map((p) => p.y);
-  const xspan = Math.max(...xs, ax) - Math.min(...xs, ax) || Math.max(ax, 1) * 0.2;
-  const yspan = Math.max(...ys, ay, 0) - Math.min(...ys, ay, 0) || 0.2;
-  const xt = ticks(Math.min(...xs, ax) - xspan * 0.2, Math.max(...xs, ax) + xspan * 0.2);
-  const yt = ticks(Math.min(...ys, ay, 0) - yspan * 0.15, Math.max(...ys, ay, 0) + yspan * 0.15);
-  const [x0, x1, y0, y1] = [xt[0], xt[xt.length - 1], yt[0], yt[yt.length - 1]];
-  const sx = (v: number) => P.l + ((v - x0) / (x1 - x0 || 1)) * (W - P.l - P.r);
-  const sy = (v: number) => P.t + ((y1 - v) / (y1 - y0 || 1)) * (H - P.t - P.b);
-  const maxF = Math.max(...pts.map((p) => p.footage), 1);
-  const rad = (f: number) => 6 + 16 * Math.sqrt(f / maxF);
-  const flag = (p: Pt) => p.x > ax && p.y < ay;
-  const labelAll = pts.length <= 8;
-  // 直接标注：放在气泡右侧，越界则放左侧；与已放置的标签重叠就不标（名称仍在提示和数据表里）
-  const labels = useMemo(() => {
-    const placed: { x0: number; x1: number; y0: number; y1: number }[] = [];
-    const out = new Map<string, { x: number; y: number; anchor: 'start' | 'end' }>();
-    const order = [...pts].sort((a, b) => Number(flag(b)) - Number(flag(a)) || b.footage - a.footage);
-    for (const p of order) {
-      if (!labelAll && !flag(p)) continue;
-      const cx = sx(p.x);
-      const cy = sy(p.y);
-      const r = rad(p.footage);
-      const w = p.name.length * 12 + 4;
-      const right = cx + r + 6 + w <= W - 4;
-      const x0 = right ? cx + r + 6 : cx - r - 6 - w;
-      const box = { x0, x1: x0 + w, y0: cy - 9, y1: cy + 9 };
-      const hit = (b: { x0: number; x1: number; y0: number; y1: number }) => b.x0 < box.x1 && box.x0 < b.x1 && b.y0 < box.y1 && box.y0 < b.y1;
-      const bubbles = pts.filter((q) => q !== p).map((q) => {
-        const qr = rad(q.footage);
-        return { x0: sx(q.x) - qr, x1: sx(q.x) + qr, y0: sy(q.y) - qr, y1: sy(q.y) + qr };
-      });
-      if (placed.some(hit) || bubbles.some(hit)) continue;   // 标签不压别的标签，也不压别的气泡
-      placed.push(box);
-      out.set(p.name, { x: right ? cx + r + 6 : cx - r - 6, y: cy + 4, anchor: right ? 'start' : 'end' });
-    }
-    return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pts, W, labelAll, ax, ay]);
-  const pick = (p: Pt) => onFilter(filter?.dim === dim && filter.value === p.name ? null : { dim, value: p.name });
-  const show = (p: Pt, x: number, y: number) => setTip({ x, y, value: `${fmt(p.x, 0)} 元/米 · 利润率 ${(p.y * 100).toFixed(1)}%`, label: p.name,
-    sub: `进尺 ${fmt(p.footage, 0)} 米 · ${p.wells} 口井 · 净利润 ${wan(p.net)} 万元` });
-  return (
-    <div className="card pad exec-card exec-wide">
-      <div className="sec-head">
-        <h3>每米成本 × 利润率<small>气泡大小 = 进尺 · 点击筛选下方井列表</small></h3>
-        <div className="seg" role="group" aria-label="对比维度">
-          {QUAD_DIMS.map((d) => <button key={d.id} type="button" className={dim === d.id ? 'on' : ''} aria-pressed={dim === d.id} onClick={() => setDim(d.id)}>{d.label}</button>)}
-        </div>
-      </div>
-      {pts.length === 0 ? <div className="empty">本期间没有进尺数据（进尺来自已生效的成本日报）</div> : (
-        <div ref={ref} className="xchart" onMouseLeave={() => setTip(null)}>
-          <svg width={W} height={H} role="img" aria-label={`${pts.length} 个${QUAD_DIMS.find((d) => d.id === dim)?.label}的每米成本与利润率`}>
-            {yt.map((t) => (
-              <g key={'y' + t}>
-                <line x1={P.l} x2={W - P.r} y1={sy(t)} y2={sy(t)} className={t === 0 ? 'xbase' : 'xgrid'} />
-                <text x={P.l - 8} y={sy(t) + 4} textAnchor="end" className="xtick">{Math.round(t * 100)}%</text>
-              </g>
-            ))}
-            {xt.map((t) => <text key={'x' + t} x={sx(t)} y={H - P.b + 18} textAnchor="middle" className="xtick">{fmt(t, 0)}</text>)}
-            <text x={W - P.r} y={H - 6} textAnchor="end" className="xtick">元/米</text>
-            <line x1={sx(ax)} x2={sx(ax)} y1={P.t} y2={H - P.b} className="xavg" />
-            <line x1={P.l} x2={W - P.r} y1={sy(ay)} y2={sy(ay)} className="xavg" />
-            <text x={sx(ax) + 6} y={P.t + 10} className="xquad">平均 {fmt(ax, 0)} 元/米</text>
-            <text x={P.l + 6} y={P.t + 10} className="xquad">低成本 · 高利润</text>
-            <text x={W - P.r - 6} y={H - P.b - 8} textAnchor="end" className="xquad">高成本 · 低利润</text>
-            {[...pts].sort((a, b) => b.footage - a.footage).map((p) => {
-              const cx = sx(p.x);
-              const cy = sy(p.y);
-              const r = rad(p.footage);
-              const on = filter?.dim === dim && filter.value === p.name;
-              return (
-                <g key={p.name} className="xmark xdot" tabIndex={0} role="button" aria-pressed={on} aria-label={`${p.name}：每米成本 ${fmt(p.x, 0)} 元，利润率 ${(p.y * 100).toFixed(1)}%`}
-                  onMouseMove={(e) => show(p, e.nativeEvent.offsetX, e.nativeEvent.offsetY)} onFocus={() => show(p, cx, cy - r)} onBlur={() => setTip(null)}
-                  onClick={() => pick(p)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(p); } }}>
-                  <circle cx={cx} cy={cy} r={Math.max(r, 12)} fill="transparent" />
-                  <circle cx={cx} cy={cy} r={r} fill={flag(p) ? 'var(--bad)' : 'var(--accent)'} fillOpacity={0.82} stroke={on ? 'var(--text)' : 'var(--card)'} strokeWidth={2} />
-                  {labels.has(p.name) && <text x={labels.get(p.name)!.x} y={labels.get(p.name)!.y} textAnchor={labels.get(p.name)!.anchor} className="xlabel">{p.name}</text>}
-                </g>
-              );
-            })}
-          </svg>
-          <Tooltip tip={tip} />
-        </div>
-      )}
-      <div className="xfoot">
-        <span className="legend"><span><i className="dot" style={{ background: 'var(--bad)' }} />需关注：每米成本高于平均且利润率低于平均</span><span><i className="dot" style={{ background: 'var(--accent)' }} />其余</span></span>
-        {skipped > 0 && <span className="small muted">{skipped} 个无进尺或无收入，未列入</span>}
-      </div>
-      <SrTable caption="每米成本与利润率" head={['对象', '每米成本（元/米）', '利润率', '进尺（米）', '井数']}
-        rows={pts.map((p) => [p.name, fmt(p.x, 0), `${(p.y * 100).toFixed(1)}%`, fmt(p.footage, 0), p.wells])} />
-    </div>
-  );
-}
-
-// ---------- ④ 非生产时间 ----------
-
-function NptCard({ data }: { data: OV }) {
-  const s = data.sum;
-  const rows = Object.entries(s.hours || {}).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
-  const max = Math.max(...rows.map(([, v]) => v), 1);
-  const share = s.hours_total ? s.npt_hours / s.hours_total : 0;
-  const perHour = s.rig_months ? s.cost_with_rig / s.rig_months / RIG_HOURS : 0;
-  return (
-    <div className="card pad exec-card">
-      <div className="sec-head"><h3>时间去向<small>小时 · 来自成本日报工况</small></h3></div>
-      {rows.length === 0 ? <div className="empty">本期间没有已生效的工况数据</div> : (
-        <>
-          <div className="xstats">
-            <Stat k="非生产时间" v={fmt(s.npt_hours, 1)} u="小时" />
-            <Stat k="占全部工况" v={(share * 100).toFixed(1)} u="%" />
-            <Stat k="折合成本（估）" v={wan(s.npt_hours * perHour)} u="万元" hint={`按每台月成本 ÷ ${RIG_HOURS} 小时折算`} />
-          </div>
-          <div className="rank">
-            {rows.map(([k, v]) => {
-              const bad = NPT.includes(k);
-              return (
-                <div key={k} className="rank-row" title={`${k}：${fmt(v, 1)} 小时，占 ${((v / s.hours_total) * 100).toFixed(1)}%`}>
-                  <span className="rank-name">{k}</span>
-                  <span className="rank-plot"><span className="rank-bar" style={{ width: (v / max) * 100 + '%', background: bad ? 'var(--accent)' : 'var(--chart-neutral)' }} /></span>
-                  <span className="rank-val num">{fmt(v, 1)}<em>{((v / s.hours_total) * 100).toFixed(0)}%</em></span>
-                </div>
-              );
-            })}
-          </div>
-          <span className="legend"><span><i style={{ background: 'var(--accent)' }} />非生产（待命、复杂情况）</span><span><i style={{ background: 'var(--chart-neutral)' }} />生产工况</span></span>
-        </>
-      )}
-    </div>
-  );
-}
-
-function Stat({ k, v, u, hint }: { k: string; v: string; u: string; hint?: string }) {
-  return <div className="xstat" title={hint}><span>{k}</span><b>{v}<em>{u}</em></b></div>;
 }
 
 // ---------- ⑤ 亏损井 ----------

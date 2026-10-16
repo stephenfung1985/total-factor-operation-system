@@ -110,10 +110,16 @@ export interface Kpi {
   revenue: number; contract: number; fixed: number; variable: number; total_cost: number; gross_margin: number; net_profit: number;
 }
 export type KpiSum = Omit<Kpi, 'contract'>;
-export interface OverviewWell extends KpiSum { well_id: string; market: string; block: string; well_type: string; team: string; phase: string; status: string; remark: string; last_period: string }
+/** 决策层运营指标：进尺、钻机台月、工况小时（非生产 = 待命 + 复杂情况）。 */
+export interface OpsSum {
+  footage: number; cost_with_footage: number; rig_months: number; net_with_rig: number; cost_with_rig: number;
+  hours_total: number; npt_hours: number; hours: Record<string, number>;
+}
+export interface OverviewWell extends KpiSum, OpsSum { well_id: string; market: string; block: string; well_type: string; team: string; phase: string; status: string; remark: string; last_period: string }
+export interface OverviewSum extends KpiSum, OpsSum { well_count: number; loss_wells: number; loss_amount: number }
 export interface Overview {
-  period: string; months: string[]; wells: OverviewWell[]; sum: KpiSum; show_revenue: boolean; scope: string;
-  prev: { period: string; sum: KpiSum } | null; structure: { code: string; name: string; behavior: string; amount: number }[];
+  period: string; months: string[]; wells: OverviewWell[]; sum: OverviewSum; show_revenue: boolean; scope: string;
+  prev: { period: string; sum: OverviewSum } | null; structure: { code: string; name: string; behavior: string; amount: number }[];
 }
 
 export interface TreeNode {

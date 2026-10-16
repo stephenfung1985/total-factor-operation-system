@@ -475,3 +475,43 @@ div.rank-row { cursor: default; }
   .qty, .rl-note, .rline > span:nth-child(3):empty { grid-column: 1 / -1; }
   .rline > span:nth-child(3):empty { display: none; }
 }
+
+/* 决策层首屏：图表网格、坐标、提示 —— 细实线网格、文字用文字色、数据只用强调蓝 / 中性灰 / 盈亏状态色 */
+:root, .theme-light { --chart-neutral: #8E8E93; }
+.theme-dark { --chart-neutral: #8E8E93; }
+.exec { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 16px; }
+@media (min-width: 1200px) { .exec { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); } }
+.exec-card { min-width: 0; }
+.xchart { position: relative; width: 100%; min-width: 0; }
+.xchart svg { display: block; overflow: visible; }
+.xgrid { stroke: var(--sep); stroke-width: 1; shape-rendering: crispEdges; }
+.xbase { stroke: var(--border); stroke-width: 1; shape-rendering: crispEdges; }
+.xavg { stroke: var(--text2); stroke-width: 1; opacity: .45; shape-rendering: crispEdges; }
+.xlink { stroke: var(--border); stroke-width: 1; }
+.xtick { font-size: 11px; fill: var(--text2); font-variant-numeric: tabular-nums; }
+.xcat { font-size: 12px; fill: var(--text2); }
+.xval { font-size: 12px; font-weight: 600; fill: var(--text); }
+.xlabel { font-size: 12px; fill: var(--text2); pointer-events: none; }
+.xquad { font-size: 11px; fill: var(--mute); pointer-events: none; }
+.xmark { cursor: default; outline: none; }
+.xmark path, .xmark circle { transition: opacity .15s ease, filter .15s ease; }
+.xmark:hover path, .xmark:focus-visible path, .xmark:hover circle:not([fill="transparent"]), .xmark:focus-visible circle:not([fill="transparent"]) { filter: brightness(1.12); }
+.xdot { cursor: pointer; }
+.xdot:focus-visible circle:not([fill="transparent"]) { stroke: var(--accent); }
+.xtip { position: absolute; z-index: 5; transform: translate(-50%, calc(-100% - 12px)); pointer-events: none; display: flex; flex-direction: column; gap: 2px;
+  padding: 8px 12px; border-radius: 10px; background: var(--card); box-shadow: 0 6px 24px rgba(0,0,0,.16), 0 0 0 1px var(--sep); white-space: nowrap; font-size: 12px; }
+.xtip b { font-size: 14px; font-weight: 600; color: var(--text); }
+.xtip span { color: var(--text2); }
+.xtip em { font-style: normal; color: var(--text2); }
+.xfoot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 16px; }
+.legend i.dot { border-radius: 5px; }
+.xstats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.xstat { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: 12px; background: var(--fill); min-width: 0; }
+.xstat span { font-size: 12px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.xstat b { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; }
+.xstat b em { font-style: normal; font-size: 12px; font-weight: 400; color: var(--text2); margin-left: 3px; }
+.rank-sub { font-style: normal; font-size: 11px; color: var(--text2); margin-left: 6px; }
+.good-empty { color: var(--good); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+@media (max-width: 760px) { .xstats { grid-template-columns: 1fr; } }
+.rank-wide .rank-row { grid-template-columns: minmax(120px, 170px) minmax(0, 1fr) 96px; }

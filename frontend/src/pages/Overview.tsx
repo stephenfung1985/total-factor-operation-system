@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, download, type ExportRow, type ItemEvents, type KpiSum, type Overview as OV, type OverviewWell, type ResultImport, type Trace, type TreeNode, type WellResult } from '../api';
+import { api, download, type ExportRow, type ItemEvents, type KpiSum, type Overview as OV, type OverviewSum, type OverviewWell, type ResultImport, type Trace, type TreeNode, type WellResult } from '../api';
 import type { PageProps } from '../App';
 import OverviewCharts, { DIMS, DONE, type DimFilter } from './OverviewCharts';
+import ExecBoard from './ExecBoard';
 import { Drawer, fmt, Icon, Kpis, Modal, PageHead, pct, periodLabel, PeriodPicker, useLoad, useToast, wan, yuan, type Crumb, type KpiItem } from '../ui';
 
 const WELL_COLS = '0.8fr 0.8fr 0.8fr 1.2fr 0.6fr 1fr 1fr 1fr 0.8fr 1fr 0.8fr 1fr 24px';
@@ -15,6 +16,30 @@ function delta(cur: number, prev: number | undefined, kind: 'amt' | 'rate', bett
   const text = kind === 'rate' ? `${label} ${d >= 0 ? '+' : ''}${(d * 100).toFixed(1)} pp` : `${label} ${d >= 0 ? '+' : ''}${((d / Math.abs(prev)) * 100).toFixed(1)}%`;
   if (Math.abs(d) < 1e-9) return { text, tone: 'flat' };
   return { text, tone: (d > 0) === (better === 'high') ? 'good' : 'bad' };
+}
+
+/** 决策层首屏指标卡：结果（净利润、利润率）→ 效率（每米成本、每台月利润、非生产时间）→ 风险（亏损井）。 */
+function execKpis(s: OverviewSum, prev: OverviewSum | undefined, label: string): KpiItem[] {
+  const net = s.revenue - s.total_cost;
+  const pnet = prev ? prev.revenue - prev.total_cost : undefined;
+  const perM = (x: OverviewSum) => (x.footage ? x.cost_with_footage / x.footage : undefined);
+  const perRig = (x: OverviewSum) => (x.rig_months ? x.net_with_rig / x.rig_months : undefined);
+  const npt = (x: OverviewSum) => (x.hours_total ? x.npt_hours / x.hours_total : undefined);
+  const opt = (cur: number | undefined, p: number | undefined, kind: 'amt' | 'rate', better: 'high' | 'low') =>
+    (cur === undefined || p === undefined ? undefined : delta(cur, p, kind, better, label));
+  const pm = perM(s);
+  const pr = perRig(s);
+  const nt = npt(s);
+  const lossDelta = prev ? s.loss_wells - prev.loss_wells : undefined;
+  return [
+    { label: '净利润', value: wan(net), unit: '万元', delta: delta(net, pnet, 'amt', 'high', label) },
+    { label: '利润率', value: pct(net, s.revenue), unit: '%', delta: opt(s.revenue ? net / s.revenue : undefined, prev && prev.revenue ? (pnet as number) / prev.revenue : undefined, 'rate', 'high') },
+    { label: '每米成本', value: pm === undefined ? '—' : fmt(pm, 0), unit: '元/米', delta: opt(pm, prev && perM(prev), 'amt', 'low') },
+    { label: '每台月利润', value: pr === undefined ? '—' : wan(pr), unit: '万元/台月', delta: opt(pr, prev && perRig(prev), 'amt', 'high') },
+    { label: '非生产时间', value: nt === undefined ? '—' : (nt * 100).toFixed(1), unit: '%', delta: opt(nt, prev && npt(prev), 'rate', 'low') },
+    { label: '亏损井', value: String(s.loss_wells), unit: `口 · ${wan(s.loss_amount)} 万元`,
+      delta: lossDelta === undefined ? undefined : { text: `${label} ${lossDelta > 0 ? '+' : ''}${lossDelta} 口`, tone: lossDelta === 0 ? 'flat' : lossDelta > 0 ? 'bad' : 'good' } },
+  ];
 }
 
 function kpiSet(k: KpiSum, o: { prev?: KpiSum; label?: string; full?: boolean } = {}): KpiItem[] {
@@ -112,8 +137,9 @@ function Level0({ period, title, picker, open, canImport, onImported }: {
       {error && <div className="notice">{error}</div>}
       {data && (
         <>
-          <Kpis board items={kpiSet(data.sum, { prev: data.prev?.sum, label: isYear ? '同比' : '环比' })} />
-          <OverviewCharts data={data} open={open} filter={filter} onFilter={setFilter} />
+          <Kpis board items={execKpis(data.sum, data.prev?.sum, isYear ? '同比' : '环比')} />
+          <ExecBoard data={data} open={open} filter={filter} onFilter={setFilter} />
+          <OverviewCharts data={data} />
           <div className="ov-bar" role="group" aria-label="井列表筛选">
             <input className="input ov-search" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索井号、区块、队伍" aria-label="搜索井" />
             <label className="pill">排序

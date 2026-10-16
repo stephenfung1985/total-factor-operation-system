@@ -118,9 +118,10 @@ def period_end(period: str) -> str:
 def _desired(conn, well_id: str, period: str) -> dict:
     """算出某井某月“应有的”引擎事项，键为 (类别, 来源, 规则)。"""
     item = {r['item_code']: dict(r) for r in conn.execute('SELECT * FROM cost_item')}
-    # 已导入历史数据的科目以导入金额为准，规则不再重复计算
+    # 已导入历史数据或已分摊的科目以导入 / 分摊金额为准，规则不再重复计算
     imported = {r['item_code'] for r in conn.execute(
-        "SELECT DISTINCT item_code FROM economic_event WHERE well_id=? AND period=? AND origin_type='历史导入' AND status='有效'",
+        "SELECT DISTINCT item_code FROM economic_event WHERE well_id=? AND period=? AND origin_type IN ('历史导入', '分摊') "
+        "AND status='有效'",
         (well_id, period))}
     out = {}
     facts = [dict(r) for r in conn.execute(

@@ -39,7 +39,7 @@ export const Icon = {
 };
 export const NAV_ICON: Record<string, () => ReactNode> = {
   report: Icon.report, overview: Icon.overview, rules: Icon.rules, perm: Icon.perm, wellinfo: Icon.well,
-  masterdata: Icon.master, review: Icon.review, batches: Icon.batch, wellreg: Icon.well, benchmark: Icon.bench, costdetail: Icon.report,
+  masterdata: Icon.master, review: Icon.review, batches: Icon.batch, wellreg: Icon.well, benchmark: Icon.bench, costdetail: Icon.report, allocation: Icon.batch,
 };
 
 // ---------- 通用组件 ----------

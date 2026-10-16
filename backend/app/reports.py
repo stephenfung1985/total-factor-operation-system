@@ -345,6 +345,32 @@ def update_draft(conn, report_id: int, body: dict, user: dict) -> None:
                  'WHERE report_id=?', f[:5] + (user['who'], report_id))
 
 
+DRILL_DEPT = '技术'   # 进尺与工况段每张日报都有，归口工程技术部
+
+
+def involved_depts(conn, lines: dict | None) -> set[str]:
+    """一张日报涉及的归口部室：进尺与工况归技术，其余按有数量的报量项目所属费用项目的归口部室（可多个，如 市场/安全）。"""
+    out = {DRILL_DEPT}
+    owners = {r['line_key']: r['owner_dept'] for r in conn.execute(
+        'SELECT l.line_key, i.owner_dept FROM report_line l LEFT JOIN cost_item i ON i.item_code=l.item_code')}
+    for k, v in report_lines.canon_map(lines).items():
+        try:
+            if float(v or 0) <= 0:
+                continue
+        except (TypeError, ValueError):
+            continue
+        out |= {d for d in (owners.get(k) or '').split('/') if d}
+    return out
+
+
+def dept_can_review(conn, user: dict, report_id: int) -> bool:
+    """部室只处理涉及本部室归口科目的日报；管理层不受限。"""
+    if user['role'] != 'dept':
+        return True
+    r = conn.execute('SELECT lines FROM daily_report WHERE report_id=?', (report_id,)).fetchone()
+    return bool(r) and user['dept'] in involved_depts(conn, jload(r['lines']))
+
+
 def catalog(conn) -> dict:
     """报量项目字典与不由基层填报的成本项目说明（供填报页和主数据维护展示）。"""
     return {'sections': report_lines.SECTIONS, 'work_conditions': WORK_CONDITIONS, 'lines': report_lines.lines(conn),

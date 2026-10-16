@@ -35,6 +35,11 @@ def _can_edit(user: dict, r: dict) -> bool:
     return user['role'] == 'dept' and _visible(user, r)
 
 
+def _can_publish(user: dict, r: dict) -> bool:
+    """发布：归口部室负责人，或管理层（企划财务部）代为审批发布。"""
+    return user['role'] == 'finance' or _can_edit(user, r)
+
+
 def list_rules(conn, user: dict) -> list[dict]:
     out = []
     for r in conn.execute('SELECT r.*, i.item_name, i.owner_dept, c.clause_no, d.doc_name FROM economic_rule r '
@@ -91,7 +96,7 @@ def detail(conn, user: dict, rule_id: int) -> dict:
         'hits': {'count': hits['n'], 'amount': money(hits['a'])},
         'can_edit': _can_edit(user, r) and r['status'] in EDITABLE,
         'can_confirm': _can_edit(user, r) and r['status'] in EDITABLE,
-        'can_publish': _can_edit(user, r) and r['status'] == '待发布',
+        'can_publish': _can_publish(user, r) and r['status'] == '待发布',
         'can_reject': _can_edit(user, r) and r['status'] in ('待确认', '回算中', '待发布'),
         'can_new_version': _can_edit(user, r) and r['status'] == '已发布',
         'options': {'dimensions': DIMENSIONS, 'operators': OPERATORS},
@@ -173,8 +178,10 @@ def reject(conn, user: dict, rule_id: int, comment: str | None) -> dict:
 
 
 def publish(conn, user: dict, rule_id: int) -> dict:
-    """部室负责人审批发布：旧版本失效日由新版本推导；生效日起已有事实按新规则冲销重算。"""
-    r = _need_edit(conn, user, rule_id)
+    """部室负责人或管理层审批发布：旧版本失效日由新版本推导；生效日起已有事实按新规则冲销重算。"""
+    r = _row(conn, rule_id)
+    if not _can_publish(user, r):
+        raise HTTPException(403, '规则由归口部室或管理层发布，当前角色无此权限')
     if r['status'] != '待发布':
         raise HTTPException(409, '只有回算达标（或豁免）的规则可以发布')
     prev = conn.execute("SELECT * FROM economic_rule WHERE rule_code=? AND status='已发布' AND rule_id!=?",
@@ -185,7 +192,7 @@ def publish(conn, user: dict, rule_id: int) -> dict:
         conn.execute('UPDATE economic_rule SET supersedes_rule_id=? WHERE rule_id=?', (prev['rule_id'], rule_id))
         log(conn, '规则', prev['rule_id'], '被替代', user['who'], f"由 v{r['version']} 替代，失效日 {end}")
     conn.execute("UPDATE economic_rule SET status='已发布', published_at=? WHERE rule_id=?", (now(), rule_id))
-    log(conn, '规则', rule_id, '发布', user['who'], f"生效日 {r['valid_from']}")
+    log(conn, '规则', rule_id, '发布', user['who'], f"生效日 {r['valid_from']}" + ('（管理层发布）' if user['role'] == 'finance' else ''))
     wells, periods = engine.affected_scope(conn)
     periods = [p for p in periods if p >= r['valid_from'][:7]]
     batch = engine.recalc(conn, wells, periods, '规则新版本发布', user['who']) if periods else None

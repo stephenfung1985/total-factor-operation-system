@@ -3,10 +3,10 @@
 数据全部来自经济事项（只取“有效”，冲销与被冲销互相抵消），与经营总览同源，金额不另算。
 只有管理端（企划财务部）可用，看全部成本科目。
 口径：市场、区块取单井基础信息；队伍取事项发生时的施工队伍（事项上没有队伍时按该井当期施工队伍补）。
-进尺：已审核日报的进尺合计（米）；钻机台月：施工时段落在各月的天数 ÷ 当月天数（整月施工为 1 台月）。
+进尺：取实际井深（有日报的井按日报井深差逐月累计，模板导入的历史井按实际井深计入导入月份，见 analysis.depth_footage）；钻机台月：施工时段落在各月的天数 ÷ 当月天数（整月施工为 1 台月）。
 米成本 = 金额 ÷ 进尺（元/米）；单位成本 = 金额 ÷ 钻机台月（元/台月）。分母取所选期间内有经济事项的全部井·月，不随所选科目变化，
 所以单项科目的米成本、单位成本可以直接横向对比。
-米成本的金额只统计有进尺的井·月（模板导入的历史数据没有进尺，不进米成本的分子，避免虚高）；单位成本统计全部井·月。
+米成本的金额只统计有进尺的井·月（同一口历史井只有导入月份有进尺）；单位成本统计全部井·月。
 """
 import calendar
 from datetime import date
@@ -123,11 +123,24 @@ def _denoms(conn, start: str | None, end: str | None) -> list[dict]:
                 d = (date.fromisoformat(b) - date.fromisoformat(a)).days + 1
                 t = teams.setdefault(sg['name'], {'team_no': sg['team_no'], 'footage': 0.0, 'days': 0})
                 t['days'] += d
-        for f in conn.execute("SELECT t.name, t.team_no, SUM(f.quantity) q FROM business_fact f JOIN team t ON t.team_id=f.team_id "
-                              "WHERE f.well_id=? AND f.fact_type='进尺' AND f.status='已审核' AND substr(f.fact_date,1,7)=? "
-                              'GROUP BY f.team_id', (wid, period)):
+        facts = conn.execute("SELECT t.name, t.team_no, SUM(f.quantity) q FROM business_fact f JOIN team t ON t.team_id=f.team_id "
+                             "WHERE f.well_id=? AND f.fact_type='进尺' AND f.status='已审核' AND substr(f.fact_date,1,7)=? "
+                             'GROUP BY f.team_id', (wid, period)).fetchall()
+        for f in facts:
             t = teams.setdefault(f['name'], {'team_no': f['team_no'], 'footage': 0.0, 'days': 0})
             t['footage'] += f['q'] or 0
+        if not facts:   # 没有日报的历史井：进尺取实际井深，记到当期施工天数最多的队伍（或事项上的队伍）
+            depth = analysis.depth_footage(conn, wid, period)
+            if depth:
+                if not teams:
+                    ev = conn.execute('SELECT t.name, t.team_no FROM economic_event e JOIN team t ON t.team_id=e.team_id '
+                                      'WHERE e.well_id=? AND e.period=? AND e.team_id IS NOT NULL LIMIT 1', (wid, period)).fetchone()
+                    if ev:
+                        teams[ev['name']] = {'team_no': ev['team_no'], 'footage': 0.0, 'days': 0}
+                if teams:
+                    max(teams.values(), key=lambda t: t['days'])['footage'] += depth
+                else:
+                    teams[NONE_LABEL] = {'team_no': '', 'footage': depth, 'days': 0}
         if not teams:
             teams[NONE_LABEL] = {'team_no': '', 'footage': 0.0, 'days': 0}
         for name, t in teams.items():
@@ -229,7 +242,7 @@ def detail(conn, user: dict, codes: list[str] | None = None, start: str | None =
 HEAD_FILL = PatternFill('solid', fgColor='E8E8ED')
 SUB_FILL = PatternFill('solid', fgColor='F5F5F7')
 NOTE = ('口径：经济事项有效金额合计（冲销已抵消）；金额单位：元；市场、区块取单井基础信息；队伍取事项发生时的施工队伍。'
-        '进尺为已审核日报进尺合计（米）；钻机台月 = 施工天数 ÷ 当月天数；米成本 = 有进尺井·月的金额 ÷ 进尺（元/米）；单位成本 = 金额 ÷ 钻机台月（元/台月）。')
+        '进尺取实际井深（有日报按日报井深差，历史井按实际井深计入导入月份）；钻机台月 = 施工天数 ÷ 当月天数；米成本 = 有进尺井·月的金额 ÷ 进尺（元/米）；单位成本 = 金额 ÷ 钻机台月（元/台月）。')
 METRICS = {'amount': ('金额（元）', None), 'per_meter': ('米成本（元/米）', 'per_meter'), 'per_rig': ('单位成本（元/台月）', 'per_rig')}
 
 

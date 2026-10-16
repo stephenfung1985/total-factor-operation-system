@@ -178,7 +178,7 @@ export default function CostDetail({ me }: PageProps) {
           {!data && !error && !bad && <div className="loading">加载中…</div>}
         </div>
         {data && <div className="small muted" style={{ padding: '10px 24px 14px' }}>
-          金额取经济事项有效金额合计（冲销已抵消），单位：元；共 {data.event_count} 笔事项。市场、区块取单井基础信息，队伍取事项发生时的施工队伍。进尺为已审核日报进尺合计，钻机台月 = 施工天数 ÷ 当月天数；米成本 = 有进尺井·月的金额 ÷ 进尺（历史导入月份没有进尺，不计入），单位成本 = 金额 ÷ 钻机台月。
+          金额取经济事项有效金额合计（冲销已抵消），单位：元；共 {data.event_count} 笔事项。市场、区块取单井基础信息，队伍取事项发生时的施工队伍。进尺取实际井深（有日报的井按日报井深差逐月累计，历史导入井按实际井深计入导入月份），钻机台月 = 施工天数 ÷ 当月天数；米成本 = 有进尺井·月的金额 ÷ 进尺，单位成本 = 金额 ÷ 钻机台月。
         </div>}
       </section>
     </>

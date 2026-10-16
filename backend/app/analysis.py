@@ -84,10 +84,25 @@ OPS_KEYS = ('footage', 'cost_with_footage', 'rig_months', 'net_with_rig', 'cost_
 NPT_CONDITIONS = ('待命', '复杂情况')
 
 
+def depth_footage(conn, well_id: str, month: str) -> float:
+    """进尺口径：取实际井深。
+    有已审核日报的井：进尺 = 日报井深差（结束井深 − 起始井深）逐日累计到月，各月合计即实际井深。
+    没有日报的井（模板导入的历史井）：进尺 = 单井基础信息里的实际井深，整口井计入它最后一个历史导入月份，避免多月重复计入。"""
+    has_facts = conn.execute("SELECT 1 FROM business_fact WHERE well_id=? AND fact_type='进尺' AND status='已审核' LIMIT 1",
+                             (well_id,)).fetchone()
+    if has_facts:
+        return conn.execute("SELECT COALESCE(SUM(quantity), 0) q FROM business_fact WHERE well_id=? AND fact_type='进尺' "
+                            "AND status='已审核' AND substr(fact_date,1,7)=?", (well_id, month)).fetchone()['q']
+    last = conn.execute("SELECT MAX(period) p FROM economic_event WHERE well_id=? AND origin_type='历史导入' AND status='有效'",
+                        (well_id,)).fetchone()['p']
+    if last != month:
+        return 0.0
+    return conn.execute('SELECT actual_depth FROM well WHERE well_id=?', (well_id,)).fetchone()['actual_depth'] or 0.0
+
+
 def _ops(conn, well_id: str, month: str) -> dict:
-    """某井某月的进尺（已审核日报）、钻机台月（施工时段天数 ÷ 当月天数，口径同费用导出）与工况小时。"""
-    footage = conn.execute("SELECT COALESCE(SUM(quantity), 0) q FROM business_fact WHERE well_id=? AND fact_type='进尺' "
-                           "AND status='已审核' AND substr(fact_date,1,7)=?", (well_id, month)).fetchone()['q']
+    """某井某月的进尺（取实际井深，见 depth_footage）、钻机台月（施工时段天数 ÷ 当月天数，口径同费用导出）与工况小时。"""
+    footage = depth_footage(conn, well_id, month)
     y, mo = int(month[:4]), int(month[5:])
     days_in = calendar.monthrange(y, mo)[1]
     first, last = date(y, mo, 1), date(y, mo, days_in)
@@ -396,7 +411,7 @@ def benchmark(conn, period: str | list[str], dims: list[str], filters: dict[str,
     filters：每个维度选定的具体对象（如 队伍 = 70101、70103），只对比这些对象；不选表示该维度全部。
     dims：分组维度，市场 / 区块 / 队伍 / 井；前端按“单选维度 + 下钻”使用，接口仍支持组合。
     返回各分组、所选范围合计（scope）与全部井合计（total），基准由前端在三者或某一分组（标杆）中选择。
-    options 为各维度可选对象，按其他维度已选条件联动收窄。单井指标按“井·月”平均；单位进尺成本只用有进尺事实的井·月计算。"""
+    options 为各维度可选对象，按其他维度已选条件联动收窄。单井指标按“井·月”平均；单位进尺成本只用有进尺的井·月计算（进尺取实际井深，见 depth_footage）。"""
     dims = [d for d in dims if d in DIMS] or ['market']
     filters = {d: [v for v in (filters or {}).get(d, []) if v] for d in DIMS}
     periods_all = [r['period'] for r in conn.execute('SELECT DISTINCT period FROM economic_event ORDER BY period')]
@@ -415,9 +430,7 @@ def benchmark(conn, period: str | list[str], dims: list[str], filters: dict[str,
             wid = r['well_id']
             info = well_info(conn, wid, p)
             k = compute(conn, None, wid, p)['kpi']
-            footage = conn.execute(
-                "SELECT COALESCE(SUM(quantity), 0) q FROM business_fact WHERE well_id=? AND fact_type='进尺' AND status='已审核' "
-                'AND substr(fact_date,1,7)=?', (wid, p)).fetchone()['q']
+            footage = depth_footage(conn, wid, p)
             rows.append({'well_id': wid, 'well': wid, 'period': p, 'market': info['market'], 'block': info['block'], 'team': info['team'],
                          'remark': remark(conn, wid, p), 'footage': footage,
                          'cost_with_footage': k['total_cost'] if footage else 0, **k})

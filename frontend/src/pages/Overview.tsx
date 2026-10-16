@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, download, type ExportRow, type ItemEvents, type KpiSum, type Overview as OV, type OverviewSum, type OverviewWell, type ResultImport, type Trace, type TreeNode, type WellResult } from '../api';
 import type { PageProps } from '../App';
-import OverviewCharts, { DIMS, DONE, type DimFilter } from './OverviewCharts';
+import OverviewCharts, { DONE } from './OverviewCharts';
 import ExecBoard from './ExecBoard';
 import { Drawer, fmt, Icon, Kpis, Modal, PageHead, pct, periodLabel, PeriodPicker, useLoad, useToast, wan, yuan, type Crumb, type KpiItem } from '../ui';
 
@@ -18,7 +18,7 @@ function delta(cur: number, prev: number | undefined, kind: 'amt' | 'rate', bett
   return { text, tone: (d > 0) === (better === 'high') ? 'good' : 'bad' };
 }
 
-/** 决策层首屏指标卡：结果（净利润、利润率）→ 效率（每米成本、每台月利润、非生产时间）→ 风险（亏损井）。 */
+/** 决策层首屏指标卡：规模（井数、进尺）→ 结果（净利润、利润率、百元收入营业成本）→ 效率（每米成本、每台月利润、非生产时间）→ 风险（亏损井）。 */
 function execKpis(s: OverviewSum, prev: OverviewSum | undefined, label: string): KpiItem[] {
   const net = s.revenue - s.total_cost;
   const pnet = prev ? prev.revenue - prev.total_cost : undefined;
@@ -31,9 +31,16 @@ function execKpis(s: OverviewSum, prev: OverviewSum | undefined, label: string):
   const pr = perRig(s);
   const nt = npt(s);
   const lossDelta = prev ? s.loss_wells - prev.loss_wells : undefined;
+  const wellDelta = prev ? s.well_count - prev.well_count : undefined;
+  const per100 = (x: OverviewSum) => (x.revenue ? (x.total_cost / x.revenue) * 100 : undefined);   // 百元收入营业成本 = 总成本 ÷ 形象收入 × 100
+  const c100 = per100(s);
   return [
+    { label: '井数', value: String(s.well_count), unit: '口',
+      delta: wellDelta === undefined ? undefined : { text: `${label} ${wellDelta > 0 ? '+' : ''}${wellDelta} 口`, tone: wellDelta === 0 ? 'flat' : wellDelta > 0 ? 'good' : 'bad' } },
+    { label: '进尺', value: fmt(s.footage, 0), unit: '米', delta: opt(s.footage, prev?.footage, 'amt', 'high') },
     { label: '净利润', value: wan(net), unit: '万元', delta: delta(net, pnet, 'amt', 'high', label) },
     { label: '利润率', value: pct(net, s.revenue), unit: '%', delta: opt(s.revenue ? net / s.revenue : undefined, prev && prev.revenue ? (pnet as number) / prev.revenue : undefined, 'rate', 'high') },
+    { label: '百元收入营业成本', value: c100 === undefined ? '—' : fmt(c100, 2), unit: '元', delta: opt(c100, prev && per100(prev), 'amt', 'low') },
     { label: '每米成本', value: pm === undefined ? '—' : fmt(pm, 0), unit: '元/米', delta: opt(pm, prev && perM(prev), 'amt', 'low') },
     { label: '每台月利润', value: pr === undefined ? '—' : wan(pr), unit: '万元/台月', delta: opt(pr, prev && perRig(prev), 'amt', 'high') },
     { label: '非生产时间', value: nt === undefined ? '—' : (nt * 100).toFixed(1), unit: '%', delta: opt(nt, prev && npt(prev), 'rate', 'low') },
@@ -105,17 +112,14 @@ function Level0({ period, title, picker, open, canImport, onImported }: {
   const [del, setDel] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<Sort>('net');
-  const [filter, setFilter] = useState<DimFilter | null>(null);
   const tpl = () => download('/api/results/template.xlsx', '单井经营情况批量导入模板.xlsx').catch((e: Error) => toast(e.message, true));
-  useEffect(() => setFilter(null), [period]);
   const rows = useMemo(() => {
     if (!data) return [];
     const kw = q.trim().toLowerCase();
-    const list = data.wells.filter((w) => (!filter || (w[filter.dim] || '—') === filter.value)
-      && (!kw || [w.well_id, w.block, w.team, w.market, w.well_type].some((x) => (x || '').toLowerCase().includes(kw))));
+    const list = data.wells.filter((w) => (!kw || [w.well_id, w.block, w.team, w.market, w.well_type].some((x) => (x || '').toLowerCase().includes(kw))));
     const key = (w: OverviewWell) => (sort === 'net' ? w.revenue - w.total_cost : sort === 'revenue' ? w.revenue : w.total_cost);
     return [...list].sort((a, b) => (sort === 'id' ? a.well_id.localeCompare(b.well_id) : key(b) - key(a)));
-  }, [data, q, sort, filter]);
+  }, [data, q, sort]);
   const isYear = period.length === 4;
   return (
     <>
@@ -138,7 +142,7 @@ function Level0({ period, title, picker, open, canImport, onImported }: {
       {data && (
         <>
           <Kpis board items={execKpis(data.sum, data.prev?.sum, isYear ? '同比' : '环比')} />
-          <ExecBoard data={data} open={open} filter={filter} onFilter={setFilter} />
+          <ExecBoard data={data} open={open} />
           <OverviewCharts data={data} />
           <div className="ov-bar" role="group" aria-label="井列表筛选">
             <input className="input ov-search" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索井号、区块、队伍" aria-label="搜索井" />
@@ -147,11 +151,6 @@ function Level0({ period, title, picker, open, canImport, onImported }: {
                 {SORTS.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
               </select>
             </label>
-            {filter && (
-              <button type="button" className="chip-x" onClick={() => setFilter(null)} aria-label="清除筛选">
-                {DIMS.find((d) => d.id === filter.dim)?.label}：{filter.value}{Icon.close()}
-              </button>
-            )}
             <span className="small muted ov-count">共 {rows.length} / {data.wells.length} 口</span>
           </div>
           {[{ title: '正钻井', rows: rows.filter((w) => !DONE.includes(w.status)) },

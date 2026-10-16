@@ -117,7 +117,7 @@ export default function Allocation(_: PageProps) {
           <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
             {annual ? (
               <div className="formula">
-                标准 {fmt(pv.rate, 2)} 元/台月 = 全年费用池 {yuan(pv.total)} 元 ÷ 全年实际钻机 {fmt(pv.basis_total, 2)} 台月
+                标准 {yuan(pv.rate)} 元/台月 = 全年费用池 {yuan(pv.total)} 元 ÷ 全年实际钻机 {fmt(pv.basis_total, 2)} 台月
                 <div className="small muted" style={{ marginTop: 4 }}>各井每月分得 标准 × 当月台月；本次分摊 {yuan(pv.allocated)} 元{pv.skipped.length ? `，${pv.skipped.length} 个井月已有历史导入金额，不再分摊` : ''}</div>
               </div>
             ) : <div className="sec-label">分摊预览 · 池内合计 {fmt(pv.basis_total, 2)} {pv.unit}</div>}
@@ -158,7 +158,7 @@ export default function Allocation(_: PageProps) {
         head={<>
           <div className="hint">费用池 #{open}{d ? ` · ${d.period}` : ''}</div>
           <div style={{ fontSize: 24, fontWeight: 700 }}>{d ? d.item_name : '加载中…'}</div>
-          {d && <div className="small muted">{d.status} · {BASIS_LABEL[d.basis] || d.basis}{d.basis === ANNUAL && d.rate ? ` · 标准 ${fmt(d.rate, 2)} 元/台月` : ''} · 池 {yuan(d.amount)} 元 · {d.created_by} {d.created_at.slice(0, 16)}{d.note ? ' · ' + d.note : ''}</div>}
+          {d && <div className="small muted">{d.status} · {BASIS_LABEL[d.basis] || d.basis}{d.basis === ANNUAL && d.rate ? ` · 标准 ${yuan(d.rate)} 元/台月` : ''} · 池 {yuan(d.amount)} 元 · {d.created_by} {d.created_at.slice(0, 16)}{d.note ? ' · ' + d.note : ''}</div>}
         </>}
         foot={d?.status === '有效' ? <button type="button" className="btn danger" style={{ flex: 1 }} onClick={() => voidPool(d.pool_id)}>作废并冲销</button> : undefined}>
         {d && (

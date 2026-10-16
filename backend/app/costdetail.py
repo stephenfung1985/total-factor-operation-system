@@ -239,7 +239,7 @@ def _range_text(start: str | None, end: str | None) -> str:
 
 def _write_matrix(ws, m: dict, metric: str = 'amount') -> None:
     mlabel = METRICS[metric][0]
-    money_fmt = '#,##0;[Red]-#,##0;"-"' if metric == 'amount' else '#,##0.00;[Red]-#,##0.00;"-"'
+    money_fmt = '#,##0;[Red]-#,##0;"-"'   # 金额与米成本、单位成本一律显示整数
     ws.append([f'费用明细 · 按{m["label"]} · {mlabel} · {m["scope"]} · 期间：{_range_text(m["start"], m["end"])}'])
     ws.append([NOTE + f' 导出时间：{now()[:16]}'])
     ws['A1'].font = Font(bold=True, size=13)
@@ -293,7 +293,7 @@ def _write_matrix(ws, m: dict, metric: str = 'amount') -> None:
                     cell = ws.cell(ws.max_row, col)
                     cell.font, cell.fill = Font(bold=True, color='6E6E73'), SUB_FILL
                     if col >= 5:
-                        cell.number_format = '#,##0.00;[Red]-#,##0.00;"-"'
+                        cell.number_format = '#,##0;[Red]-#,##0;"-"'
     ws.column_dimensions['A'].width = 14
     ws.column_dimensions['B'].width = 30
     ws.column_dimensions['C'].width = 10

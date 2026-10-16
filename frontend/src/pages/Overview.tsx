@@ -39,7 +39,7 @@ function execKpis(s: OverviewSum, prev: OverviewSum | undefined, label: string):
     { label: '毛益率', value: pct(gm, s.revenue), unit: '%', delta: opt(ratio(gm, s.revenue), ratio(pgm, prev?.revenue), 'rate', 'high') },
     { label: '净利润', value: wan(net), unit: '万元', delta: opt(net, pnet, 'amt', 'high') },
     { label: '利润率', value: pct(net, s.revenue), unit: '%', delta: opt(ratio(net, s.revenue), ratio(pnet, prev?.revenue), 'rate', 'high') },
-    { label: '百元收入营业成本', value: c100 === undefined ? '—' : fmt(c100, 2), unit: '元', delta: opt(c100, prev && per100(prev), 'amt', 'low') },
+    { label: '百元收入营业成本', value: c100 === undefined ? '—' : fmt(c100, 0), unit: '元', delta: opt(c100, prev && per100(prev), 'amt', 'low') },
   ];
 }
 
@@ -136,7 +136,7 @@ function Level0({ period, title, picker, open, canImport, onImported }: {
       {data && (
         <>
           <Kpis board items={execKpis(data.sum, data.prev?.sum, isYear ? '同比' : '环比')} />
-          <ExecBoard data={data} open={open} />
+          <ExecBoard data={data} />
           <OverviewCharts data={data} />
           <div className="ov-bar" role="group" aria-label="井列表筛选">
             <input className="input ov-search" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索井号、区块、队伍" aria-label="搜索井" />

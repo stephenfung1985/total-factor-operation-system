@@ -203,6 +203,27 @@ CREATE TABLE IF NOT EXISTS rule_test (
   tested_at       TEXT NOT NULL
 );
 
+-- AI 调用记录：每次解析一条，含文件指纹、模型与提示词版本、原始输出与结果统计；采纳情况从规则状态与修改记录统计
+CREATE TABLE IF NOT EXISTS ai_task (
+  task_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_type      TEXT NOT NULL,          -- 规则解析
+  doc_id         INTEGER REFERENCES source_doc(doc_id),
+  status         TEXT NOT NULL CHECK (status IN ('进行中', '完成', '失败')),
+  model          TEXT,
+  prompt_version TEXT NOT NULL,
+  input_hash     TEXT,
+  input_chars    INTEGER,
+  truncated      INTEGER NOT NULL DEFAULT 0,
+  output         TEXT,                   -- 模型原始输出（留档，可复核）
+  draft_count    INTEGER NOT NULL DEFAULT 0,
+  skipped        TEXT,                   -- JSON：不采纳的规则及原因
+  manual         TEXT,                   -- JSON：写不成公式、需人工计价的条款
+  error          TEXT,
+  created_by     TEXT NOT NULL,
+  created_at     TEXT NOT NULL,
+  finished_at    TEXT
+);
+
 -- ---------- 三、事实 ----------
 
 -- 成本日报报量项目字典：只收录需要基层采集、参与成本计算的量；以末级费用项目编码为键

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, type Condition, type RuleDetail, type RuleImpact, type RuleRow } from '../api';
 import type { PageProps } from '../App';
 import { fmt, Icon, Modal, PageHead, Seg, useLoad, useToast, yuan } from '../ui';
+import AiImport from './AiImport';
 
 const STEPS = ['草稿', '待确认', '回算中', '待发布', '已发布'];
 type Filter = 'todo' | 'published' | 'all';
@@ -12,6 +13,7 @@ export default function Rules(_: PageProps) {
   const [filter, setFilter] = useState<Filter>('todo');
   const [publishing, setPublishing] = useState(false);
   const [rolling, setRolling] = useState(false);
+  const [importing, setImporting] = useState(false);
   const list = useLoad(() => api.get<RuleRow[]>('/api/rules'), []);
   const shown = useMemo(() => (list.data || []).filter((r) =>
     filter === 'all' ? true : filter === 'todo' ? TODO.includes(r.status) : r.status === '已发布'), [list.data, filter]);
@@ -61,7 +63,9 @@ export default function Rules(_: PageProps) {
   const cur = d ? STEPS.indexOf(d.rule.status) : -1;
   return (
     <>
-      <PageHead title="规则库" sub="按专业部室提供的变化依据维护：确认（冲突检查 + 回算）→ 影响预览 → 登记依据发布；发布后有误可一键回滚" />
+      <PageHead title="规则库" sub="按专业部室提供的变化依据维护：确认（冲突检查 + 回算）→ 影响预览 → 登记依据发布；发布后有误可一键回滚"
+        right={<button type="button" className="btn primary sm" onClick={() => setImporting(true)}>导入依据文件 · AI 解析</button>} />
+      <AiImport open={importing} onClose={() => setImporting(false)} onDone={() => { list.reload(); setFilter('todo'); }} onPick={(rid) => { setFilter('todo'); setSel(rid); }} />
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', alignItems: 'center' }}>
         <div className="steps">
           {STEPS.map((s, i) => (

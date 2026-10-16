@@ -83,6 +83,14 @@ NEW_COLUMNS = [
     ('daily_report', 'checked_by', 'TEXT'),     # 管理端抽查确认
     ('daily_report', 'checked_at', 'TEXT'),
     ('economic_rule', 'change_basis', 'TEXT'),  # 发布时登记的变化依据（部室提供的文件、通知）
+    ('economic_rule', 'ai_task_id', 'INTEGER'),  # AI 提取的草稿来自哪次解析
+    ('source_doc', 'file_name', 'TEXT'),         # 上传的依据文件：原件存 数据目录/docs/<指纹>，全文用于 AI 解析与原文定位
+    ('source_doc', 'file_path', 'TEXT'),
+    ('source_doc', 'full_text', 'TEXT'),
+    ('source_doc', 'page_count', 'INTEGER'),
+    ('source_doc', 'valid_from', 'TEXT'),
+    ('source_doc', 'uploaded_by', 'TEXT'),
+    ('source_doc', 'uploaded_at', 'TEXT'),
 ]
 
 

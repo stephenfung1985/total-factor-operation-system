@@ -41,6 +41,7 @@ cd backend && python -m pytest -q
 | `backend/app/engine.py` | 规则引擎：已审核事实 × 已发布规则 → 经济事项；按 收入 → 直接成本 → 比例计提 顺序计算，变化只冲销重算；回算测试 |
 | `backend/app/wellinfo.py` | 单井基础信息填报：字段与《单井基础信息表》一致；校验节点顺序与开次；自动算周期、状态、登记与完井填报滞后；提交后同步 well、team、well_milestone、team_well_period 并按需重算 |
 | `backend/app/reports.py` | 成本日报：报量行由规则库生成、阻断 / 警告校验、提交即生效、管理端抽查 / 退回更正 / 冲销退回、队伍自行更正 |
+| `backend/app/ai.py`、`aiparse.py` | AI 规则解析（第一期）：OpenAI 兼容网关（`TFOS_AI_*` 配置，不配即关闭）；依据文件上传与文本提取（PDF 文字版、Word、TXT），AI 拆条款提规则草稿，系统按科目树、字典与原文出处校验后写成“待确认”规则；每次调用记 `ai_task` |
 | `backend/app/rules.py` | 规则维护：草稿 → 待确认 → 回算中 → 待发布 → 已发布 → 已被替代，调价新建版本 |
 | `backend/app/analysis.py` | 经营总览、单井、成本构成、经济事项、溯源、对标分析，全部从经济事项汇总 |
 | `backend/app/costdetail.py` | 费用明细：每项成本科目按时间 / 市场 / 区块 / 队伍汇总并导出 Excel（每个维度一个工作表，另附逐笔“事项明细”）；金额取经济事项有效金额，与经营总览同源；只含成本科目；每次导出写入审计日志 |

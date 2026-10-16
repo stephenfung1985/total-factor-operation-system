@@ -10,7 +10,7 @@ export function fmt(x: number | null | undefined, d = 2): string {
 export const yuan = (x: number | null | undefined) => fmt(x, 0);
 export const wan = (x: number) => fmt(x / 1e4, 2);
 export const pct = (a: number, b: number) => (b > 0 ? ((a / b) * 100).toFixed(1) : '—');
-export const periodLabel = (p: string) => (p ? `${p.slice(0, 4)} 年 ${Number(p.slice(5, 7))} 月` : '');
+export const periodLabel = (p: string) => (p ? (p.length === 4 ? `${p} 年全年` : `${p.slice(0, 4)} 年 ${Number(p.slice(5, 7))} 月`) : '');
 export const today = () => new Date().toISOString().slice(0, 10);
 
 // ---------- 图标 ----------
@@ -39,7 +39,7 @@ export const Icon = {
 };
 export const NAV_ICON: Record<string, () => ReactNode> = {
   report: Icon.report, overview: Icon.overview, rules: Icon.rules, perm: Icon.perm, wellinfo: Icon.well,
-  masterdata: Icon.master, review: Icon.review, batches: Icon.batch, wellreg: Icon.well, benchmark: Icon.bench, costdetail: Icon.report,
+  masterdata: Icon.master, review: Icon.review, batches: Icon.batch, wellreg: Icon.well, benchmark: Icon.bench, costdetail: Icon.report, allocation: Icon.batch,
 };
 
 // ---------- 通用组件 ----------

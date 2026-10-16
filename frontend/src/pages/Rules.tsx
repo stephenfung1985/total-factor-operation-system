@@ -54,7 +54,7 @@ export default function Rules({ me }: PageProps) {
   const cur = d ? STEPS.indexOf(d.rule.status) : -1;
   return (
     <>
-      <PageHead title={isDept ? '规则确认' : '规则库'} sub={isDept ? '对照原文逐条确认 AI 提取的规则草稿' : '查看各部室规则的提取与确认状态'} />
+      <PageHead title={isDept ? '规则确认' : '规则库'} sub={isDept ? '对照原文逐条确认 AI 提取的规则草稿' : '查看各部室规则的提取与确认状态；回算达标（待发布）的规则可由管理层审批发布'} />
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', alignItems: 'center' }}>
         <div className="steps">
           {STEPS.map((s, i) => (
@@ -128,7 +128,7 @@ export default function Rules({ me }: PageProps) {
                       ))}
                     </div>
                   )}
-                  {isDept ? (
+                  {isDept || d.can_publish ? (
                     <div className="btn-row" style={{ paddingTop: 14 }}>
                       {d.can_reject && <button type="button" className="btn danger" disabled={busy} onClick={reject}>驳回</button>}
                       {d.can_edit && <button type="button" className="btn" disabled={busy} onClick={() => setEdit(true)}>修改</button>}
@@ -137,7 +137,7 @@ export default function Rules({ me }: PageProps) {
                       {d.can_new_version && <button type="button" className="btn" disabled={busy} onClick={newVersion}>调价 · 新建版本</button>}
                     </div>
                   ) : (
-                    <div style={{ paddingTop: 14 }} className="hint">当前角色只读：规则由归口部室确认，部室负责人审批发布</div>
+                    <div style={{ paddingTop: 14 }} className="hint">当前角色只读：规则由归口部室确认；回算达标后由部室负责人或管理层审批发布</div>
                   )}
                   {d.logs.length > 0 && (
                     <div style={{ paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>

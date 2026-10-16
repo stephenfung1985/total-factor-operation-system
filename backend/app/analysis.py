@@ -192,6 +192,8 @@ def _src_label(conn, ev) -> str:
         f = conn.execute('SELECT f.*, d.version FROM business_fact f LEFT JOIN daily_report d ON d.report_id=f.report_id '
                          'WHERE f.fact_id=?', (ev['fact_id'],)).fetchone()
         return f"成本日报 {f['fact_date'][5:]} · v{f['version'] or 1}"
+    if ev['origin_type'] == '分摊':
+        return f"费用分摊 · 费用池 #{ev['pool_id']}"
     if ev['origin_type'] == '比例计提':
         snap = jload(ev['calc_snapshot'])
         return f"比例计提 · 基数 {snap.get('base_item', '')} 形象收入"
@@ -206,7 +208,8 @@ def item_events(conn, user: dict, well_id: str, code: str, period: str) -> dict:
         'WHERE e.well_id=? AND e.item_code=? AND e.period=? ORDER BY e.event_date, e.event_id', (well_id, code, period)).fetchall()
     rows = []
     for e in evs:
-        unit = e['fact_unit'] or ('元' if e['origin_type'] == '比例计提' else '')
+        unit = e['fact_unit'] or ('元' if e['origin_type'] == '比例计提' else
+                                  {'队天': '队天', '进尺': '米'}.get(jload(e['calc_snapshot']).get('basis'), '') if e['origin_type'] == '分摊' else '')
         if e['origin_type'] == '比例计提':
             qty, price = f"{e['quantity']:,.0f} 元", f"{e['unit_price'] * 100:.2f}%"
         elif e['quantity'] is not None:
@@ -259,6 +262,10 @@ def trace(conn, user: dict, event_id: int) -> dict:
                              (r['clause_id'],)).fetchone()
             out['clause'] = {'ref': f"{c['doc_name']} {c['clause_no']}" + (f" · {c['page_no']}" if c['page_no'] else ''),
                              'pre': c['text_pre'], 'hit': c['text_hit'], 'post': c['text_post']}
+    elif e['origin_type'] == '分摊':
+        out['formula'] = f"{snap.get('formula', '')} = {e['amount']:,.0f} 元"
+        out['rule_lines'] = [{'k': '口径', 'v': f"费用分摊 · 按{snap.get('basis', '')}"}, {'k': '归口', 'v': it['owner_dept'] or '—'},
+                             {'k': '计算顺序', 'v': '月末财务取数 → 费用池 → 队 → 井'}]
     else:
         out['formula'] = '历史导入金额，尚未由规则计算'
         out['rule_lines'] = [{'k': '状态', 'v': '待规则回算'}, {'k': '计价类型', 'v': it['calc_type'] or '—'},
@@ -279,6 +286,13 @@ def trace(conn, user: dict, event_id: int) -> dict:
         out['src_title'] = '基数事项'
         out['src_lines'] = [{'k': '基数', 'v': f"形象收入 · {e['period']}"}, {'k': '金额', 'v': f"{e['quantity']:,.0f} 元"},
                             {'k': '联动', 'v': '收入变动时本笔一并冲销重算'}]
+    elif e['origin_type'] == '分摊':
+        pool = conn.execute('SELECT * FROM cost_pool WHERE pool_id=?', (e['pool_id'],)).fetchone()
+        out['src_title'] = '费用池'
+        out['src_lines'] = [{'k': '费用池', 'v': f"#{e['pool_id']} · {pool['period']} · {pool['amount']:,.0f} 元" if pool else '—'},
+                            {'k': '分摊标准', 'v': pool['basis'] if pool else '—'},
+                            {'k': '录入', 'v': f"{pool['created_by']} · {pool['created_at'][:16]}" if pool else '—'},
+                            {'k': '批次', 'v': f"费用分摊 · 批次 {e['batch_id']}"}]
     else:
         out['src_lines'] = [{'k': '来源', 'v': e['source_note'] or '—'}, {'k': '总表列', 'v': it['report_col'] or '—'},
                             {'k': '批次', 'v': f"历史导入 · 批次 {e['batch_id']}"}]

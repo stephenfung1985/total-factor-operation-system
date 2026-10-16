@@ -79,6 +79,7 @@ NEW_COLUMNS = [
     ('app_user', 'created_at', 'TEXT'),
     ('app_user', 'is_debug', 'INTEGER NOT NULL DEFAULT 0'),
     ('app_session', 'acting_user_id', 'TEXT'),
+    ('economic_event', 'pool_id', 'INTEGER'),
 ]
 
 

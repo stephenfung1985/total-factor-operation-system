@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import accounts, analysis, auth, costdetail, engine, excel, reports, results_import, rules, wellinfo
+from . import accounts, allocation, analysis, auth, costdetail, engine, excel, reports, results_import, rules, wellinfo
 from .db import init_db, log, rows, transaction
 
 def docs_kwargs() -> dict:
@@ -360,6 +360,8 @@ def _own_report(c, user, rid) -> dict:
         raise HTTPException(404, '日报不存在')
     if user['role'] == 'team' and r['team_id'] != user['team_id']:
         raise HTTPException(404, '日报不存在')
+    if not reports.dept_can_review(c, user, rid):
+        raise HTTPException(404, '日报不存在或不涉及本部室归口科目')
     return dict(r)
 
 
@@ -405,7 +407,8 @@ def review_queue(status: str = '已提交', user=User):
         out = rows(c.execute(
             'SELECT d.report_id, d.well_id, d.report_date, d.version, d.status, d.phase, d.depth_start, d.depth_end, d.reporter, '
             'd.submitted_at, d.reviewer, d.reviewed_at, d.review_comment, t.name team FROM daily_report d JOIN team t ON t.team_id=d.team_id '
-            'WHERE d.status=? ORDER BY d.submitted_at DESC, d.report_id DESC LIMIT 100', (status,)))
+            'WHERE d.status=? ORDER BY d.submitted_at DESC, d.report_id DESC', (status,)))
+        out = [r for r in out if reports.dept_can_review(c, user, r['report_id'])][:100]
         for r in out:
             r['alerts'] = rows(c.execute('SELECT level, message FROM validation_alert WHERE report_id=?', (r['report_id'],)))
         return out
@@ -415,6 +418,7 @@ def review_queue(status: str = '已提交', user=User):
 def report_approve(rid: int, body: Comment, user=User):
     auth.require(user, 'dept')
     with transaction() as c:
+        _own_report(c, user, rid)
         return reports.approve(c, rid, user, body.comment)
 
 
@@ -424,6 +428,7 @@ def report_reject(rid: int, body: Comment, user=User):
     if not (body.comment or '').strip():
         raise HTTPException(422, '驳回必须填写意见')
     with transaction() as c:
+        _own_report(c, user, rid)
         return reports.reject(c, rid, user, body.comment)
 
 
@@ -504,6 +509,59 @@ def rule_publish(rid: int, user=User):
 def rule_new_version(rid: int, body: NewVersion, user=User):
     with transaction() as c:
         return rules.new_version(c, user, rid, body.valid_from)
+
+
+# ---------- 费用分摊（企划财务部） ----------
+
+class PoolBody(BaseModel):
+    period: str = ''
+    item_code: str = ''
+    basis: str = ''
+    amount: float | None = None
+    scope_team_id: str | None = None
+    note: str | None = None
+
+
+@app.get('/api/allocation/options')
+def alloc_options(user=User):
+    auth.require(user, 'finance')
+    with transaction() as c:
+        return allocation.options(c)
+
+
+@app.get('/api/allocation/pools')
+def alloc_pools(period: str | None = None, user=User):
+    auth.require(user, 'finance')
+    with transaction() as c:
+        return allocation.list_pools(c, period)
+
+
+@app.get('/api/allocation/pools/{pid:int}')
+def alloc_pool(pid: int, user=User):
+    auth.require(user, 'finance')
+    with transaction() as c:
+        return allocation.detail(c, pid)
+
+
+@app.post('/api/allocation/preview')
+def alloc_preview(body: PoolBody, user=User):
+    auth.require(user, 'finance')
+    with transaction() as c:
+        return allocation.preview(c, body.model_dump())
+
+
+@app.post('/api/allocation/pools')
+def alloc_create(body: PoolBody, user=User):
+    auth.require(user, 'finance')
+    with transaction() as c:
+        return allocation.create(c, body.model_dump(), user)
+
+
+@app.post('/api/allocation/pools/{pid:int}/void')
+def alloc_void(pid: int, user=User):
+    auth.require(user, 'finance')
+    with transaction() as c:
+        return allocation.void(c, pid, user)
 
 
 # ---------- 计算批次 ----------
@@ -612,6 +670,13 @@ def info_revise(rid: int, user=User):
     with transaction() as c:
         nid = wellinfo.revise(c, rid, user)
         return wellinfo.view(c, wellinfo._load(c, nid), user['team_id'])
+
+
+@app.get('/api/wellinfo/library')
+def info_library(user=User):
+    """基础信息库：各角色都能查看，字段与范围按角色裁剪（本队只看本队井，部室不看队长与人员，人事部室除外）。"""
+    with transaction() as c:
+        return wellinfo.library(c, user)
 
 
 @app.get('/api/wellinfo/summary')

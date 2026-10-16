@@ -48,7 +48,11 @@ function kpiSet(k: KpiSum, dept: boolean, o: { prev?: KpiSum; label?: string; fu
 export default function Overview({ me, route, setRoute }: PageProps) {
   const dept = me.role === 'dept';
   const periods = useLoad(() => api.get<string[]>('/api/periods'), []);
-  const period = route.period || periods.data?.[0] || '';
+  // 总览默认展示当年全年累计（当年还没有数据则取最近有数据的年份）；下钻到单井时默认最近一个月
+  const list = periods.data || [];
+  const thisYear = String(new Date().getFullYear());
+  const defaultYear = list.some((p) => p.startsWith(thisYear)) ? thisYear : list[0]?.slice(0, 4) || '';
+  const period = route.period || (route.well ? list[0] : defaultYear) || '';
   const navLabel = me.nav.flatMap((g) => g.items).find((i) => i.id === 'overview')?.label || '经营总览';
   const go = (well?: string, item?: string, p?: string) => setRoute({ screen: 'overview', well, item, period: p ?? period });
 
@@ -118,7 +122,7 @@ function Level0({ period, title, picker, dept, open, canImport, onImported }: {
       {data && (
         <>
           <Kpis board items={kpiSet(data.sum, dept, { prev: data.prev?.sum, label: isYear ? '同比' : '环比' })} />
-          <OverviewCharts data={data} period={period} dept={dept} open={open} filter={filter} onFilter={setFilter} />
+          <OverviewCharts data={data} dept={dept} open={open} filter={filter} onFilter={setFilter} />
           <div className="ov-bar" role="group" aria-label="井列表筛选">
             <input className="input ov-search" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索井号、区块、队伍" aria-label="搜索井" />
             <label className="pill">排序

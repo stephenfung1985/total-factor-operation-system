@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { api, type Overview as OV, type OverviewWell, type TrendPoint } from '../api';
-import { periodLabel, useLoad, wan } from '../ui';
+import type { Overview as OV, OverviewWell } from '../api';
+import { periodLabel, wan } from '../ui';
 
 export const DONE = ['完钻', '完井', '已结算'];
 export type Dim = 'team' | 'block' | 'market' | 'well_type';
@@ -9,17 +9,7 @@ export interface DimFilter { dim: Dim; value: string }
 
 const sum = (ws: OverviewWell[], k: 'revenue' | 'total_cost' | 'fixed' | 'variable') => ws.reduce((a, w) => a + w[k], 0);
 const net = (w: OverviewWell) => w.revenue - w.total_cost;
-const W = 520;
-const H = 230;
-const PAD = { l: 52, r: 12, t: 16, b: 28 };
 const TOP_N = 5;
-
-function niceMax(v: number): number {
-  if (v <= 0) return 1;
-  const p = 10 ** Math.floor(Math.log10(v));
-  const n = v / p;
-  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p;
-}
 
 function Legend({ items }: { items: [string, string][] }) {
   return <span className="legend">{items.map(([c, n]) => <span key={n}><i style={{ background: c }} />{n}</span>)}</span>;
@@ -33,71 +23,16 @@ function Seg<T extends string>({ value, options, onChange, label }: { value: T; 
   );
 }
 
-/** 经营总览顶部的整体经营情况：趋势、成本构成、分维度对比、单井净利润；条形一律限量并按统一比例尺，不会爆表。 */
-export default function OverviewCharts({ data, period, dept, open, filter, onFilter }: {
-  data: OV; period: string; dept: boolean; open: (w: string, period?: string) => void; filter: DimFilter | null; onFilter: (f: DimFilter | null) => void;
+/** 经营总览顶部的整体经营情况：成本构成、分维度对比、单井净利润；条形一律限量并按统一比例尺，不会爆表。 */
+export default function OverviewCharts({ data, dept, open, filter, onFilter }: {
+  data: OV; dept: boolean; open: (w: string, period?: string) => void; filter: DimFilter | null; onFilter: (f: DimFilter | null) => void;
 }) {
-  const trend = useLoad(() => api.get<TrendPoint[]>('/api/overview/trend'), []);
   return (
     <section className="charts" aria-label="整体经营情况">
-      <div className="card pad">
-        <div className="sec-head"><h3>月度趋势<small>万元</small></h3>
-          <Legend items={dept ? [['var(--accent)', '固定成本'], ['var(--accent-soft)', '变动成本']] : [['var(--accent)', '形象收入'], ['var(--mute)', '总成本'], ['var(--good)', '净利润']]} /></div>
-        {trend.data ? <Trend points={trend.data.slice(-12)} dept={dept} period={period} /> : <div className="loading">{trend.error || '加载中…'}</div>}
-      </div>
       <Composition data={data} />
       <DimCompare wells={data.wells} dept={dept} filter={filter} onFilter={onFilter} wide={dept} />
       {!dept && <WellProfit wells={data.wells} open={open} />}
     </section>
-  );
-}
-
-function Trend({ points, dept, period }: { points: TrendPoint[]; dept: boolean; period: string }) {
-  const series: { name: string; color: string; v: (r: TrendPoint) => number }[] = dept
-    ? [{ name: '固定成本', color: 'var(--accent)', v: (r) => r.fixed }, { name: '变动成本', color: 'var(--accent-soft)', v: (r) => r.variable }]
-    : [{ name: '形象收入', color: 'var(--accent)', v: (r) => r.revenue }, { name: '总成本', color: 'var(--mute)', v: (r) => r.total_cost },
-       { name: '净利润', color: 'var(--good)', v: (r) => r.revenue - r.total_cost }];
-  const vals = points.flatMap((r) => series.map((s) => s.v(r)));
-  const max = niceMax(Math.max(0, ...vals));
-  const min = Math.min(0, ...vals);
-  const lo = min < 0 ? -niceMax(-min) : 0;
-  const y = (v: number) => PAD.t + ((max - v) / (max - lo)) * (H - PAD.t - PAD.b);
-  const gw = (W - PAD.l - PAD.r) / Math.max(points.length, 1);
-  const bw = Math.min(24, (gw * 0.72) / series.length);
-  const ticks = [0, 1, 2, 3, 4].map((i) => lo + ((max - lo) * i) / 4);
-  const showVal = points.length <= 4;
-  const on = (p: string) => p === period || (period.length === 4 && p.startsWith(period));
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="chart" role="img" aria-label="月度经营趋势">
-      {ticks.map((t) => (
-        <g key={t}>
-          <line x1={PAD.l} x2={W - PAD.r} y1={y(t)} y2={y(t)} stroke="var(--sep)" strokeWidth={t === 0 ? 1.2 : 0.6} />
-          <text x={PAD.l - 6} y={y(t) + 4} textAnchor="end" fontSize="12" fill="var(--text2)">{wan(t).replace(/\.00$/, '')}</text>
-        </g>
-      ))}
-      {points.map((r, i) => {
-        const x0 = PAD.l + i * gw + (gw - bw * series.length) / 2;
-        return (
-          <g key={r.period} opacity={on(r.period) ? 1 : 0.5}>
-            {series.map((s, j) => {
-              const v = s.v(r);
-              const color = !dept && s.name === '净利润' && v < 0 ? 'var(--bad)' : s.color;
-              return (
-                <g key={s.name}>
-                  <rect x={x0 + j * bw} y={Math.min(y(v), y(0))} width={bw - 2} height={Math.max(Math.abs(y(v) - y(0)), 1)} rx="3" fill={color}>
-                    <title>{`${periodLabel(r.period)} ${s.name}：${wan(v)} 万元`}</title>
-                  </rect>
-                  {showVal && <text x={x0 + j * bw + (bw - 2) / 2} y={v >= 0 ? y(v) - 4 : y(v) + 12} textAnchor="middle" fontSize="11" fill="var(--text2)">{wan(v)}</text>}
-                </g>
-              );
-            })}
-            <text x={PAD.l + i * gw + gw / 2} y={H - 8} textAnchor="middle" fontSize="12" fill="var(--text2)">
-              {points.length > 6 ? `${r.period.slice(2, 4)}/${r.period.slice(5)}` : `${Number(r.period.slice(5))} 月`}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
   );
 }
 

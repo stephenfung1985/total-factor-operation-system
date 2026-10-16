@@ -226,9 +226,10 @@ def test_report_catalog_covers_cost_tree(client):
 def test_new_report_layers_and_carry_over(client):
     rep = client.get('/api/reports/current?well_id=W001&date=2026-10-10', headers=H('u_team')).json()
     shown = {x['key'] for x in rep['line_defs'] if x['show']}
-    # 常用 + 本井规则计价 + 近期报过的默认显示；没有规则、没报过的不显示
+    # 只显示本井当天有已发布规则计价、参与科目费用计算的项目
+    assert shown == {x['key'] for x in rep['line_defs'] if x['priced']}
     assert {'C2-1-04', 'C2-1-05-01', 'C2-3-17-01', 'C2-2-02-01'} <= shown and 'C1-01-01' not in shown
-    assert 'C2-3-23-03' not in shown
+    assert 'C2-3-23-03' not in shown and 'C2-1-03' not in shown   # 压裂、润滑油暂无规则，不让基层填
     # 在用设备沿用上一张已审核日报，能耗不沿用
     assert rep['lines'] == {'C2-2-02-01': 1} and rep['notes'] == {'C2-2-02-01': 'DQ-031'}
     # 人员数量取自基础信息（W001：合同化 18 + 市场化 12 + 第三方 16）

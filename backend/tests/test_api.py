@@ -89,23 +89,16 @@ def test_team_sees_only_own_wells(client):
     assert client.get('/api/wells/W002/result?period=2026-08', headers=H('u_team')).status_code == 404
 
 
-def test_dept_sees_only_owned_items_and_no_revenue(client):
-    r = client.get('/api/wells/W001/result?period=2026-08', headers=H('u_dept')).json()
-    leaves = [n for n in r['tree'] if n['is_leaf']]
-    assert leaves and all('技术' in n['dept'] for n in leaves)
-    assert r['kpi']['revenue'] == 0 and not r['show_revenue']
-    assert client.get('/api/wells/W001/items/C1-05/events?period=2026-08', headers=H('u_dept')).status_code == 404
-
-
 def test_permissions_page_is_management_only(client):
     assert client.get('/api/admin/permissions', headers=H('u_fin')).status_code == 200
     assert client.get('/api/admin/permissions', headers=H('u_team')).status_code == 403
-    assert client.get('/api/admin/permissions', headers=H('u_dept')).status_code == 403
     nav = client.get('/api/me', headers=H('u_fin')).json()['nav']
-    assert 'perm' in [i['id'] for g in nav for i in g['items']]
+    assert {'perm', 'review', 'rules'} <= {i['id'] for g in nav for i in g['items']}
+    m = client.get('/api/admin/permissions', headers=H('u_fin')).json()
+    assert [r['id'] for r in m['roles']] == ['finance', 'team'] and set(m['matrix'][0]['cells']) == {'team', 'finance'}
 
 
-# ---------- 成本日报 → 审核 → 规则引擎 ----------
+# ---------- 成本日报 → 提交即生效 → 规则引擎 ----------
 
 def _report(depth_start, depth_end, hours=None, date='2026-10-10'):
     return {'well_id': 'W001', 'report_date': date, 'depth_start': depth_start, 'depth_end': depth_end,
@@ -124,10 +117,8 @@ def test_report_flow_generates_events_and_correction_reverses(client):
     before = kpi(client, 'W001', '2026-10')
     rep = client.post('/api/reports', json=_report(4824, 4874), headers=H('u_team')).json()
     rid = rep['report_id']
-    assert client.post(f'/api/reports/{rid}/submit', headers=H('u_team')).json()['status'] == '已提交'
-    assert client.post(f'/api/reports/{rid}/approve', json={}, headers=H('u_team')).status_code == 403
-    out = client.post(f'/api/reports/{rid}/approve', json={'comment': '同意'}, headers=H('u_dept')).json()
-    assert out['status'] == '已审核' and out['batch']['created'] > 0
+    out = client.post(f'/api/reports/{rid}/submit', headers=H('u_team')).json()
+    assert out['status'] == '已审核' and out['reviewer'] == '系统校验' and out['batch']['created'] > 0   # 提交即生效
     after = kpi(client, 'W001', '2026-10')
     mud_price = round(1832104.12 / 4411, 4)
     image_price = round(7147828.84 / 4411, 4)
@@ -139,8 +130,7 @@ def test_report_flow_generates_events_and_correction_reverses(client):
     new = client.post(f'/api/reports/{rid}/correct', headers=H('u_team')).json()
     assert new['version'] == 2
     client.put(f"/api/reports/{new['report_id']}", json=_report(4824, 4864), headers=H('u_team'))
-    client.post(f"/api/reports/{new['report_id']}/submit", headers=H('u_team'))
-    out = client.post(f"/api/reports/{new['report_id']}/approve", json={}, headers=H('u_dept')).json()
+    out = client.post(f"/api/reports/{new['report_id']}/submit", headers=H('u_team')).json()
     assert out['batch']['reversed'] > 0
     final = kpi(client, 'W001', '2026-10')
     assert final['revenue'] - before['revenue'] == pytest.approx(40 * image_price, abs=0.5)
@@ -151,15 +141,19 @@ def test_report_flow_generates_events_and_correction_reverses(client):
 # ---------- 规则维护 ----------
 
 def test_rule_confirm_backtest_publish(client):
-    lst = client.get('/api/rules', headers=H('u_dept')).json()
+    lst = client.get('/api/rules', headers=H('u_fin')).json()
     draft = next(r for r in lst if r['rule_code'] == 'RL-C2-3-04')
     assert draft['status'] == '待确认'
-    # 企划财务部只读
-    assert client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=H('u_fin')).status_code == 403
-    d = client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=H('u_dept')).json()
+    # 规则由管理层维护，基层队无权
+    assert client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=H('u_team')).status_code == 403
+    d = client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=H('u_fin')).json()
     assert d['backtest']['result'] == '豁免' and d['rule']['status'] == '待发布'
-    d = client.post(f"/api/rules/{draft['rule_id']}/publish", headers=H('u_dept')).json()
-    assert d['rule']['status'] == '已发布'
+    # 发布必须登记部室提供的变化依据
+    assert client.post(f"/api/rules/{draft['rule_id']}/publish", json={}, headers=H('u_fin')).status_code == 422
+    d = client.post(f"/api/rules/{draft['rule_id']}/publish", json={'change_basis': '工程技术部 2026-12 号 定向服务价格通知'},
+                    headers=H('u_fin')).json()
+    assert d['rule']['status'] == '已发布' and '定向服务价格通知' in d['change_basis']
+    assert any('变化依据' in (x['comment'] or '') for x in d['logs'])
     # 发布后日报出现“定向服务”行，且外包服务无签证单为阻断
     rep = client.get('/api/reports/current?well_id=W001&date=2026-10-10', headers=H('u_team')).json()
     ld = next(x for x in rep['line_defs'] if x['key'] == 'C2-3-04')
@@ -174,16 +168,16 @@ def test_rule_confirm_backtest_publish(client):
 
 
 def test_new_version_supersedes_and_recalculates(client):
-    lst = client.get('/api/rules', headers=H('u_dept')).json()
+    lst = client.get('/api/rules', headers=H('u_fin')).json()
     mud = next(r for r in lst if r['rule_code'] == 'RL-C2-1-02-01')
-    nv = client.post(f"/api/rules/{mud['rule_id']}/new-version", json={'valid_from': '2026-08-01'}, headers=H('u_dept')).json()
+    nv = client.post(f"/api/rules/{mud['rule_id']}/new-version", json={'valid_from': '2026-08-01'}, headers=H('u_fin')).json()
     nid = nv['rule']['rule_id']
     assert nv['rule']['version'] == 2
-    client.put(f'/api/rules/{nid}', json={'unit_price': 500}, headers=H('u_dept'))
-    d = client.post(f'/api/rules/{nid}/confirm', headers=H('u_dept')).json()
+    client.put(f'/api/rules/{nid}', json={'unit_price': 500}, headers=H('u_fin'))
+    d = client.post(f'/api/rules/{nid}/confirm', headers=H('u_fin')).json()
     assert d['backtest']['result'] == '不通过' and d['rule']['status'] == '待确认'
     # 偏差超阈值不能发布
-    assert client.post(f'/api/rules/{nid}/publish', headers=H('u_dept')).status_code == 409
+    assert client.post(f'/api/rules/{nid}/publish', json={'change_basis': '调价通知'}, headers=H('u_fin')).status_code == 409
 
 
 def test_events_are_append_only(tmp_path, client):
@@ -256,7 +250,6 @@ def test_legacy_line_keys_still_price(client):
     rid = client.post('/api/reports', json=body, headers=H('u_team')).json()['report_id']
     assert client.get(f'/api/reports/{rid}', headers=H('u_team')).json()['lines'] == {}   # 旧的人员出勤行被忽略
     client.post(f'/api/reports/{rid}/submit', headers=H('u_team'))
-    client.post(f'/api/reports/{rid}/approve', json={}, headers=H('u_dept'))
     after = kpi(client, 'W001', '2026-10')['total_cost']
     mud_price = round(1832104.12 / 4411, 4)
     image_price = round(7147828.84 / 4411, 4)

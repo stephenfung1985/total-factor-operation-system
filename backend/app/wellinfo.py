@@ -449,14 +449,11 @@ LIB_BASE = [('well_id', '井号'), ('team_no', '队号'), ('market', '市场'), 
             ('completion_days', '完井周期（天）')]
 LIB_FULL = [('captain', '队长'), ('staff_total', '人员合计'), ('reg_lag', '登记滞后'), ('comp_lag', '完井填报滞后'),
             ('submitted_at', '提交时间')]
-LIB_STAFF = [('staff_total', '人员合计')]
 
 
 def library_columns(user: dict) -> list[tuple[str, str]]:
-    """基础信息库可见字段：管理层、本队看全部；专业部室只看井的基础与周期信息，人事部室另可看人员数量。"""
-    if user['role'] in ('finance', 'team'):
-        return LIB_BASE + LIB_FULL
-    return LIB_BASE + (LIB_STAFF if user.get('dept') == '人事' else [])
+    """基础信息库可见字段：管理层看全部井，基层队看本队井，字段相同。"""
+    return LIB_BASE + LIB_FULL
 
 
 def library(conn, user: dict) -> dict:

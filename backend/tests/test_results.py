@@ -148,7 +148,7 @@ def test_benchmark_dimensions(client):
     assert g['net_rate'] == pytest.approx(g['net_profit'] / g['revenue'])
     allp = client.get('/api/benchmark?period=all&dims=team', headers=FIN).json()
     assert allp['total']['well_months'] == 5     # 8 月 4 口 + 10 月 W001
-    assert client.get('/api/benchmark?period=all&dims=team', headers={'X-User-Id': 'u_dept'}).status_code == 403
+    assert client.get('/api/benchmark?period=all&dims=team', headers={'X-User-Id': 'u_team'}).status_code == 403
 
 
 def test_benchmark_specific_objects(client):
@@ -283,8 +283,6 @@ def test_overview_year_prev_structure_trend_and_history_wells_are_done(client):
     assert sum(d['amount'] for d in m8['structure']) == m8['sum']['total_cost']
     tr = client.get('/api/overview/trend', headers=FIN).json()
     assert [t['period'] for t in tr] == ['2026-08', '2026-10'] and tr[0]['revenue'] == m8['sum']['revenue']
-    # 部室看不到收入，趋势里收入为 0
-    assert all(t['revenue'] == 0 for t in client.get('/api/overview/trend', headers={'X-User-Id': 'u_dept'}).json())
     # 历史数据井默认为完成井
     _post(client, _bytes(_sheet_from_export(client, 井号='H501', 月份='07', 队号='70101')), True)
     h = next(w for w in client.get('/api/overview?period=2026-07', headers=FIN).json()['wells'] if w['well_id'] == 'H501')

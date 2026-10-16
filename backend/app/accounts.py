@@ -17,27 +17,23 @@ SESSION_HOURS = 12
 MAX_FAILED = 5
 LOCK_MINUTES = 15
 INITIAL_PASSWORD = '123456'
-DEPTS = {'市场': '市场部', '技术': '工程技术部', '物资': '物资装备部', '装备': '物资装备部', '安全': '安全环保部',
-         '人事': '人力资源部', '财务': '企划财务部'}
 ROLE_WHO = {'finance': '企划财务部'}
 
-# 初始账号：(登录名, 角色, 队号 / 归口部室)
+# 初始账号：(登录名, 角色, 队号)。专业部室角色已取消：部室只提供规则变化依据，由管理层维护规则。
 INITIAL_ACCOUNTS = [
     ('fengxuecheng', 'finance', None),
     ('jinliuchao', 'finance', None),
     ('70152', 'team', '70152'),
-    ('gcjsb', 'dept', '技术'),
 ]
 PUBLIC_FIELDS = ('user_id', 'username', 'name', 'role', 'who', 'team_id', 'dept', 'scope_label', 'must_change', 'enabled',
                  'last_login', 'created_at', 'is_debug')
 
-# 调试账号：登录后可在三个演示身份间切换，用于系统调试；正式上线前由系统管理员停用
+# 调试账号：登录后可在演示身份间切换，用于系统调试；正式上线前由系统管理员停用
 DEBUG_USERNAME = 'test'
 DEBUG_PASSWORD = 'test'
 DEMO_USERS = [   # (user_id, 姓名, 角色, 身份说明, 队伍, 部室, 数据范围)
     ('u_fin', '经营管理员', 'finance', '企划财务部 · 经营管理', None, None, '全部'),
     ('u_team', '统计员', 'team', '70101 钻井队 · 统计员', 't1', None, '70101 钻井队'),
-    ('u_dept', '经办人', 'dept', '工程技术部 · 经办人', None, '技术', '工程技术部归口科目'),
 ]
 DEMO_IDS = [u[0] for u in DEMO_USERS]
 
@@ -81,10 +77,6 @@ def _profile(conn, role: str, username: str, scope: str | None) -> dict:
             conn.execute('INSERT INTO team (team_id, team_no, name) VALUES (?,?,?)', (tid, scope, f'{scope} 钻井队'))
             team = conn.execute('SELECT * FROM team WHERE team_id=?', (tid,)).fetchone()
         return {'who': f"{team['name']} · {username}", 'team_id': team['team_id'], 'dept': None, 'scope_label': team['name']}
-    if role == 'dept':
-        if scope not in DEPTS:
-            raise AuthError('请选择归口部室')
-        return {'who': f'{DEPTS[scope]} · {username}', 'team_id': None, 'dept': scope, 'scope_label': f'{DEPTS[scope]}归口科目'}
     if role == 'finance':
         return {'who': f'企划财务部 · {username}', 'team_id': None, 'dept': None, 'scope_label': '全部'}
     raise AuthError('角色不正确')
@@ -131,10 +123,19 @@ def _drop_admin_role(conn) -> None:
         conn.execute('DELETE FROM app_user WHERE user_id=?', (uid,))
 
 
+def _drop_dept_role(conn) -> None:
+    """专业部室角色已取消（规则与日报不再经部室审核）：清除旧库里的部室账号、演示身份及其会话；历史留痕在操作日志里不受影响。"""
+    ids = [r['user_id'] for r in conn.execute("SELECT user_id FROM app_user WHERE role='dept'")]
+    for uid in ids:
+        conn.execute('DELETE FROM app_session WHERE user_id=? OR acting_user_id=?', (uid, uid))
+        conn.execute('DELETE FROM app_user WHERE user_id=?', (uid,))
+
+
 def ensure_initial_accounts(conn) -> None:
-    """建立初始账号、三个演示身份和调试账号（已存在的不动）。"""
+    """建立初始账号、演示身份和调试账号（已存在的不动）。"""
     prod = is_production()
     _drop_admin_role(conn)
+    _drop_dept_role(conn)
     initial = production_check() if prod else INITIAL_PASSWORD
     for username, role, scope in INITIAL_ACCOUNTS:
         if not conn.execute('SELECT 1 FROM app_user WHERE username=?', (username,)).fetchone():

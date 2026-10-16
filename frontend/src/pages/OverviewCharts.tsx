@@ -24,14 +24,14 @@ function Seg<T extends string>({ value, options, onChange, label }: { value: T; 
 }
 
 /** 经营总览顶部的整体经营情况：成本构成、分维度对比、单井净利润；条形一律限量并按统一比例尺，不会爆表。 */
-export default function OverviewCharts({ data, dept, open, filter, onFilter }: {
-  data: OV; dept: boolean; open: (w: string, period?: string) => void; filter: DimFilter | null; onFilter: (f: DimFilter | null) => void;
+export default function OverviewCharts({ data, open, filter, onFilter }: {
+  data: OV; open: (w: string, period?: string) => void; filter: DimFilter | null; onFilter: (f: DimFilter | null) => void;
 }) {
   return (
     <section className="charts" aria-label="整体经营情况">
       <Composition data={data} />
-      <DimCompare wells={data.wells} dept={dept} filter={filter} onFilter={onFilter} wide={dept} />
-      {!dept && <WellProfit wells={data.wells} open={open} />}
+      <DimCompare wells={data.wells} filter={filter} onFilter={onFilter} />
+      <WellProfit wells={data.wells} open={open} />
     </section>
   );
 }
@@ -95,15 +95,15 @@ function Composition({ data }: { data: OV }) {
 }
 
 /** 分维度对比：按队伍 / 区块 / 市场 / 井型汇总净利润（部室为成本）；最多 8 行，其余并入“其余 n 项”，点击筛选下方列表。 */
-function DimCompare({ wells, dept, filter, onFilter, wide }: { wells: OverviewWell[]; dept: boolean; filter: DimFilter | null; onFilter: (f: DimFilter | null) => void; wide?: boolean }) {
+function DimCompare({ wells, filter, onFilter, wide }: { wells: OverviewWell[]; filter: DimFilter | null; onFilter: (f: DimFilter | null) => void; wide?: boolean }) {
   const [dim, setDim] = useState<Dim>('team');
-  const label = dept ? '总成本' : '净利润';
+  const label = '净利润';
   const rows = useMemo(() => {
     const m = new Map<string, { name: string; v: number; n: number }>();
     wells.forEach((w) => {
       const k = w[dim] || '—';
       const g = m.get(k) || { name: k, v: 0, n: 0 };
-      g.v += dept ? w.total_cost : net(w);
+      g.v += net(w);
       g.n += 1;
       m.set(k, g);
     });
@@ -113,7 +113,7 @@ function DimCompare({ wells, dept, filter, onFilter, wide }: { wells: OverviewWe
     const bottom = all.slice(-3);
     const mid = all.slice(5, -3);
     return { shown: [...top, ...bottom], rest: { n: mid.length, v: mid.reduce((a, g) => a + g.v, 0) }, splitAt: 5 };
-  }, [wells, dim, dept]);
+  }, [wells, dim]);
   const max = Math.max(...rows.shown.map((g) => Math.abs(g.v)), 1);
   const hasNeg = rows.shown.some((g) => g.v < 0);
   const zero = hasNeg ? 50 : 0;
@@ -136,10 +136,10 @@ function DimCompare({ wells, dept, filter, onFilter, wide }: { wells: OverviewWe
                   <span className="rank-zero" style={{ left: zero + '%' }} />
                   <span className="rank-bar" style={{
                     left: (g.v >= 0 ? zero : zero - (Math.abs(g.v) / max) * span) + '%', width: (Math.abs(g.v) / max) * span + '%',
-                    background: dept ? 'var(--accent)' : g.v >= 0 ? 'var(--good)' : 'var(--bad)',
+                    background: g.v >= 0 ? 'var(--good)' : 'var(--bad)',
                   }} />
                 </span>
-                <span className={'rank-val num' + (!dept && g.v < 0 ? ' neg' : '')}>{wan(g.v)}<em>{g.n} 口</em></span>
+                <span className={'rank-val num' + (g.v < 0 ? ' neg' : '')}>{wan(g.v)}<em>{g.n} 口</em></span>
               </button>
             </div>
           );

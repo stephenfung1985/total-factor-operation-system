@@ -128,7 +128,7 @@ class SwitchBody(BaseModel):
 
 @app.post('/api/auth/switch')
 def switch_identity(body: SwitchBody, authorization: str | None = Header(default=None)):
-    """调试账号切换演示身份（管理层 / 基层钻井队 / 专业部室）。"""
+    """调试账号切换演示身份（管理层 / 基层钻井队）。"""
     token = _token(authorization)
     with transaction() as c:
         accounts.switch_identity(c, token, body.user_id)
@@ -193,7 +193,7 @@ def benchmark(period: list[str] = Query(['all']), dims: str = 'market', market: 
                                   {'market': market, 'block': block, 'team': team, 'well': well})
 
 
-# ---------- 费用明细（部室单项成本对比） ----------
+# ---------- 费用明细（单项成本对比） ----------
 
 def _codes(items: str) -> list[str]:
     return [c.strip() for c in items.split(',') if c.strip()]
@@ -201,7 +201,7 @@ def _codes(items: str) -> list[str]:
 
 @app.get('/api/cost-detail/options')
 def cost_detail_options(user=User):
-    auth.require(user, 'finance', 'dept')
+    auth.require(user, 'finance')
     with transaction() as c:
         return costdetail.options(c, user)
 
@@ -209,7 +209,7 @@ def cost_detail_options(user=User):
 @app.get('/api/cost-detail')
 def cost_detail(by: str = 'period', items: str = '', start: str = '', end: str = '', user=User):
     """by：period / market / block / team；items：科目编码（逗号分隔，含下级），留空为全部可见科目；start / end：YYYY-MM。"""
-    auth.require(user, 'finance', 'dept')
+    auth.require(user, 'finance')
     with transaction() as c:
         return costdetail.matrix(c, user, by, _codes(items), start, end)
 
@@ -218,7 +218,7 @@ def cost_detail(by: str = 'period', items: str = '', start: str = '', end: str =
 def cost_detail_export(by: str = 'period,market,block,team', items: str = '', start: str = '', end: str = '',
                        detail: bool = True, unit: bool = True, user=User):
     """导出：by 可多选，每个维度一个金额工作表；unit=true 再附米成本、单位成本（元/台月）两张表；detail=true 另附“事项明细”工作表便于透视分析。"""
-    auth.require(user, 'finance', 'dept')
+    auth.require(user, 'finance')
     bys = [b.strip() for b in by.split(',') if b.strip()]
     bad = [b for b in bys if b not in costdetail.DIMS]
     if bad:
@@ -360,8 +360,6 @@ def _own_report(c, user, rid) -> dict:
         raise HTTPException(404, '日报不存在')
     if user['role'] == 'team' and r['team_id'] != user['team_id']:
         raise HTTPException(404, '日报不存在')
-    if not reports.dept_can_review(c, user, rid):
-        raise HTTPException(404, '日报不存在或不涉及本部室归口科目')
     return dict(r)
 
 
@@ -400,36 +398,69 @@ def report_correct(rid: int, user=User):
         return reports.get_report(c, reports.correct(c, rid, user))
 
 
-@app.get('/api/review/reports')
-def review_queue(status: str = '已提交', user=User):
-    auth.require(user, 'dept', 'finance')
+# ---------- 日报监控（管理层）：提交即生效后的抽查与补救 ----------
+
+MONITOR_TABS = {
+    # 待处理：有警告未抽查确认的已生效日报 + 旧流程遗留未生效的“已提交”日报
+    'todo': "(d.status='已提交' OR (d.status='已审核' AND d.checked_at IS NULL AND EXISTS ("
+            "SELECT 1 FROM validation_alert a WHERE a.report_id=d.report_id AND a.level='警告')))",
+    'effective': "d.status='已审核'",
+    'returned': "d.status='驳回' AND d.review_comment LIKE '管理层退回%'",
+}
+
+
+class ReturnBody(BaseModel):
+    comment: str = ''
+    reverse: bool = False
+
+
+@app.get('/api/monitor/reports')
+def monitor_queue(tab: str = 'todo', user=User):
+    auth.require(user, 'finance')
+    if tab not in MONITOR_TABS:
+        raise HTTPException(422, '分类不正确')
     with transaction() as c:
         out = rows(c.execute(
             'SELECT d.report_id, d.well_id, d.report_date, d.version, d.status, d.phase, d.depth_start, d.depth_end, d.reporter, '
-            'd.submitted_at, d.reviewer, d.reviewed_at, d.review_comment, t.name team FROM daily_report d JOIN team t ON t.team_id=d.team_id '
-            'WHERE d.status=? ORDER BY d.submitted_at DESC, d.report_id DESC', (status,)))
-        out = [r for r in out if reports.dept_can_review(c, user, r['report_id'])][:100]
+            'd.submitted_at, d.reviewer, d.reviewed_at, d.review_comment, d.checked_by, d.checked_at, d.supersedes_report_id, '
+            f't.name team FROM daily_report d JOIN team t ON t.team_id=d.team_id WHERE {MONITOR_TABS[tab]} '
+            'ORDER BY d.submitted_at DESC, d.report_id DESC LIMIT 200'))
         for r in out:
-            r['alerts'] = rows(c.execute('SELECT level, message FROM validation_alert WHERE report_id=?', (r['report_id'],)))
+            r['alerts'] = rows(c.execute("SELECT level, message FROM validation_alert WHERE report_id=? AND level!='提示'",
+                                         (r['report_id'],)))
         return out
 
 
-@app.post('/api/reports/{rid:int}/approve')
-def report_approve(rid: int, body: Comment, user=User):
-    auth.require(user, 'dept')
+@app.get('/api/monitor/summary')
+def monitor_summary(user=User):
+    auth.require(user, 'finance')
     with transaction() as c:
-        _own_report(c, user, rid)
-        return reports.approve(c, rid, user, body.comment)
+        return {k: c.execute(f'SELECT COUNT(*) n FROM daily_report d WHERE {w}').fetchone()['n'] for k, w in MONITOR_TABS.items()}
 
 
-@app.post('/api/reports/{rid:int}/reject')
-def report_reject(rid: int, body: Comment, user=User):
-    auth.require(user, 'dept')
-    if not (body.comment or '').strip():
-        raise HTTPException(422, '驳回必须填写意见')
+@app.post('/api/reports/{rid:int}/confirm')
+def report_confirm(rid: int, body: Comment, user=User):
+    """旧流程遗留的“已提交”日报，由管理层确认生效。"""
+    auth.require(user, 'finance')
     with transaction() as c:
         _own_report(c, user, rid)
-        return reports.reject(c, rid, user, body.comment)
+        return reports.take_effect(c, rid, user['who'], body.comment or '管理层确认生效')
+
+
+@app.post('/api/reports/{rid:int}/check')
+def report_check(rid: int, body: Comment, user=User):
+    auth.require(user, 'finance')
+    with transaction() as c:
+        _own_report(c, user, rid)
+        return reports.check(c, rid, user, body.comment)
+
+
+@app.post('/api/reports/{rid:int}/return')
+def report_return(rid: int, body: ReturnBody, user=User):
+    auth.require(user, 'finance')
+    with transaction() as c:
+        _own_report(c, user, rid)
+        return reports.return_report(c, rid, user, body.comment, body.reverse)
 
 
 @app.get('/api/reports/template.xlsx')
@@ -469,44 +500,69 @@ class NewVersion(BaseModel):
 
 @app.get('/api/rules')
 def rule_list(user=User):
-    auth.require(user, 'dept', 'finance')
+    auth.require(user, 'finance')
     with transaction() as c:
         return rules.list_rules(c, user)
 
 
 @app.get('/api/rules/{rid:int}')
 def rule_detail(rid: int, user=User):
-    auth.require(user, 'dept', 'finance')
+    auth.require(user, 'finance')
     with transaction() as c:
         return rules.detail(c, user, rid)
 
 
+class PublishBody(BaseModel):
+    change_basis: str = ''   # 变化依据：部室提供的文件、通知、会议纪要等（文号 + 名称）
+
+
 @app.put('/api/rules/{rid:int}')
 def rule_update(rid: int, body: RuleEdit, user=User):
+    auth.require(user, 'finance')
     with transaction() as c:
         return rules.update(c, user, rid, body.model_dump(exclude_none=True))
 
 
 @app.post('/api/rules/{rid:int}/confirm')
 def rule_confirm(rid: int, user=User):
+    auth.require(user, 'finance')
     with transaction() as c:
         return rules.confirm(c, user, rid)
 
 
 @app.post('/api/rules/{rid:int}/reject')
 def rule_reject(rid: int, body: Comment, user=User):
+    auth.require(user, 'finance')
     with transaction() as c:
         return rules.reject(c, user, rid, body.comment)
 
 
-@app.post('/api/rules/{rid:int}/publish')
-def rule_publish(rid: int, user=User):
+@app.post('/api/rules/{rid:int}/impact')
+def rule_impact(rid: int, user=User):
+    """发布前影响预览：按发布试算一遍，返回将新增 / 冲销的事项与各井金额变化，然后整体回滚，不落库。"""
+    auth.require(user, 'finance')
     with transaction() as c:
-        return rules.publish(c, user, rid)
+        return rules.impact(c, user, rid)
+
+
+@app.post('/api/rules/{rid:int}/publish')
+def rule_publish(rid: int, body: PublishBody, user=User):
+    auth.require(user, 'finance')
+    with transaction() as c:
+        return rules.publish(c, user, rid, body.change_basis)
+
+
+@app.post('/api/rules/{rid:int}/rollback')
+def rule_rollback(rid: int, body: Comment, user=User):
+    """发布后发现有误：本版本废止、上一版本恢复生效（没有上一版本则停用该规则），受影响月份冲销重算。"""
+    auth.require(user, 'finance')
+    with transaction() as c:
+        return rules.rollback(c, user, rid, body.comment)
 
 
 @app.post('/api/rules/{rid:int}/new-version')
 def rule_new_version(rid: int, body: NewVersion, user=User):
+    auth.require(user, 'finance')
     with transaction() as c:
         return rules.new_version(c, user, rid, body.valid_from)
 
@@ -674,7 +730,7 @@ def info_revise(rid: int, user=User):
 
 @app.get('/api/wellinfo/library')
 def info_library(user=User):
-    """基础信息库：各角色都能查看，字段与范围按角色裁剪（本队只看本队井，部室不看队长与人员，人事部室除外）。"""
+    """基础信息库：管理层看全部井，基层队只看本队井。"""
     with transaction() as c:
         return wellinfo.library(c, user)
 
@@ -751,7 +807,7 @@ class NewUser(BaseModel):
     username: str
     name: str | None = None
     role: str
-    scope: str | None = None   # 基层队：队号；专业部室：归口部室
+    scope: str | None = None   # 基层队：队号
     password: str
 
 
@@ -768,7 +824,7 @@ def admin_users(user=User):
     auth.require(user, 'finance')
     with transaction() as c:
         return {'users': [{**u, 'role_name': auth.ROLE_NAMES[u['role']]} for u in accounts.list_users(c)],
-                'depts': accounts.DEPTS, 'teams': rows(c.execute('SELECT team_no, name FROM team ORDER BY team_no'))}
+                'teams': rows(c.execute('SELECT team_no, name FROM team ORDER BY team_no'))}
 
 
 @app.post('/api/admin/users')
@@ -804,7 +860,7 @@ def permissions(user=User):
     with transaction() as c:
         users = rows(c.execute('SELECT user_id, name, role, who, scope_label FROM app_user WHERE username IS NOT NULL AND enabled=1'))
     return {'roles': [{'id': k, 'name': v} for k, v in auth.ROLE_NAMES.items()],
-            'matrix': [{'name': n, 'cells': {'team': p[0], 'dept': p[1], 'finance': p[2]}} for n, p in auth.PERMS],
+            'matrix': [{'name': n, 'cells': {'team': p[0], 'finance': p[1]}} for n, p in auth.PERMS],
             'users': users}
 
 

@@ -8,7 +8,7 @@ interface Perms {
   matrix: { name: string; cells: Record<string, string> }[];
   users: { user_id: string; role: string; who: string; scope_label: string }[];
 }
-const ORDER = ['finance', 'team', 'dept'];
+const ORDER = ['finance', 'team'];
 const CLS: Record<string, string> = { 编辑: 'edit', 审核: 'review', 查看: 'view' };
 
 export default function Perm({ me }: PageProps) {

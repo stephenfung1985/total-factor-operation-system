@@ -96,7 +96,7 @@ export async function download(url: string, fallbackName: string) {
 export interface NavItem { id: string; label: string }
 export interface NavGroup { label: string; items: NavItem[] }
 export interface Me {
-  user_id: string; username: string; name: string; role: 'finance' | 'team' | 'dept'; who: string;
+  user_id: string; username: string; name: string; role: 'finance' | 'team'; who: string;
   team_id: string | null; dept: string | null; scope_label: string; role_name: string; nav: NavGroup[]; must_change: number;
   debug?: boolean; login_username?: string; identities?: { user_id: string; role: string; role_name: string; who: string }[];
 }
@@ -156,7 +156,8 @@ export interface Report {
   report_id: number | null; well_id: string; team_id: string; report_date: string; version: number; status: string; phase: string;
   depth_start: number; depth_end: number; hours: Record<string, number>; lines: Record<string, number>; notes: Record<string, string>;
   reporter: string | null; carried?: boolean; staff?: Record<string, number>;
-  review_comment?: string | null; supersedes_report_id?: number | null;
+  review_comment?: string | null; supersedes_report_id?: number | null; reviewer?: string | null;
+  checked_by?: string | null; checked_at?: string | null;
   header: { well_id: string; date: string; team: string; block: string; well_type: string; phase: string; in_period: boolean };
   line_defs: LineDef[]; checks: Check[];
   history: { action: string; operator: string; operated_at: string; comment: string | null }[];
@@ -166,6 +167,7 @@ export interface ReviewRow {
   report_id: number; well_id: string; report_date: string; version: number; status: string; phase: string; depth_start: number;
   depth_end: number; reporter: string; submitted_at: string; team: string; reviewer: string | null; reviewed_at: string | null;
   review_comment: string | null; alerts: { level: string; message: string }[];
+  checked_by?: string | null; checked_at?: string | null; supersedes_report_id?: number | null;
 }
 
 export interface RuleRow {
@@ -188,10 +190,16 @@ export interface RuleDetail {
   versions: { rule_id: number; version: number; status: string; unit_price: number; valid_from: string; valid_to: string | null }[];
   logs: { action: string; operator: string; operated_at: string; comment: string | null }[];
   hits: { count: number; amount: number };
-  can_edit: boolean; can_confirm: boolean; can_publish: boolean; can_reject: boolean; can_new_version: boolean;
+  can_edit: boolean; can_confirm: boolean; can_publish: boolean; can_reject: boolean; can_new_version: boolean; can_rollback: boolean;
+  change_basis: string | null; owner_dept: string | null;
   options: { dimensions: string[]; operators: string[] };
   backtest?: { result: string; message: string };
   batch?: { created: number; reversed: number; amount_change: number } | null;
+  restored?: number | null;
+}
+export interface RuleImpact {
+  created: number; reversed: number; amount_change: number; well_count: number;
+  wells: { well_id: string; period: string; n: number; delta: number }[];
 }
 
 export interface Segment { id: number; phase: string; start_at: string; end_at: string | null; team_id: string; team: string }

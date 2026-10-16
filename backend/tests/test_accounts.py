@@ -24,7 +24,7 @@ def bearer(token):
 
 @pytest.mark.parametrize('username,role,scope', [
     ('fengxuecheng', 'finance', '全部'), ('jinliuchao', 'finance', '全部'),
-    ('70152', 'team', '70152 钻井队'), ('gcjsb', 'dept', '工程技术部归口科目')])
+    ('70152', 'team', '70152 钻井队')])
 def test_initial_accounts(client, username, role, scope):
     r = login(client, username).json()
     u = r['user']
@@ -38,8 +38,24 @@ def test_team_70152_scope(client):
     me = client.get('/api/me', headers=bearer(tok)).json()
     assert me['team_id'] == 'T70152'
     assert client.get('/api/reports/wells', headers=bearer(tok)).json() == []      # 新队伍，暂无井
-    gc = login(client, 'gcjsb').json()['token']
-    assert client.get('/api/me', headers=bearer(gc)).json()['dept'] == '技术'
+
+
+def test_dept_role_removed(client):
+    """专业部室角色已取消：没有部室初始账号，不能新建部室账号，旧库里的部室账号启动时清除。"""
+    assert login(client, 'gcjsb').status_code == 400
+    adm = bearer(login(client, 'jinliuchao').json()['token'])
+    r = client.post('/api/admin/users', json={'username': 'aqhbb', 'role': 'dept', 'scope': '安全', 'password': 'Init8888'}, headers=adm)
+    assert r.status_code == 400
+    from app.db import connect, init_db
+    c = connect()
+    c.execute("INSERT INTO app_user (user_id, name, role, who, dept, scope_label, username) VALUES "
+              "('old_dept', '旧部室', 'dept', '工程技术部', '技术', '归口', 'old_dept')")
+    c.commit()
+    c.close()
+    init_db()
+    c = connect()
+    assert not c.execute("SELECT 1 FROM app_user WHERE role='dept'").fetchone()
+    c.close()
 
 
 def test_login_required_and_demo_header_off(client, monkeypatch):
@@ -79,12 +95,12 @@ def test_management_manages_accounts(client):
     assert client.get('/api/admin/users', headers=team).status_code == 403
     assert client.get('/api/admin/users', headers=fin).status_code == 200
     users = {u['username']: u for u in client.get('/api/admin/users', headers=adm).json()['users']}
-    assert {'fengxuecheng', 'jinliuchao', '70152', 'gcjsb'} <= set(users) and 'admin' not in users
+    assert {'fengxuecheng', 'jinliuchao', '70152'} <= set(users) and 'admin' not in users and 'gcjsb' not in users
     assert all('password_hash' not in u for u in users.values())
-    u = client.post('/api/admin/users', json={'username': 'aqhbb', 'role': 'dept', 'scope': '安全', 'password': 'Init8888'},
+    u = client.post('/api/admin/users', json={'username': 'dz70188', 'role': 'team', 'scope': '70188', 'password': 'Init8888'},
                     headers=adm).json()
-    assert u['scope_label'] == '安全环保部归口科目'
-    assert client.post('/api/admin/users', json={'username': 'aqhbb', 'role': 'dept', 'scope': '安全', 'password': 'x'},
+    assert u['scope_label'] == '70188 钻井队'
+    assert client.post('/api/admin/users', json={'username': 'dz70188', 'role': 'team', 'scope': '70188', 'password': 'x'},
                        headers=adm).status_code == 400
     # 停用后会话失效、不能登录；重置密码后须修改
     assert client.post('/api/admin/users/fengxuecheng/enable', json={'enabled': False}, headers=adm).status_code == 200
@@ -114,7 +130,7 @@ def test_debug_account_switches_demo_identities(client):
     h = bearer(r['token'])
     me = r['user']
     assert me['debug'] and me['user_id'] == 'u_fin' and me['must_change'] == 0 and me['login_username'] == 'test'
-    assert [i['user_id'] for i in me['identities']] == ['u_fin', 'u_team', 'u_dept']
+    assert [i['user_id'] for i in me['identities']] == ['u_fin', 'u_team']
     assert '[调试 test]' in me['who']
     # 切到基层钻井队：数据范围是 70101 队
     me = client.post('/api/auth/switch', json={'user_id': 'u_team'}, headers=h).json()
@@ -129,9 +145,8 @@ def test_debug_account_switches_demo_identities(client):
 
 def test_debug_actions_are_traceable_and_account_can_be_disabled(client):
     h = bearer(login(client, 'test', 'test').json()['token'])
-    client.post('/api/auth/switch', json={'user_id': 'u_dept'}, headers=h)
-    rid = client.get('/api/review/reports', headers=h).json()[0]['report_id']
-    out = client.post(f'/api/reports/{rid}/approve', json={}, headers=h).json()
+    rid = client.get('/api/monitor/reports?tab=effective', headers=h).json()[0]['report_id']
+    out = client.post(f'/api/reports/{rid}/check', json={}, headers=h).json()
     assert out['history'][-1]['operator'].endswith('[调试 test]')
     # 调试账号改密码改的是 test 自己
     assert client.post('/api/auth/password', json={'old_password': 'test', 'new_password': 'debug1234'}, headers=h).status_code == 200

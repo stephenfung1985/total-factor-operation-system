@@ -43,30 +43,23 @@ def compute(conn, user: dict | None, well_id: str, period: str) -> dict:
         if it['parent_code']:
             children.setdefault(it['parent_code'], []).append(it['item_code'])
     by = {it['item_code']: it for it in items}
-    visible, total = {}, {}
+    total = {}
     for it in reversed(items):
         c = it['item_code']
-        if it['is_leaf']:
-            visible[c] = user is None or auth.item_visible(user, it)
-            total[c] = money(amt.get(c, 0)) if visible[c] else 0
-        else:
-            kids = [k for k in children.get(c, []) if visible.get(k)]
-            visible[c] = bool(kids)
-            total[c] = sum(total[k] for k in kids)
-    show_rev = user is None or user['role'] != 'dept'
+        total[c] = money(amt.get(c, 0)) if it['is_leaf'] else sum(total[k] for k in children.get(c, []))
     w = conn.execute('SELECT * FROM well WHERE well_id=?', (well_id,)).fetchone()
-    rev = total.get('R02', 0) if show_rev else 0
+    rev = total.get('R02', 0)
     fixed, vari = total.get('C1', 0), total.get('C2', 0)
     tree = [{
         'code': it['item_code'], 'name': it['item_name'], 'level': it['level'], 'is_leaf': bool(it['is_leaf']),
         'parent': it['parent_code'], 'dept': it['owner_dept'], 'calc_type': it['calc_type'], 'col': it['report_col'],
         'behavior': it['cost_behavior'], 'amount': total[it['item_code']], 'origins': origins.get(it['item_code'], []),
-    } for it in items if visible[it['item_code']] and it['direction'] == '成本']
+    } for it in items if it['direction'] == '成本']
     return {
         'tree': tree, 'by': by, 'total': total,
-        'kpi': {'revenue': rev, 'contract': (money(w['contract_amount']) if show_rev else 0), 'fixed': fixed, 'variable': vari,
+        'kpi': {'revenue': rev, 'contract': money(w['contract_amount']), 'fixed': fixed, 'variable': vari,
                 'total_cost': fixed + vari, 'gross_margin': rev - vari, 'net_profit': rev - fixed - vari},
-        'show_revenue': show_rev,
+        'show_revenue': True,
     }
 
 
@@ -141,7 +134,7 @@ def overview(conn, user: dict, period: str, with_extra: bool = True) -> dict:
         if r['remark'] == '历史数据井':
             r['status'] = '完井'   # 历史数据井默认为完成井
     out = {'period': period, 'months': months, 'wells': rows, 'sum': _sum_wells(rows),
-           'show_revenue': user['role'] != 'dept', 'scope': user['scope_label']}
+           'show_revenue': True, 'scope': user['scope_label']}
     if with_extra:
         prev = _prev_period(conn, period)
         out['prev'] = {'period': prev, 'sum': overview(conn, user, prev, False)['sum']} if prev else None
@@ -182,7 +175,7 @@ def remark(conn, well_id: str, period: str) -> str:
 def _check_item(conn, user: dict, well_id: str, code: str) -> dict:
     auth.check_well(conn, user, well_id)
     it = conn.execute('SELECT * FROM cost_item WHERE item_code=?', (code,)).fetchone()
-    if not it or not it['is_leaf'] or not auth.item_visible(user, dict(it)):
+    if not it or not it['is_leaf']:
         raise HTTPException(404, '费用项目不存在或不在数据范围内')
     return dict(it)
 

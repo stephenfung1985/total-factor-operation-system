@@ -15,18 +15,6 @@ def H(user):
     return {'X-User-Id': user}
 
 
-DEPT_ID = {'物资': 'wz', '安全': 'aq', '人事': 'rs'}
-
-
-def _add_dept(dept):
-    from app.db import connect
-    c = connect()
-    c.execute("INSERT INTO app_user (user_id, name, role, who, dept, scope_label) VALUES (?,?, 'dept', ?,?,?)",
-              (f'u_{DEPT_ID[dept]}', dept, f'{dept}部经办人', dept, f'{dept}归口'))
-    c.commit()
-    c.close()
-
-
 def _submitted(client, lines=None, date='2026-10-10'):
     body = {'well_id': 'W001', 'report_date': date, 'depth_start': 4824, 'depth_end': 4874,
             'hours': {'钻进': 16, '起下钻': 4, '循环': 2, '接单根': 1.5, '其他': 0.5}, 'lines': lines or {}}
@@ -40,47 +28,14 @@ def _c105(client, period='2026-10'):
     return sum(e['amount'] for e in r['events'])
 
 
-# ---------- 日报审核按归口过滤 ----------
-
-def test_review_is_scoped_by_owner_dept(client):
-    _add_dept('物资')
-    _add_dept('安全')
-    rid = _submitted(client, {'C2-1-04': 4.4})   # 柴油：物资归口
-    ids = lambda u: [r['report_id'] for r in client.get('/api/review/reports', headers=H(u)).json()]
-    assert rid in ids('u_wz') and rid in ids('u_dept') and rid in ids('u_fin')   # 物资涉及柴油；技术归口进尺与工况
-    assert rid not in ids('u_aq')
-    assert client.get(f'/api/reports/{rid}', headers=H('u_aq')).status_code == 404
-    assert client.post(f'/api/reports/{rid}/approve', json={}, headers=H('u_aq')).status_code == 404
-    assert client.post(f'/api/reports/{rid}/reject', json={'comment': '不涉及'}, headers=H('u_aq')).status_code == 404
-    assert client.post(f'/api/reports/{rid}/approve', json={}, headers=H('u_wz')).status_code == 200
-
-
-# ---------- 管理层发布规则 ----------
-
-def test_finance_can_publish_rule(client):
-    draft = next(r for r in client.get('/api/rules', headers=H('u_dept')).json() if r['rule_code'] == 'RL-C2-3-04')
-    rid = draft['rule_id']
-    assert client.post(f'/api/rules/{rid}/confirm', headers=H('u_dept')).json()['rule']['status'] == '待发布'
-    d = client.get(f'/api/rules/{rid}', headers=H('u_fin')).json()
-    assert d['can_publish'] and not d['can_confirm']
-    assert client.post(f'/api/rules/{rid}/publish', headers=H('u_team')).status_code == 403
-    assert client.post(f'/api/rules/{rid}/publish', headers=H('u_fin')).json()['rule']['status'] == '已发布'
-
-
-def test_finance_cannot_publish_unconfirmed_rule(client):
-    draft = next(r for r in client.get('/api/rules', headers=H('u_dept')).json() if r['rule_code'] == 'RL-C2-3-04')
-    assert client.post(f"/api/rules/{draft['rule_id']}/publish", headers=H('u_fin')).status_code == 409
-
-
 # ---------- 费用分摊 ----------
 
 def test_allocation_replaces_rule_amount_and_void_restores(client):
-    rid = _submitted(client)
-    client.post(f'/api/reports/{rid}/approve', json={}, headers=H('u_dept'))
+    _submitted(client)   # 提交即生效
     rule_amt = _c105(client)
     assert rule_amt > 0
     body = {'period': '2026-10', 'item_code': 'C1-05', 'basis': '队天', 'amount': 100000}
-    assert client.post('/api/allocation/pools', json=body, headers=H('u_dept')).status_code == 403
+    assert client.post('/api/allocation/pools', json=body, headers=H('u_team')).status_code == 403
     pv = client.post('/api/allocation/preview', json=body, headers=H('u_fin')).json()
     assert pv['total'] == 100000 and sum(s['amount'] for s in pv['shares']) == 100000
     out = client.post('/api/allocation/pools', json=body, headers=H('u_fin'))
@@ -119,20 +74,13 @@ def test_allocation_splits_by_basis_with_tail_to_last_well():
 # ---------- 基础信息库按角色裁剪 ----------
 
 def test_info_library_is_role_scoped(client):
-    _add_dept('人事')
-    _add_dept('安全')
     fin = client.get('/api/wellinfo/library', headers=H('u_fin')).json()
     team = client.get('/api/wellinfo/library', headers=H('u_team')).json()
-    aq = client.get('/api/wellinfo/library', headers=H('u_aq')).json()
-    hr = client.get('/api/wellinfo/library', headers=H('u_rs')).json()
     keys = lambda d: {c['key'] for c in d['columns']}
-    assert fin['rows'] and {'captain', 'staff_total', 'reg_lag'} <= keys(fin)
+    assert fin['rows'] and {'captain', 'staff_total', 'reg_lag'} <= keys(fin) and keys(team) == keys(fin)
     assert all('captain' in r and 'staff' in r for r in fin['rows'])
-    assert {r['well_id'] for r in team['rows']} <= {r['well_id'] for r in fin['rows']} and len(team['rows']) <= len(fin['rows'])
+    assert {r['well_id'] for r in team['rows']} < {r['well_id'] for r in fin['rows']}
     assert all(r['team_no'] == team['rows'][0]['team_no'] for r in team['rows'])
-    assert not ({'captain', 'staff_total', 'reg_lag'} & keys(aq))
-    assert all('captain' not in r and 'staff' not in r for r in aq['rows']) and len(aq['rows']) == len(fin['rows'])
-    assert 'staff_total' in keys(hr) and 'captain' not in keys(hr) and all('staff' in r for r in hr['rows'])
 
 
 # ---------- 元/台月：年度池 ----------
@@ -178,8 +126,7 @@ def test_annual_and_monthly_pools_cannot_overlap(client):
               "VALUES ('2026', 'C1-05', '台月', 1, '有效', 't', 't')")
     c.commit()
     c.close()
-    rid = _submitted(client)
-    client.post(f'/api/reports/{rid}/approve', json={}, headers=H('u_dept'))
+    _submitted(client)   # 提交即生效
     r = client.post('/api/allocation/preview', json={'period': '2026-10', 'item_code': 'C1-05', 'basis': '队天', 'amount': 1000},
                     headers=H('u_fin'))
     assert r.status_code == 409 and '重叠' in r.json()['detail']

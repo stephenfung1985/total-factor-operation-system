@@ -17,7 +17,7 @@ export default function Perm({ me }: PageProps) {
   const tpl = '1.6fr repeat(3, minmax(0, 1fr))';
   return (
     <>
-      <PageHead title="角色与权限" sub="账号由管理层分配；功能权限按角色分配，数据按行控制：基层按队伍，部室按科目归口" />
+      <PageHead title="角色与权限" sub="账号由管理端分配；功能权限按角色分配，数据按行控制：填报端只看本队，管理端看全部" />
       <Accounts meId={me.user_id} />
       {error && <div className="notice">{error}</div>}
       {data && (
@@ -53,7 +53,7 @@ export default function Perm({ me }: PageProps) {
             <h3>硬约束</h3>
             <div style={{ fontSize: 14, lineHeight: '22px' }}>任何角色都不能直接修改经济事项，金额只由规则引擎写入；数据库触发器同样禁止改写和删除事项。</div>
             <div style={{ fontSize: 14, lineHeight: '22px' }}>AI 只生成草稿，不能写入已发布规则表；已发布规则的价格与条件不能修改，只能新建版本。</div>
-            <div style={{ fontSize: 14, lineHeight: '22px' }}>账号与权限由管理层统一管理。</div>
+            <div style={{ fontSize: 14, lineHeight: '22px' }}>账号与权限由管理端统一管理。</div>
             <div style={{ fontSize: 14, lineHeight: '22px' }}>密码加盐散列存储；初始密码首次登录须修改；连续输错 5 次锁定 15 分钟；登录 12 小时后需重新登录。</div>
           </section>
         </>

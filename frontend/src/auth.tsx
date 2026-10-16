@@ -43,7 +43,7 @@ export function LoginPage({ onLogin }: { onLogin: (me: Me) => void }) {
         </label>
         {err && <div className="notice" role="alert">{err}</div>}
         <button type="submit" className="btn primary" disabled={busy}>{busy ? '登录中…' : '登录'}</button>
-        <div className="small muted" style={{ textAlign: 'center' }}>账号由管理层分配；初始密码首次登录后须修改</div>
+        <div className="small muted" style={{ textAlign: 'center' }}>账号由管理端分配；初始密码首次登录后须修改</div>
       </form>
     </div>
   );

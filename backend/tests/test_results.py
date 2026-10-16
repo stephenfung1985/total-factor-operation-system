@@ -39,7 +39,7 @@ def _post(client, data, commit):
 
 
 def test_role_renamed(client):
-    assert client.get('/api/me', headers={'X-User-Id': 'u_team'}).json()['role_name'] == '基层钻井队'
+    assert client.get('/api/me', headers={'X-User-Id': 'u_team'}).json()['role_name'] == '填报端'
 
 
 def test_blank_template(client):

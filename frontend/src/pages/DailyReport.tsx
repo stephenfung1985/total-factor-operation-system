@@ -226,14 +226,14 @@ export default function DailyReport(_: PageProps) {
                 {editable && (
                   <>
                     <button type="button" className="btn primary" disabled={busy || blocks.length > 0} onClick={onSubmit}>提交并生效</button>
-                    {warns.some((m) => m.level === '警告') && <div className="hint" style={{ whiteSpace: 'normal' }}>有警告也能提交，生效后由管理层抽查</div>}
+                    {warns.some((m) => m.level === '警告') && <div className="hint" style={{ whiteSpace: 'normal' }}>有警告也能提交，生效后由管理端抽查</div>}
                     <button type="button" className="btn" disabled={busy} onClick={onSave}>保存草稿</button>
                   </>
                 )}
-                {rep.status === '已提交' && <div className="notice info">旧流程提交的日报，等待管理层确认生效。</div>}
+                {rep.status === '已提交' && <div className="notice info">旧流程提交的日报，等待管理端确认生效。</div>}
                 {rep.status === '已审核' && (
                   <>
-                    <div className="notice info">已生效，规则引擎已计算金额{rep.checked_at ? `；管理层已抽查（${rep.checked_at.slice(5, 16)}）` : ''}。发现报错可随时发起更正。</div>
+                    <div className="notice info">已生效，规则引擎已计算金额{rep.checked_at ? `；管理端已抽查（${rep.checked_at.slice(5, 16)}）` : ''}。发现报错可随时发起更正。</div>
                     <button type="button" className="btn" disabled={busy} onClick={onCorrect}>发起更正</button>
                   </>
                 )}

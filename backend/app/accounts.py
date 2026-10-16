@@ -19,7 +19,7 @@ LOCK_MINUTES = 15
 INITIAL_PASSWORD = '123456'
 ROLE_WHO = {'finance': '企划财务部'}
 
-# 初始账号：(登录名, 角色, 队号)。专业部室角色已取消：部室只提供规则变化依据，由管理层维护规则。
+# 初始账号：(登录名, 角色, 队号)。专业部室角色已取消：部室只提供规则变化依据，由管理端维护规则。
 INITIAL_ACCOUNTS = [
     ('fengxuecheng', 'finance', None),
     ('jinliuchao', 'finance', None),
@@ -116,7 +116,7 @@ def production_check() -> str:
 
 
 def _drop_admin_role(conn) -> None:
-    """系统管理员角色已取消，功能并入管理层：清除旧库里的管理员账号与演示身份及其会话。"""
+    """系统管理员角色已取消，功能并入管理端：清除旧库里的管理员账号与演示身份及其会话。"""
     ids = [r['user_id'] for r in conn.execute("SELECT user_id FROM app_user WHERE role='admin'")]
     for uid in ids:
         conn.execute('DELETE FROM app_session WHERE user_id=? OR acting_user_id=?', (uid, uid))
@@ -161,7 +161,7 @@ def login(conn, username: str, password: str) -> tuple[str, dict]:
     if not u or not u['password_hash']:
         raise AuthError('登录名或密码错误')
     if not u['enabled']:
-        raise AuthError('账号已停用，请联系管理层')
+        raise AuthError('账号已停用，请联系管理端')
     if u['locked_until'] and u['locked_until'] > now():
         raise AuthError(f'密码错误次数过多，账号锁定至 {u["locked_until"][11:16]}')
     if not verify_password(password or '', u['password_hash']):
@@ -252,7 +252,7 @@ def set_enabled(conn, user_id: str, enabled: bool, operator_id: str) -> None:
         others = conn.execute("SELECT COUNT(*) n FROM app_user WHERE role='finance' AND enabled=1 AND username IS NOT NULL "
                               "AND is_debug=0 AND user_id!=?", (user_id,)).fetchone()['n']
         if target and target['role'] == 'finance' and not others:
-            raise AuthError('至少保留一个启用的管理层账号')
+            raise AuthError('至少保留一个启用的管理端账号')
     conn.execute('UPDATE app_user SET enabled=? WHERE user_id=?', (1 if enabled else 0, user_id))
     if not enabled:
         conn.execute('DELETE FROM app_session WHERE user_id=?', (user_id,))

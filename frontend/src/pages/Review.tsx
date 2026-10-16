@@ -7,7 +7,7 @@ const COLS = '0.8fr 0.9fr 1.1fr 0.6fr 0.8fr 1.8fr 24px';
 type Tab = 'todo' | 'effective' | 'returned';
 type Summary = Record<Tab, number>;
 
-/** 日报监控：日报提交即生效（系统校验通过），管理层事后抽查有警告的日报，发现问题退回更正或冲销退回。 */
+/** 日报监控：日报提交即生效（系统校验通过），管理端事后抽查有警告的日报，发现问题退回更正或冲销退回。 */
 export default function Review(_: PageProps) {
   const toast = useToast();
   const [tab, setTab] = useState<Tab>('todo');
@@ -44,7 +44,7 @@ export default function Review(_: PageProps) {
   const n = sum.data;
   return (
     <>
-      <PageHead title="日报监控" sub="日报提交时系统校验，阻断项改完即生效；有警告的进入待处理，由管理层抽查，发现问题退回更正或冲销退回" />
+      <PageHead title="日报监控" sub="日报提交时系统校验，阻断项改完即生效；有警告的进入待处理，由管理端抽查，发现问题退回更正或冲销退回" />
       <Seg value={tab} onChange={setTab} label="分类" options={[
         { id: 'todo', label: `待处理${n ? ` ${n.todo}` : ''}` },
         { id: 'effective', label: '已生效' },
@@ -62,7 +62,7 @@ export default function Review(_: PageProps) {
                 <span className="bold">{r.well_id}</span><span className="num">{r.report_date}</span><span>{r.team}</span>
                 <span>v{r.version}{r.status === '已提交' ? <span className="tag warn" style={{ marginLeft: 6 }}>未生效</span> : r.checked_at ? <span className="tag good" style={{ marginLeft: 6 }}>已抽查</span> : null}</span>
                 <span className="r num">{fmt(r.depth_end - r.depth_start, 0)}</span>
-                <span className="text3 small">{tab === 'returned' ? (r.review_comment || '').replace(/^管理层退回：/, '') : r.alerts.length ? r.alerts.map((a) => a.message).join('；') : '无'}</span>
+                <span className="text3 small">{tab === 'returned' ? (r.review_comment || '').replace(/^管理[层端]退回：/, '') : r.alerts.length ? r.alerts.map((a) => a.message).join('；') : '无'}</span>
                 {Icon.chevron()}
               </button>
             ))}

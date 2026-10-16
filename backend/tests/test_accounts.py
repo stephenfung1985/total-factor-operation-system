@@ -109,7 +109,7 @@ def test_management_manages_accounts(client):
     client.post('/api/admin/users/fengxuecheng/enable', json={'enabled': True}, headers=adm)
     client.post('/api/admin/users/fengxuecheng/reset', json={'password': 'Temp0001'}, headers=adm)
     assert login(client, 'fengxuecheng', 'Temp0001').json()['user']['must_change'] == 1
-    # 不能停用自己；至少保留一个启用的管理层账号
+    # 不能停用自己；至少保留一个启用的管理端账号
     assert client.post('/api/admin/users/jinliuchao/enable', json={'enabled': False}, headers=adm).status_code == 400
     assert client.post('/api/admin/users/fengxuecheng/enable', json={'enabled': False}, headers=adm).status_code == 200
     assert client.post('/api/admin/users/jinliuchao/enable', json={'enabled': False}, headers=adm).status_code == 400
@@ -132,7 +132,7 @@ def test_debug_account_switches_demo_identities(client):
     assert me['debug'] and me['user_id'] == 'u_fin' and me['must_change'] == 0 and me['login_username'] == 'test'
     assert [i['user_id'] for i in me['identities']] == ['u_fin', 'u_team']
     assert '[调试 test]' in me['who']
-    # 切到基层钻井队：数据范围是 70101 队
+    # 切到填报端：数据范围是 70101 队
     me = client.post('/api/auth/switch', json={'user_id': 'u_team'}, headers=h).json()
     assert me['role'] == 'team' and me['team_id'] == 't1'
     assert [w['well_id'] for w in client.get('/api/reports/wells', headers=h).json()] == ['W001']

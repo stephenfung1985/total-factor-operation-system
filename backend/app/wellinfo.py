@@ -452,7 +452,7 @@ LIB_FULL = [('captain', '队长'), ('staff_total', '人员合计'), ('reg_lag', 
 
 
 def library_columns(user: dict) -> list[tuple[str, str]]:
-    """基础信息库可见字段：管理层看全部井，基层队看本队井，字段相同。"""
+    """基础信息库可见字段：管理端看全部井，基层队看本队井，字段相同。"""
     return LIB_BASE + LIB_FULL
 
 

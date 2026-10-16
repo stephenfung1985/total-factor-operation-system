@@ -2,9 +2,9 @@
 
 表体按事实类型分段（见 report_lines.SECTIONS）：进尺与工况 → 能耗与材料 → 设备在用 → 外包技术服务 → 运输与环保。
 每段只列本井当天有已发布规则计价、参与科目费用计算的报量项目；没有规则的项目不让基层白填
-（旧日报或 Excel 里已有数量的仍保留显示，提交时提示由管理层补规则）。
+（旧日报或 Excel 里已有数量的仍保留显示，提交时提示由管理端补规则）。
 
-不再经专业部室审核：提交时阻断项必须改完，通过即生效并触发规则引擎；有警告的日报进入管理层“日报监控”抽查。
+不再经专业部室审核：提交时阻断项必须改完，通过即生效并触发规则引擎；有警告的日报进入管理端“日报监控”抽查。
 容错与补救（见 return_report）：
   退回更正：原日报保持生效，生成带退回意见的更正版本交队伍修改，更正版生效时冲销原事实重算；
   冲销退回：立即冲销原日报的事实与金额，日报退回队伍，可修改后重新提交，也可放弃。
@@ -139,7 +139,7 @@ def validate(conn, rep: dict, defs: list[dict] | None = None) -> list[dict]:
         if cond and float(hours.get(cond) or 0) <= 0:
             msgs.append(('警告', '服务与工况', f'报了{d["label"]}，但当天没有“{cond}”工况'))
         if not d['priced']:
-            msgs.append(('提示', '未匹配规则', f'{d["label"]} 暂无已发布规则，提交后由管理层按{d["dept"] or "归口"}部室提供的依据补规则'))
+            msgs.append(('提示', '未匹配规则', f'{d["label"]} 暂无已发布规则，提交后由管理端按{d["dept"] or "归口"}部室提供的依据补规则'))
         hist = [report_lines.canon_map(jload(r['lines'])).get(k) for r in conn.execute(
             "SELECT lines FROM daily_report WHERE well_id=? AND phase=? AND status='已审核' AND report_date<?",
             (rep['well_id'], rep.get('phase'), rep['report_date']))]
@@ -255,7 +255,7 @@ def submit(conn, report_id: int, user: dict) -> dict:
     facts_from_report(conn, report_id, '已提交')
     log(conn, '日报', report_id, '提交', user['who'])
     out = take_effect(conn, report_id, SYSTEM_REVIEWER, '阻断项全部通过，提交即生效'
-                      + ('；有警告，进入管理层抽查' if any(c['level'] == '警告' for c in checks) else ''))
+                      + ('；有警告，进入管理端抽查' if any(c['level'] == '警告' for c in checks) else ''))
     return out
 
 
@@ -299,7 +299,7 @@ SYSTEM_REVIEWER = '系统校验'
 
 def take_effect(conn, report_id: int, operator: str, comment: str | None = None) -> dict:
     """日报生效：事实置为已审核、更正版本冲销原版本事实、更新实际井深、重算该井该月。
-    提交时由系统自动调用；旧流程遗留的“已提交”日报由管理层在日报监控里确认生效。"""
+    提交时由系统自动调用；旧流程遗留的“已提交”日报由管理端在日报监控里确认生效。"""
     rep = _load(conn, report_id)
     if rep['status'] != '已提交':
         raise ReportError(f'当前状态“{rep["status"]}”不能生效')
@@ -322,7 +322,7 @@ def take_effect(conn, report_id: int, operator: str, comment: str | None = None)
 
 
 def check(conn, report_id: int, user: dict, comment: str | None = None) -> dict:
-    """管理层抽查确认：已生效日报的警告已核实无误。"""
+    """管理端抽查确认：已生效日报的警告已核实无误。"""
     rep = _load(conn, report_id)
     if rep['status'] != '已审核':
         raise ReportError('只有已生效的日报可以抽查确认')
@@ -332,14 +332,14 @@ def check(conn, report_id: int, user: dict, comment: str | None = None) -> dict:
 
 
 def return_report(conn, report_id: int, user: dict, comment: str, reverse: bool) -> dict:
-    """管理层退回日报，必须写明原因。
+    """管理端退回日报，必须写明原因。
     reverse=False 退回更正：原日报保持生效，生成（或更新）带退回意见的更正版本，状态“驳回”，队伍改后提交即替代原版本；
     reverse=True  冲销退回：立即冲销原日报的事实与金额并重算，日报本身退回“驳回”，队伍可修改后重新提交。
     旧流程遗留的“已提交”日报只能冲销退回（它还没有生效）。"""
     if not (comment or '').strip():
         raise ReportError('退回必须填写原因')
     rep = _load(conn, report_id)
-    note = f'管理层退回：{comment.strip()}'
+    note = f'管理端退回：{comment.strip()}'
     if rep['status'] == '已提交':
         reverse = True
     elif rep['status'] != '已审核':
@@ -390,32 +390,6 @@ def update_draft(conn, report_id: int, body: dict, user: dict) -> None:
     f = _fields(body, rep['phase'])
     conn.execute("UPDATE daily_report SET depth_start=?, depth_end=?, hours=?, lines=?, line_notes=?, status='草稿', reporter=? "
                  'WHERE report_id=?', f[:5] + (user['who'], report_id))
-
-
-DRILL_DEPT = '技术'   # 进尺与工况段每张日报都有，归口工程技术部
-
-
-def involved_depts(conn, lines: dict | None) -> set[str]:
-    """一张日报涉及的归口部室：进尺与工况归技术，其余按有数量的报量项目所属费用项目的归口部室（可多个，如 市场/安全）。"""
-    out = {DRILL_DEPT}
-    owners = {r['line_key']: r['owner_dept'] for r in conn.execute(
-        'SELECT l.line_key, i.owner_dept FROM report_line l LEFT JOIN cost_item i ON i.item_code=l.item_code')}
-    for k, v in report_lines.canon_map(lines).items():
-        try:
-            if float(v or 0) <= 0:
-                continue
-        except (TypeError, ValueError):
-            continue
-        out |= {d for d in (owners.get(k) or '').split('/') if d}
-    return out
-
-
-def dept_can_review(conn, user: dict, report_id: int) -> bool:
-    """部室只处理涉及本部室归口科目的日报；管理层不受限。"""
-    if user['role'] != 'dept':
-        return True
-    r = conn.execute('SELECT lines FROM daily_report WHERE report_id=?', (report_id,)).fetchone()
-    return bool(r) and user['dept'] in involved_depts(conn, jload(r['lines']))
 
 
 def catalog(conn) -> dict:

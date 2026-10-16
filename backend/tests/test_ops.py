@@ -1,4 +1,4 @@
-"""取消专业部室审核后的容错与补救：日报提交即生效 + 管理层抽查 / 退回；规则影响预览 + 变化依据 + 回滚。"""
+"""取消专业部室审核后的容错与补救：日报提交即生效 + 管理端抽查 / 退回；规则影响预览 + 变化依据 + 回滚。"""
 import pytest
 from fastapi.testclient import TestClient
 
@@ -59,7 +59,7 @@ def test_return_for_correction_keeps_original_until_team_resubmits(client):
     assert revenue(client) - before == pytest.approx(50 * IMAGE, abs=1)
     assert client.post(f'/api/reports/{rid}/return', json={'comment': ''}, headers=FIN).status_code == 409   # 必须写原因
     draft = client.post(f'/api/reports/{rid}/return', json={'comment': '进尺与钻井日报不符'}, headers=FIN).json()
-    assert draft['status'] == '驳回' and draft['supersedes_report_id'] == rid and '管理层退回' in draft['review_comment']
+    assert draft['status'] == '驳回' and draft['supersedes_report_id'] == rid and '管理端退回' in draft['review_comment']
     assert client.get(f'/api/reports/{rid}', headers=FIN).json()['status'] == '已审核'       # 原版本保持生效
     assert revenue(client) - before == pytest.approx(50 * IMAGE, abs=1)
     assert draft['report_id'] in ids(client, 'returned')

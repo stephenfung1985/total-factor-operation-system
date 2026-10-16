@@ -4,7 +4,7 @@ import { Modal, useLoad, useToast } from '../ui';
 
 interface Admin { users: AccountRow[]; teams: { team_no: string; name: string }[] }
 const COLS = '1fr 1fr 0.9fr 1.4fr 0.8fr 1.1fr 1.6fr';
-const ROLES = [{ id: 'finance', label: '管理层' }, { id: 'team', label: '基层钻井队' }];
+const ROLES = [{ id: 'finance', label: '管理端' }, { id: 'team', label: '填报端（钻井队）' }];
 
 /** 账号管理：新建、重置密码、停用 / 启用。密码只设置不显示，重置后用户须在首次登录时修改。 */
 export default function Accounts({ meId }: { meId: string }) {

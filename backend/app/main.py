@@ -128,7 +128,7 @@ class SwitchBody(BaseModel):
 
 @app.post('/api/auth/switch')
 def switch_identity(body: SwitchBody, authorization: str | None = Header(default=None)):
-    """调试账号切换演示身份（管理层 / 基层钻井队）。"""
+    """调试账号切换演示身份（管理端 / 填报端）。"""
     token = _token(authorization)
     with transaction() as c:
         accounts.switch_identity(c, token, body.user_id)
@@ -398,14 +398,14 @@ def report_correct(rid: int, user=User):
         return reports.get_report(c, reports.correct(c, rid, user))
 
 
-# ---------- 日报监控（管理层）：提交即生效后的抽查与补救 ----------
+# ---------- 日报监控（管理端）：提交即生效后的抽查与补救 ----------
 
 MONITOR_TABS = {
     # 待处理：有警告未抽查确认的已生效日报 + 旧流程遗留未生效的“已提交”日报
     'todo': "(d.status='已提交' OR (d.status='已审核' AND d.checked_at IS NULL AND EXISTS ("
             "SELECT 1 FROM validation_alert a WHERE a.report_id=d.report_id AND a.level='警告')))",
     'effective': "d.status='已审核'",
-    'returned': "d.status='驳回' AND d.review_comment LIKE '管理层退回%'",
+    'returned': "d.status='驳回' AND d.review_comment LIKE '管理_退回%'",
 }
 
 
@@ -440,11 +440,11 @@ def monitor_summary(user=User):
 
 @app.post('/api/reports/{rid:int}/confirm')
 def report_confirm(rid: int, body: Comment, user=User):
-    """旧流程遗留的“已提交”日报，由管理层确认生效。"""
+    """旧流程遗留的“已提交”日报，由管理端确认生效。"""
     auth.require(user, 'finance')
     with transaction() as c:
         _own_report(c, user, rid)
-        return reports.take_effect(c, rid, user['who'], body.comment or '管理层确认生效')
+        return reports.take_effect(c, rid, user['who'], body.comment or '管理端确认生效')
 
 
 @app.post('/api/reports/{rid:int}/check')
@@ -730,7 +730,7 @@ def info_revise(rid: int, user=User):
 
 @app.get('/api/wellinfo/library')
 def info_library(user=User):
-    """基础信息库：管理层看全部井，基层队只看本队井。"""
+    """基础信息库：管理端看全部井，基层队只看本队井。"""
     with transaction() as c:
         return wellinfo.library(c, user)
 

@@ -80,6 +80,9 @@ NEW_COLUMNS = [
     ('app_user', 'is_debug', 'INTEGER NOT NULL DEFAULT 0'),
     ('app_session', 'acting_user_id', 'TEXT'),
     ('economic_event', 'pool_id', 'INTEGER'),
+    ('daily_report', 'checked_by', 'TEXT'),     # 管理端抽查确认
+    ('daily_report', 'checked_at', 'TEXT'),
+    ('economic_rule', 'change_basis', 'TEXT'),  # 发布时登记的变化依据（部室提供的文件、通知）
 ]
 
 

@@ -1,7 +1,7 @@
-"""费用明细：每项成本科目按 时间 / 市场 / 区块 / 队伍 汇总与导出，供专业部室做单项成本对比分析。
+"""费用明细：每项成本科目按 时间 / 市场 / 区块 / 队伍 汇总与导出，供管理端做单项成本对比分析。
 
 数据全部来自经济事项（只取“有效”，冲销与被冲销互相抵消），与经营总览同源，金额不另算。
-权限沿用经营报表：部室只看归口给本部室的科目、看不到收入；经营总览（企划财务部）看全部成本科目。
+只有管理端（企划财务部）可用，看全部成本科目。
 口径：市场、区块取单井基础信息；队伍取事项发生时的施工队伍（事项上没有队伍时按该井当期施工队伍补）。
 进尺：已审核日报的进尺合计（米）；钻机台月：施工时段落在各月的天数 ÷ 当月天数（整月施工为 1 台月）。
 米成本 = 金额 ÷ 进尺（元/米）；单位成本 = 金额 ÷ 钻机台月（元/台月）。分母取所选期间内有经济事项的全部井·月，不随所选科目变化，
@@ -42,17 +42,13 @@ def _check_range(start: str | None, end: str | None) -> tuple[str | None, str | 
 
 def _scope_items(conn, user: dict, codes: list[str] | None) -> list[dict]:
     """当前账号可见的成本科目（树序）。codes 非空时只保留所选科目及其下级。"""
-    auth.require(user, 'finance', 'dept')
+    auth.require(user, 'finance')
     items = [dict(r) for r in conn.execute("SELECT * FROM cost_item WHERE direction='成本' ORDER BY sort_no")]
     children: dict[str, list[str]] = {}
     for it in items:
         if it['parent_code']:
             children.setdefault(it['parent_code'], []).append(it['item_code'])
-    visible: dict[str, bool] = {}
-    for it in reversed(items):   # 子项排在父项之后，倒序即自底向上
-        c = it['item_code']
-        visible[c] = auth.item_visible(user, it) if it['is_leaf'] else any(visible.get(k) for k in children.get(c, []))
-    keep = {c for c, v in visible.items() if v}
+    keep = {it['item_code'] for it in items}
     if codes:
         unknown = [c for c in codes if c not in keep]
         if unknown:

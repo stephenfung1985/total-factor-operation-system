@@ -89,7 +89,7 @@ export default function CostDetail({ me }: PageProps) {
         </div>
         {bad && <div className="notice">起始期间不能晚于截止期间</div>}
         <div className="field">
-          成本科目 <span className="small muted">（可多选；选上级科目即包含其全部下级；不选则为全部{me.role === 'dept' ? '归口' : ''}科目）</span>
+          成本科目 <span className="small muted">（可多选；选上级科目即包含其全部下级；不选则为全部科目）</span>
           <div className="btn-row" style={{ alignItems: 'center' }}>
             <input className="input" style={{ flex: '1 1 220px', width: 'auto' }} placeholder="按名称或编码搜索科目" value={q} onChange={(e) => setQ(e.target.value)} />
             <button type="button" className="btn sm" onClick={() => setPicked([])}>清空（{picked.length}）</button>

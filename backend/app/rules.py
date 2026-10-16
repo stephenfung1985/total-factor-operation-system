@@ -1,5 +1,11 @@
 """规则维护：草稿 → 待确认 → 回算中 → 待发布 → 已发布 → 已被替代 / 已废止；任一步驳回退回草稿。
 
+专业部室不再审核规则：部室只提供变化依据（合同、补充协议、制度、通知），由管理端录入、确认并发布。
+没有了第二道人工审核，靠下面几道系统关口兜底：
+  确认时自动检查冲突并用历史井回算，超阈值退回待确认；
+  发布前可做影响预览（按发布试算后整体回滚，不落库），看清各井金额变化再发；
+  发布必须登记变化依据，写入规则与操作日志，可追溯；
+  发布后发现有误可一键回滚：本版本废止、上一版本恢复生效，受影响月份冲销重算。
 已发布规则只增不改：调价时复制为新版本草稿，发布后旧版本失效日由新版本推导。
 """
 from datetime import date, timedelta
@@ -24,20 +30,11 @@ def _row(conn, rule_id: int) -> dict:
 
 
 def _visible(user: dict, r: dict) -> bool:
-    if user['role'] == 'finance':
-        return True
-    if user['role'] == 'dept':
-        return user['dept'] in (r['owner_dept'] or '').split('/')
-    return False
+    return user['role'] == 'finance'
 
 
 def _can_edit(user: dict, r: dict) -> bool:
-    return user['role'] == 'dept' and _visible(user, r)
-
-
-def _can_publish(user: dict, r: dict) -> bool:
-    """发布：归口部室负责人，或管理层（企划财务部）代为审批发布。"""
-    return user['role'] == 'finance' or _can_edit(user, r)
+    return user['role'] == 'finance'
 
 
 def list_rules(conn, user: dict) -> list[dict]:
@@ -96,9 +93,12 @@ def detail(conn, user: dict, rule_id: int) -> dict:
         'hits': {'count': hits['n'], 'amount': money(hits['a'])},
         'can_edit': _can_edit(user, r) and r['status'] in EDITABLE,
         'can_confirm': _can_edit(user, r) and r['status'] in EDITABLE,
-        'can_publish': _can_publish(user, r) and r['status'] == '待发布',
+        'can_publish': _can_edit(user, r) and r['status'] == '待发布',
         'can_reject': _can_edit(user, r) and r['status'] in ('待确认', '回算中', '待发布'),
         'can_new_version': _can_edit(user, r) and r['status'] == '已发布',
+        'can_rollback': _can_edit(user, r) and r['status'] == '已发布',
+        'change_basis': r.get('change_basis'),
+        'owner_dept': r['owner_dept'],
         'options': {'dimensions': DIMENSIONS, 'operators': OPERATORS},
     }
 
@@ -106,7 +106,7 @@ def detail(conn, user: dict, rule_id: int) -> dict:
 def _need_edit(conn, user, rule_id) -> dict:
     r = _row(conn, rule_id)
     if not _can_edit(user, r):
-        raise HTTPException(403, '规则由归口部室确认，当前角色只读')
+        raise HTTPException(403, '规则由管理端维护，当前角色只读')
     return r
 
 
@@ -177,13 +177,9 @@ def reject(conn, user: dict, rule_id: int, comment: str | None) -> dict:
     return detail(conn, user, rule_id)
 
 
-def publish(conn, user: dict, rule_id: int) -> dict:
-    """部室负责人或管理层审批发布：旧版本失效日由新版本推导；生效日起已有事实按新规则冲销重算。"""
-    r = _row(conn, rule_id)
-    if not _can_publish(user, r):
-        raise HTTPException(403, '规则由归口部室或管理层发布，当前角色无此权限')
-    if r['status'] != '待发布':
-        raise HTTPException(409, '只有回算达标（或豁免）的规则可以发布')
+def _publish(conn, user: dict, r: dict, change_basis: str) -> dict | None:
+    """发布的实际动作（发布与影响预览共用）：旧版本失效日由新版本推导；生效日起已有事实按新规则冲销重算。"""
+    rule_id = r['rule_id']
     prev = conn.execute("SELECT * FROM economic_rule WHERE rule_code=? AND status='已发布' AND rule_id!=?",
                         (r['rule_code'], rule_id)).fetchone()
     if prev:
@@ -191,13 +187,73 @@ def publish(conn, user: dict, rule_id: int) -> dict:
         conn.execute("UPDATE economic_rule SET status='已被替代', valid_to=? WHERE rule_id=?", (end, prev['rule_id']))
         conn.execute('UPDATE economic_rule SET supersedes_rule_id=? WHERE rule_id=?', (prev['rule_id'], rule_id))
         log(conn, '规则', prev['rule_id'], '被替代', user['who'], f"由 v{r['version']} 替代，失效日 {end}")
-    conn.execute("UPDATE economic_rule SET status='已发布', published_at=? WHERE rule_id=?", (now(), rule_id))
-    log(conn, '规则', rule_id, '发布', user['who'], f"生效日 {r['valid_from']}" + ('（管理层发布）' if user['role'] == 'finance' else ''))
+    conn.execute("UPDATE economic_rule SET status='已发布', published_at=?, change_basis=? WHERE rule_id=?",
+                 (now(), change_basis, rule_id))
+    log(conn, '规则', rule_id, '发布', user['who'], f"生效日 {r['valid_from']}；变化依据：{change_basis}")
     wells, periods = engine.affected_scope(conn)
     periods = [p for p in periods if p >= r['valid_from'][:7]]
-    batch = engine.recalc(conn, wells, periods, '规则新版本发布', user['who']) if periods else None
+    return engine.recalc(conn, wells, periods, '规则新版本发布', user['who']) if periods else None
+
+
+def _ready(conn, user: dict, rule_id: int) -> dict:
+    r = _need_edit(conn, user, rule_id)
+    if r['status'] != '待发布':
+        raise HTTPException(409, '只有回算达标（或豁免）的规则可以发布')
+    return r
+
+
+def publish(conn, user: dict, rule_id: int, change_basis: str) -> dict:
+    change_basis = (change_basis or '').strip()
+    if len(change_basis) < 4:
+        raise HTTPException(422, '请登记变化依据：部室提供的文件、通知或会议纪要（文号与名称）')
+    r = _ready(conn, user, rule_id)
+    batch = _publish(conn, user, r, change_basis)
     out = detail(conn, user, rule_id)
     out['batch'] = batch
+    return out
+
+
+def impact(conn, user: dict, rule_id: int) -> dict:
+    """影响预览：在保存点里按发布试算，统计将新增 / 冲销的事项和各井金额变化，再回滚到保存点，数据库不留任何痕迹。"""
+    r = _ready(conn, user, rule_id)
+    conn.execute('SAVEPOINT rule_impact')
+    try:
+        batch = _publish(conn, user, r, '（影响预览）')
+        wells = []
+        if batch:
+            wells = [dict(x) for x in conn.execute(
+                'SELECT well_id, period, COUNT(*) n, SUM(amount) delta FROM economic_event WHERE batch_id=? '
+                'GROUP BY well_id, period HAVING ABS(SUM(amount))>=0.5 ORDER BY ABS(SUM(amount)) DESC', (batch['batch_id'],))]
+    finally:
+        conn.execute('ROLLBACK TO rule_impact')
+        conn.execute('RELEASE rule_impact')
+    return {'created': batch['created'] if batch else 0, 'reversed': batch['reversed'] if batch else 0,
+            'amount_change': batch['amount_change'] if batch else 0,
+            'wells': [{**w, 'delta': money(w['delta'])} for w in wells[:50]], 'well_count': len(wells)}
+
+
+def rollback(conn, user: dict, rule_id: int, reason: str | None) -> dict:
+    """发布后发现有误时的补救：本版本废止；有上一版本则恢复它生效（失效日清空），没有则规则停用；受影响月份冲销重算。"""
+    reason = (reason or '').strip()
+    if not reason:
+        raise HTTPException(422, '请填写回滚原因')
+    r = _need_edit(conn, user, rule_id)
+    if r['status'] != '已发布':
+        raise HTTPException(409, '只有已发布的规则可以回滚')
+    conn.execute("UPDATE economic_rule SET status='已废止' WHERE rule_id=?", (rule_id,))
+    prev = conn.execute('SELECT * FROM economic_rule WHERE rule_id=?', (r['supersedes_rule_id'],)).fetchone() \
+        if r['supersedes_rule_id'] else None
+    if prev:
+        conn.execute("UPDATE economic_rule SET status='已发布', valid_to=NULL WHERE rule_id=?", (prev['rule_id'],))
+        log(conn, '规则', prev['rule_id'], '恢复生效', user['who'], f"v{r['version']} 回滚：{reason}")
+    log(conn, '规则', rule_id, '回滚', user['who'], reason + (f"；恢复 v{prev['version']}" if prev else '；无上一版本，规则停用'))
+    since = min(r['valid_from'], prev['valid_from']) if prev else r['valid_from']
+    wells, periods = engine.affected_scope(conn)
+    periods = [p for p in periods if p >= since[:7]]
+    batch = engine.recalc(conn, wells, periods, '规则回滚', user['who']) if periods else None
+    out = detail(conn, user, prev['rule_id'] if prev else rule_id)
+    out['batch'] = batch
+    out['restored'] = prev['version'] if prev else None
     return out
 
 

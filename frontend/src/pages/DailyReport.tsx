@@ -7,6 +7,7 @@ interface Mine { report_id: number; well_id: string; report_date: string; versio
 interface Draft { depth_start: number; depth_end: number; hours: Record<string, number>; lines: Record<string, number>; notes: Record<string, string> }
 
 const STATUS_TAG: Record<string, string> = { 草稿: '', 驳回: 'bad', 已提交: 'warn', 已审核: 'good', 新建: '' };
+const STATUS_LABEL: Record<string, string> = { 新建: '未保存', 已审核: '已生效', 已提交: '待生效', 驳回: '已退回', 已被更正: '已被更正' };
 const NOTE_LABEL: Record<string, string> = { equip: '设备编号', service: '签证单号', logistics: '单据号' };
 
 export default function DailyReport(_: PageProps) {
@@ -84,9 +85,9 @@ export default function DailyReport(_: PageProps) {
   const onSubmit = () => act(async () => {
     const r = await save();
     if (r) show(await api.post<Report>(`/api/reports/${r.report_id}/submit`));
-  }, '日报已提交，等待部室审核');
+  }, '日报已生效，规则引擎已按新数量计算');
   const onCorrect = () => act(async () => show(await api.post<Report>(`/api/reports/${rep!.report_id}/correct`)),
-    '已生成更正版本草稿，审核通过后原事实冲销重算');
+    '已生成更正版本草稿，提交后替代原日报并冲销重算');
   const onExport = () => act(() => download(`/api/reports/template.xlsx?well_id=${well}&start=${range.start}&end=${range.end}`, '成本日报.xlsx'), '模板已导出');
   const onImport = async (f: File) => {
     const fd = new FormData();
@@ -143,13 +144,13 @@ export default function DailyReport(_: PageProps) {
       {rep && draft && (
         <>
           <div className="rep-bar">
-            <span className={'tag ' + (STATUS_TAG[rep.status] || '')}>{rep.status === '新建' ? '未保存' : rep.status}{rep.version > 1 ? ` · v${rep.version}` : ''}</span>
+            <span className={'tag ' + (STATUS_TAG[rep.status] || '')}>{STATUS_LABEL[rep.status] || rep.status}{rep.version > 1 ? ` · v${rep.version}` : ''}</span>
             {[['队伍', rep.header.team], ['区块', rep.header.block], ['井型', rep.header.well_type], ['开次', rep.header.phase]].map(([k, v]) => (
               <span key={k}><span className="muted">{k}</span> {v}</span>
             ))}
             <span className="muted">人员按基础信息自动核算：{staff.length ? staff.map(([k, v]) => `${k} ${v}`).join(' · ') + ' 人' : '未填写'}</span>
           </div>
-          {rep.status === '驳回' && rep.review_comment && <div className="notice">审核驳回：{rep.review_comment}</div>}
+          {rep.status === '驳回' && rep.review_comment && <div className="notice">{rep.review_comment}{rep.supersedes_report_id ? '（原日报暂时保持生效，修改后提交即替代）' : '（原数据已冲销，修改后重新提交）'}</div>}
           {rep.status === '新建' && rep.carried && <div className="notice info">在用设备已沿用上一张日报，请按当天实际修改。</div>}
 
           <div className="split">
@@ -224,14 +225,15 @@ export default function DailyReport(_: PageProps) {
                 {editable && warns.map((m, i) => <div key={'w' + i} className="msg">· {m.level}：{m.message}</div>)}
                 {editable && (
                   <>
-                    <button type="button" className="btn primary" disabled={busy || blocks.length > 0} onClick={onSubmit}>提交日报</button>
+                    <button type="button" className="btn primary" disabled={busy || blocks.length > 0} onClick={onSubmit}>提交并生效</button>
+                    {warns.some((m) => m.level === '警告') && <div className="hint" style={{ whiteSpace: 'normal' }}>有警告也能提交，生效后由管理端抽查</div>}
                     <button type="button" className="btn" disabled={busy} onClick={onSave}>保存草稿</button>
                   </>
                 )}
-                {rep.status === '已提交' && <div className="notice info">已提交，等待专业部室审核；如需修改请联系审核人驳回。</div>}
+                {rep.status === '已提交' && <div className="notice info">旧流程提交的日报，等待管理端确认生效。</div>}
                 {rep.status === '已审核' && (
                   <>
-                    <div className="notice info">已审核，事实已生效并由规则引擎计算金额。</div>
+                    <div className="notice info">已生效，规则引擎已计算金额{rep.checked_at ? `；管理端已抽查（${rep.checked_at.slice(5, 16)}）` : ''}。发现报错可随时发起更正。</div>
                     <button type="button" className="btn" disabled={busy} onClick={onCorrect}>发起更正</button>
                   </>
                 )}
@@ -277,7 +279,7 @@ function RecentSelect({ mine, well, date, onPick }: { mine: Mine[]; well: string
         <option value="">{todo ? `待办 ${todo} 张` : '选择'}</option>
         {mine.map((m) => (
           <option key={m.report_id} value={`${m.well_id}|${m.report_date}`}>
-            {m.well_id} · {m.report_date} · {m.status}{m.status === '驳回' || m.status === '草稿' ? '（待办）' : ''}
+            {m.well_id} · {m.report_date} · {STATUS_LABEL[m.status] || m.status}{m.status === '驳回' || m.status === '草稿' ? '（待办）' : ''}
           </option>
         ))}
       </select>

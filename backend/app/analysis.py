@@ -3,7 +3,9 @@
 口径：总成本 = 固定成本 + 变动成本（变动成本含安全计提、科研计提、税金）；
 毛益额 = 形象收入 − 变动成本；净利润 = 形象收入 − 总成本。
 """
+import calendar
 import re
+from datetime import date
 
 from fastapi import HTTPException
 
@@ -43,30 +45,23 @@ def compute(conn, user: dict | None, well_id: str, period: str) -> dict:
         if it['parent_code']:
             children.setdefault(it['parent_code'], []).append(it['item_code'])
     by = {it['item_code']: it for it in items}
-    visible, total = {}, {}
+    total = {}
     for it in reversed(items):
         c = it['item_code']
-        if it['is_leaf']:
-            visible[c] = user is None or auth.item_visible(user, it)
-            total[c] = money(amt.get(c, 0)) if visible[c] else 0
-        else:
-            kids = [k for k in children.get(c, []) if visible.get(k)]
-            visible[c] = bool(kids)
-            total[c] = sum(total[k] for k in kids)
-    show_rev = user is None or user['role'] != 'dept'
+        total[c] = money(amt.get(c, 0)) if it['is_leaf'] else sum(total[k] for k in children.get(c, []))
     w = conn.execute('SELECT * FROM well WHERE well_id=?', (well_id,)).fetchone()
-    rev = total.get('R02', 0) if show_rev else 0
+    rev = total.get('R02', 0)
     fixed, vari = total.get('C1', 0), total.get('C2', 0)
     tree = [{
         'code': it['item_code'], 'name': it['item_name'], 'level': it['level'], 'is_leaf': bool(it['is_leaf']),
         'parent': it['parent_code'], 'dept': it['owner_dept'], 'calc_type': it['calc_type'], 'col': it['report_col'],
         'behavior': it['cost_behavior'], 'amount': total[it['item_code']], 'origins': origins.get(it['item_code'], []),
-    } for it in items if visible[it['item_code']] and it['direction'] == '成本']
+    } for it in items if it['direction'] == '成本']
     return {
         'tree': tree, 'by': by, 'total': total,
-        'kpi': {'revenue': rev, 'contract': (money(w['contract_amount']) if show_rev else 0), 'fixed': fixed, 'variable': vari,
+        'kpi': {'revenue': rev, 'contract': money(w['contract_amount']), 'fixed': fixed, 'variable': vari,
                 'total_cost': fixed + vari, 'gross_margin': rev - vari, 'net_profit': rev - fixed - vari},
-        'show_revenue': show_rev,
+        'show_revenue': True,
     }
 
 
@@ -84,6 +79,30 @@ def well_info(conn, well_id: str, period: str) -> dict:
 
 
 SUM_KEYS = ('revenue', 'fixed', 'variable', 'total_cost', 'gross_margin', 'net_profit')
+# 决策层运营指标：进尺、钻机台月、工况小时；非生产时间 = 待命 + 复杂情况
+OPS_KEYS = ('footage', 'cost_with_footage', 'rig_months', 'net_with_rig', 'cost_with_rig', 'hours_total', 'npt_hours')
+NPT_CONDITIONS = ('待命', '复杂情况')
+
+
+def _ops(conn, well_id: str, month: str) -> dict:
+    """某井某月的进尺（已审核日报）、钻机台月（施工时段天数 ÷ 当月天数，口径同费用导出）与工况小时。"""
+    footage = conn.execute("SELECT COALESCE(SUM(quantity), 0) q FROM business_fact WHERE well_id=? AND fact_type='进尺' "
+                           "AND status='已审核' AND substr(fact_date,1,7)=?", (well_id, month)).fetchone()['q']
+    y, mo = int(month[:4]), int(month[5:])
+    days_in = calendar.monthrange(y, mo)[1]
+    first, last = date(y, mo, 1), date(y, mo, days_in)
+    days = 0
+    for sg in conn.execute('SELECT start_at, end_at FROM team_well_period WHERE well_id=?', (well_id,)):
+        a = max(date.fromisoformat(sg['start_at'][:10]), first)
+        b = min(date.fromisoformat(sg['end_at'][:10]) if sg['end_at'] else last, last)
+        if a <= b:
+            days += (b - a).days + 1
+    hours: dict[str, float] = {}
+    for f in conn.execute("SELECT attributes, quantity FROM business_fact WHERE well_id=? AND fact_type='工况时间' AND status='已审核' "
+                          'AND substr(fact_date,1,7)=?', (well_id, month)):
+        k = jload(f['attributes']).get('work_condition') or '其他'
+        hours[k] = hours.get(k, 0) + f['quantity']
+    return {'footage': footage, 'rig_months': min(days, days_in) / days_in, 'hours': hours}
 
 
 def _months(conn, period: str) -> list[str]:
@@ -103,7 +122,16 @@ def _prev_period(conn, period: str) -> str | None:
 
 
 def _sum_wells(rows: list[dict]) -> dict:
-    return {k: sum(r[k] for r in rows) for k in SUM_KEYS}
+    out = {k: sum(r[k] for r in rows) for k in SUM_KEYS + OPS_KEYS}
+    by: dict[str, float] = {}
+    for r in rows:
+        for k, v in r['hours'].items():
+            by[k] = by.get(k, 0) + v
+    out['hours'] = by
+    out['well_count'] = len(rows)
+    out['loss_wells'] = sum(1 for r in rows if r['net_profit'] < 0)
+    out['loss_amount'] = sum(r['net_profit'] for r in rows if r['net_profit'] < 0)
+    return out
 
 
 def overview(conn, user: dict, period: str, with_extra: bool = True) -> dict:
@@ -124,13 +152,25 @@ def overview(conn, user: dict, period: str, with_extra: bool = True) -> dict:
                 info = well_info(conn, wid, m)
                 row = acc[wid] = {'well_id': wid, 'market': info['market'], 'block': info['block'], 'well_type': info['well_type'],
                                   'team': info['team'], 'phase': info['phase'], 'status': info['status'],
-                                  'remark': remark(conn, wid, m), 'last_period': m, **{x: 0 for x in SUM_KEYS}}
+                                  'remark': remark(conn, wid, m), 'last_period': m, **{x: 0 for x in SUM_KEYS + OPS_KEYS},
+                                  'hours': {}}
             else:
                 info = well_info(conn, wid, m)   # 全年累计时以最近一个月的队伍、开次、状态为准
                 row.update(team=info['team'], phase=info['phase'], status=info['status'], remark=remark(conn, wid, m), last_period=m)
             for x in ('revenue', 'fixed', 'variable', 'total_cost', 'net_profit'):
                 row[x] += k[x]
             row['gross_margin'] += k['gross_margin']
+            ops = _ops(conn, wid, m)
+            row['footage'] += ops['footage']
+            row['cost_with_footage'] += k['total_cost'] if ops['footage'] else 0   # 每米成本只算有进尺的井·月
+            row['rig_months'] += ops['rig_months']
+            row['net_with_rig'] += k['net_profit'] if ops['rig_months'] else 0      # 每台月利润只算有施工时段的井·月
+            row['cost_with_rig'] += k['total_cost'] if ops['rig_months'] else 0
+            for hk, hv in ops['hours'].items():
+                row['hours'][hk] = row['hours'].get(hk, 0) + hv
+                row['hours_total'] += hv
+                if hk in NPT_CONDITIONS:
+                    row['npt_hours'] += hv
             if with_extra:
                 for n in c['tree']:
                     if n['level'] == 2 and n['amount']:
@@ -141,7 +181,7 @@ def overview(conn, user: dict, period: str, with_extra: bool = True) -> dict:
         if r['remark'] == '历史数据井':
             r['status'] = '完井'   # 历史数据井默认为完成井
     out = {'period': period, 'months': months, 'wells': rows, 'sum': _sum_wells(rows),
-           'show_revenue': user['role'] != 'dept', 'scope': user['scope_label']}
+           'show_revenue': True, 'scope': user['scope_label']}
     if with_extra:
         prev = _prev_period(conn, period)
         out['prev'] = {'period': prev, 'sum': overview(conn, user, prev, False)['sum']} if prev else None
@@ -182,7 +222,7 @@ def remark(conn, well_id: str, period: str) -> str:
 def _check_item(conn, user: dict, well_id: str, code: str) -> dict:
     auth.check_well(conn, user, well_id)
     it = conn.execute('SELECT * FROM cost_item WHERE item_code=?', (code,)).fetchone()
-    if not it or not it['is_leaf'] or not auth.item_visible(user, dict(it)):
+    if not it or not it['is_leaf']:
         raise HTTPException(404, '费用项目不存在或不在数据范围内')
     return dict(it)
 
@@ -328,7 +368,7 @@ def export_rows(conn, well_id: str, period: str) -> list[dict]:
 # ---------- 经营对标 ----------
 
 DIMS = {'market': '市场', 'block': '区块', 'team': '队伍', 'well': '井'}
-SUM_KEYS = ('revenue', 'fixed', 'variable', 'total_cost', 'gross_margin', 'net_profit', 'footage', 'cost_with_footage')
+BM_KEYS = ('revenue', 'fixed', 'variable', 'total_cost', 'gross_margin', 'net_profit', 'footage', 'cost_with_footage')
 
 
 def _ratios(g: dict) -> dict:
@@ -346,7 +386,7 @@ def _aggregate(rows: list[dict], keys: dict) -> dict:
     g = {'keys': keys, 'well_count': len({r['well_id'] for r in rows}), 'well_months': len(rows),
          'items': [{k: r[k] for k in ('well_id', 'period', 'market', 'block', 'team', 'revenue', 'total_cost', 'gross_margin',
                                       'net_profit', 'footage', 'remark')} for r in rows],
-         **{k: sum(r[k] for r in rows) for k in SUM_KEYS}}
+         **{k: sum(r[k] for r in rows) for k in BM_KEYS}}
     return _ratios(g)
 
 

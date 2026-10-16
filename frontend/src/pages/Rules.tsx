@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api, type Condition, type RuleDetail, type RuleRow } from '../api';
+import { api, type Condition, type RuleDetail, type RuleImpact, type RuleRow } from '../api';
 import type { PageProps } from '../App';
-import { fmt, Icon, PageHead, Seg, useLoad, useToast, yuan } from '../ui';
+import { fmt, Icon, Modal, PageHead, Seg, useLoad, useToast, yuan } from '../ui';
 
 const STEPS = ['草稿', '待确认', '回算中', '待发布', '已发布'];
 type Filter = 'todo' | 'published' | 'all';
 const TODO = ['草稿', '待确认', '回算中', '待发布'];
 
-export default function Rules({ me }: PageProps) {
+export default function Rules(_: PageProps) {
   const toast = useToast();
-  const isDept = me.role === 'dept';
-  const [filter, setFilter] = useState<Filter>(isDept ? 'todo' : 'all');
+  const [filter, setFilter] = useState<Filter>('todo');
+  const [publishing, setPublishing] = useState(false);
+  const [rolling, setRolling] = useState(false);
   const list = useLoad(() => api.get<RuleRow[]>('/api/rules'), []);
   const shown = useMemo(() => (list.data || []).filter((r) =>
     filter === 'all' ? true : filter === 'todo' ? TODO.includes(r.status) : r.status === '已发布'), [list.data, filter]);
@@ -47,14 +48,20 @@ export default function Rules({ me }: PageProps) {
     const c = window.prompt('驳回意见');
     if (c !== null) act(() => api.post(`/api/rules/${id}/reject`, { comment: c }), () => '已驳回，退回草稿');
   };
-  const publish = () => act(() => api.post(`/api/rules/${id}/publish`), (r) =>
-    r.batch ? `已发布；重算批次 ${r.batch.created} 笔新增、${r.batch.reversed} 笔冲销` : '已发布');
+  const publish = (basis: string) => act(() => api.post(`/api/rules/${id}/publish`, { change_basis: basis }), (r) => {
+    setPublishing(false);
+    return r.batch ? `已发布；重算 ${r.batch.created} 笔新增、${r.batch.reversed} 笔冲销，金额变动 ${yuan(r.batch.amount_change)} 元` : '已发布';
+  });
+  const rollback = (reason: string) => act(() => api.post(`/api/rules/${id}/rollback`, { comment: reason }), (r) => {
+    setRolling(false);
+    return (r.restored ? `已回滚，恢复 v${r.restored}` : '已回滚，规则停用') + (r.batch ? `；重算金额变动 ${yuan(r.batch.amount_change)} 元` : '');
+  });
   const newVersion = () => act(() => api.post(`/api/rules/${id}/new-version`, {}), (r) => `已复制为 v${r.rule.version} 草稿，只改变化的参数`);
 
   const cur = d ? STEPS.indexOf(d.rule.status) : -1;
   return (
     <>
-      <PageHead title={isDept ? '规则确认' : '规则库'} sub={isDept ? '对照原文逐条确认 AI 提取的规则草稿' : '查看各部室规则的提取与确认状态；回算达标（待发布）的规则可由管理层审批发布'} />
+      <PageHead title="规则库" sub="按专业部室提供的变化依据维护：确认（冲突检查 + 回算）→ 影响预览 → 登记依据发布；发布后有误可一键回滚" />
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', alignItems: 'center' }}>
         <div className="steps">
           {STEPS.map((s, i) => (
@@ -117,6 +124,8 @@ export default function Rules({ me }: PageProps) {
                     </div>
                   ))}
                   <div className="field-row"><span className="muted" style={{ fontSize: 13 }}>生效日期</span><span>{d.rule.valid_from}{d.rule.valid_to ? ' 至 ' + d.rule.valid_to : ' 起'}</span><span /></div>
+                  <div className="field-row"><span className="muted" style={{ fontSize: 13 }}>依据提供</span><span>{d.owner_dept ? `${d.owner_dept}（归口部室）` : '—'}</span><span /></div>
+                  {d.change_basis && <div className="field-row"><span className="muted" style={{ fontSize: 13 }}>变化依据</span><span>{d.change_basis}</span><span /></div>}
                   {d.tests.length > 0 && (
                     <div style={{ paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
                       <div className="sec-label">回算测试</div>
@@ -128,17 +137,14 @@ export default function Rules({ me }: PageProps) {
                       ))}
                     </div>
                   )}
-                  {isDept || d.can_publish ? (
-                    <div className="btn-row" style={{ paddingTop: 14 }}>
-                      {d.can_reject && <button type="button" className="btn danger" disabled={busy} onClick={reject}>驳回</button>}
-                      {d.can_edit && <button type="button" className="btn" disabled={busy} onClick={() => setEdit(true)}>修改</button>}
-                      {d.can_confirm && <button type="button" className="btn primary" disabled={busy} onClick={confirm}>确认，进入回算</button>}
-                      {d.can_publish && <button type="button" className="btn primary" disabled={busy} onClick={publish}>审批发布</button>}
-                      {d.can_new_version && <button type="button" className="btn" disabled={busy} onClick={newVersion}>调价 · 新建版本</button>}
-                    </div>
-                  ) : (
-                    <div style={{ paddingTop: 14 }} className="hint">当前角色只读：规则由归口部室确认；回算达标后由部室负责人或管理层审批发布</div>
-                  )}
+                  <div className="btn-row" style={{ paddingTop: 14 }}>
+                    {d.can_reject && <button type="button" className="btn danger" disabled={busy} onClick={reject}>退回草稿</button>}
+                    {d.can_edit && <button type="button" className="btn" disabled={busy} onClick={() => setEdit(true)}>修改</button>}
+                    {d.can_confirm && <button type="button" className="btn primary" disabled={busy} onClick={confirm}>确认，进入回算</button>}
+                    {d.can_publish && <button type="button" className="btn primary" disabled={busy} onClick={() => setPublishing(true)}>影响预览并发布</button>}
+                    {d.can_new_version && <button type="button" className="btn" disabled={busy} onClick={newVersion}>调价 · 新建版本</button>}
+                    {d.can_rollback && <button type="button" className="btn danger" disabled={busy} onClick={() => setRolling(true)}>回滚</button>}
+                  </div>
                   {d.logs.length > 0 && (
                     <div style={{ paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
                       <div className="sec-label">处理记录</div>
@@ -151,7 +157,79 @@ export default function Rules({ me }: PageProps) {
           </div>
         )}
       </div>
+      {d && <PublishModal open={publishing} ruleId={d.rule.rule_id} busy={busy} onClose={() => setPublishing(false)} onPublish={publish} />}
+      {d && <RollbackModal open={rolling} d={d} busy={busy} onClose={() => setRolling(false)} onRollback={rollback} />}
     </>
+  );
+}
+
+/** 发布：先按发布试算一遍看影响（不落库），登记部室提供的变化依据后才能发布。 */
+function PublishModal({ open, ruleId, busy, onClose, onPublish }: { open: boolean; ruleId: number; busy: boolean; onClose: () => void; onPublish: (basis: string) => void }) {
+  const [imp, setImp] = useState<RuleImpact | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [basis, setBasis] = useState('');
+  useEffect(() => {
+    if (!open) return;
+    setImp(null);
+    setErr(null);
+    setBasis('');
+    api.post<RuleImpact>(`/api/rules/${ruleId}/impact`).then(setImp).catch((e: Error) => setErr(e.message));
+  }, [open, ruleId]);
+  return (
+    <Modal open={open} onClose={onClose} title="影响预览并发布" wide>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {err && <div className="notice">{err}</div>}
+        {!imp && !err && <div className="loading">试算中…</div>}
+        {imp && (
+          <>
+            <div className="stat-pair" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+              <div className="stat"><span>新增事项</span><b>{imp.created}</b></div>
+              <div className="stat"><span>冲销事项</span><b>{imp.reversed}</b></div>
+              <div className="stat"><span>金额变动（元）</span><b className={imp.amount_change < 0 ? 'neg' : ''}>{yuan(imp.amount_change)}</b></div>
+            </div>
+            {imp.wells.length === 0 ? <div className="msg">对已有井的金额没有影响（新规则只作用于今后的事实）</div> : (
+              <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+                <div className="sec-label">受影响的井 · {imp.well_count} 个井月{imp.well_count > imp.wells.length ? `（列出变化最大的 ${imp.wells.length} 个）` : ''}</div>
+                {imp.wells.map((w) => (
+                  <div key={w.well_id + w.period} className="kvline" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+                    <span className="bold">{w.well_id}</span><span className="muted num">{w.period}</span>
+                    <span className={'num r' + (w.delta < 0 ? ' neg' : '')}>{w.delta > 0 ? '+' : ''}{yuan(w.delta)} 元</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="hint" style={{ whiteSpace: 'normal' }}>以上为试算结果，尚未写入；发布后按此冲销重算，发现有误可在规则上“回滚”。</div>
+          </>
+        )}
+        <label className="field">变化依据 *（部室提供的文件、通知或会议纪要：文号 + 名称）
+          <input className="input" value={basis} onChange={(e) => setBasis(e.target.value)} placeholder="如：工程技术部〔2026〕12 号 定向服务价格调整通知" />
+        </label>
+        <div className="btn-row">
+          <button type="button" className="btn" onClick={onClose}>取消</button>
+          <button type="button" className="btn primary" disabled={busy || !imp || basis.trim().length < 4} onClick={() => onPublish(basis.trim())}>确认发布</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/** 回滚：本版本废止，上一版本恢复生效（没有则停用），受影响月份冲销重算。 */
+function RollbackModal({ open, d, busy, onClose, onRollback }: { open: boolean; d: RuleDetail; busy: boolean; onClose: () => void; onRollback: (reason: string) => void }) {
+  const [reason, setReason] = useState('');
+  useEffect(() => { if (open) setReason(''); }, [open]);
+  const prev = d.versions.filter((v) => v.version < d.rule.version && v.status === '已被替代').pop();
+  return (
+    <Modal open={open} onClose={onClose} title={`回滚 ${d.rule.rule_code} v${d.rule.version}`}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="notice">{prev ? `本版本将废止，v${prev.version}（单价 ${fmt(prev.unit_price, 4)}）恢复生效` : '没有上一版本，回滚后该规则停用'}；
+          自 {d.rule.valid_from.slice(0, 7)} 起已有事实按回滚后的规则冲销重算。</div>
+        <label className="field">回滚原因 *<input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="如：调价通知尚未生效" /></label>
+        <div className="btn-row">
+          <button type="button" className="btn" onClick={onClose}>取消</button>
+          <button type="button" className="btn danger" disabled={busy || !reason.trim()} onClick={() => onRollback(reason.trim())}>确认回滚</button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

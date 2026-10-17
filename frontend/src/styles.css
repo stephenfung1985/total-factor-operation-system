@@ -514,9 +514,3 @@ div.rank-row { cursor: default; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 @media (max-width: 760px) { .xstats { grid-template-columns: 1fr; } }
 .rank-wide .rank-row { grid-template-columns: minmax(120px, 170px) minmax(0, 1fr) 96px; }
-
-/* 排行基准线：同型钻机单井均值 */
-.rank-base { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--text); opacity: .55; }
-.rank-base.under { opacity: .85; }
-.rank-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--text2); }
-.base-swatch { display: inline-block; width: 2px; height: 12px; margin-right: 6px; vertical-align: -2px; border-radius: 1px; background: var(--text); opacity: .55; }

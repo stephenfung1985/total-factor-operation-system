@@ -3,7 +3,7 @@ import type { Overview as OV, OverviewWell } from '../api';
 import { fmt, wan } from '../ui';
 
 /**
- * 经营总览首屏（决策层）：利润瀑布、排行（队伍 / 区块 / 甲方 × 进尺 / 创收 / 创效，带同型钻机基准线，可下钻）。
+ * 经营总览首屏（决策层）：利润瀑布、排行（队伍 / 区块 / 甲方 × 进尺 / 创收 / 创效，可下钻）。
  * 视觉遵循 dataviz 规范：细柱（≤ 24px、数据端 4px 圆角、基线方角）、实线细网格、选择性直接标注、
  * 悬停提示（数值在前、名称在后）、每张图附屏幕阅读器可读的数据表；颜色只用强调蓝 + 中性灰，盈亏用状态色并配文字。
  */
@@ -154,7 +154,7 @@ function Waterfall({ data }: { data: OV }) {
   );
 }
 
-// ---------- ③ 排行：队伍 / 区块 / 甲方单位 × 进尺榜 / 创收榜 / 创效榜，带同型钻机基准线，可下钻到井 ----------
+// ---------- ③ 排行：队伍 / 区块 / 甲方单位 × 进尺榜 / 创收榜 / 创效榜，可下钻到井 ----------
 
 type Board = 'footage' | 'revenue' | 'net';
 type GroupBy = 'team' | 'block' | 'client';
@@ -164,26 +164,11 @@ const BOARDS: { id: Board; label: string; title: string; unit: string }[] = [
   { id: 'net', label: '创效榜', title: '净利润', unit: '万元' },
 ];
 const GROUPS: { id: GroupBy; label: string }[] = [{ id: 'team', label: '队伍' }, { id: 'block', label: '区块' }, { id: 'client', label: '甲方单位' }];
-const RIG_CLASSES = ['50 型', '70 型', '80 型以上'];
 const TOP = 10;
 const metric = (w: OverviewWell, b: Board) => (b === 'footage' ? w.footage : b === 'revenue' ? w.revenue : w.net_profit);
 const groupKey = (w: OverviewWell, g: GroupBy) => (g === 'team' ? w.team : g === 'block' ? w.block : w.client) || '—';
 
-interface Row { key: string; sub: string; value: number; base: number | null; wells: OverviewWell[]; well?: OverviewWell }
-
-/**
- * 基准线 = 同型钻机的单井平均水平（50 型、70 型、80 型以上分别统计本期各井的平均进尺 / 收入 / 净利润）。
- * 一组井的基准 = 组内每口井所属钻机档的单井均值之和：按“这些井若都打到同型钻机的平均水平”算，井数、钻机构成不同的组也能公平比较。
- * 钻机型号认不出档位的井不计入基准。
- */
-function classAverages(wells: OverviewWell[], b: Board): Record<string, { avg: number; n: number }> {
-  const out: Record<string, { avg: number; n: number }> = {};
-  for (const c of RIG_CLASSES) {
-    const ws = wells.filter((w) => w.rig_class === c);
-    if (ws.length) out[c] = { avg: ws.reduce((a, w) => a + metric(w, b), 0) / ws.length, n: ws.length };
-  }
-  return out;
-}
+interface Row { key: string; sub: string; value: number; wells: OverviewWell[]; well?: OverviewWell }
 
 function Rankings({ wells, open }: { wells: OverviewWell[]; open: (w: string, period?: string) => void }) {
   const [board, setBoard] = useState<Board>('net');
@@ -193,16 +178,11 @@ function Rankings({ wells, open }: { wells: OverviewWell[]; open: (w: string, pe
   const b = BOARDS.find((x) => x.id === board)!;
   const g = GROUPS.find((x) => x.id === group)!;
   const show = (v: number) => (board === 'footage' ? fmt(v, 0) : wan(v));
-  const avg = useMemo(() => classAverages(wells, board), [wells, board]);
-  const baseOf = (ws: OverviewWell[]) => {
-    const known = ws.filter((w) => w.rig_class && avg[w.rig_class]);
-    return known.length ? known.reduce((a, w) => a + avg[w.rig_class as string].avg, 0) : null;
-  };
   const rows: Row[] = useMemo(() => {
     if (drill) {
       return wells.filter((w) => groupKey(w, group) === drill)
         .map((w) => ({ key: w.well_id, sub: [w.rig_type && w.rig_type !== '—' ? w.rig_type : '', group === 'team' ? w.block : w.team].filter(Boolean).join(' · '),
-          value: metric(w, board), base: w.rig_class && avg[w.rig_class] ? avg[w.rig_class].avg : null, wells: [w], well: w }))
+          value: metric(w, board), wells: [w], well: w }))
         .sort((x, y) => y.value - x.value);
     }
     const by = new Map<string, OverviewWell[]>();
@@ -210,16 +190,15 @@ function Rankings({ wells, open }: { wells: OverviewWell[]; open: (w: string, pe
     return [...by.entries()].map(([k, ws]) => {
       const rigs = [...new Set(ws.map((w) => w.rig_class).filter(Boolean))];
       return { key: k, sub: `${ws.length} 口${group === 'team' && rigs.length === 1 ? ` · ${rigs[0]}` : ''}`,
-        value: ws.reduce((a, w) => a + metric(w, board), 0), base: baseOf(ws), wells: ws };
+        value: ws.reduce((a, w) => a + metric(w, board), 0), wells: ws };
     }).sort((x, y) => y.value - x.value);
-  }, [wells, group, board, drill, avg]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [wells, group, board, drill]);
   const top = rows.slice(0, drill ? 20 : TOP);
-  const vals = top.flatMap((r) => [r.value, r.base ?? 0]);
+  const vals = top.map((r) => r.value);
   const lo = Math.min(0, ...vals);
   const hi = Math.max(0, ...vals);
   const x = (v: number) => ((v - lo) / (hi - lo || 1)) * 100;
   const total = rows.reduce((a, r) => a + r.value, 0);
-  const below = rows.filter((r) => r.base !== null && r.value < r.base).length;
   const scope = drill ? `${g.label}：${drill}` : `按${g.label}`;
   return (
     <div className="card pad exec-card">
@@ -236,19 +215,14 @@ function Rankings({ wells, open }: { wells: OverviewWell[]; open: (w: string, pe
           </div>
         </div>
       </div>
-      <div className="rank-legend">
-        <span><i className="base-swatch" />基准：同型钻机单井均值</span>
-        {RIG_CLASSES.map((c) => <span key={c}>{c} {avg[c] ? `${show(avg[c].avg)} ${b.unit}（${avg[c].n} 口）` : '—'}</span>)}
-      </div>
-      <div className="small muted">{scope} · {drill ? `${rows.length} 口井` : `${rows.length} 个${g.label}`} · 合计 {show(total)} {b.unit}{below ? ` · ${below} ${drill ? '口' : '个'}低于基准` : ''}{drill ? ' · 点击井下钻到科目' : ' · 点击下钻到井'}</div>
+      <div className="small muted">{scope} · {drill ? `${rows.length} 口井` : `${rows.length} 个${g.label}`} · 合计 {show(total)} {b.unit}{drill ? ' · 点击井下钻到科目' : ' · 点击下钻到井'}</div>
       {rows.length === 0 ? <div className="empty">本期间没有数据</div> : (
         <div className="rank rank-wide">
           {top.map((r, i): ReactNode => {
             const neg = r.value < 0;
             const z = x(0);
             const v = x(r.value);
-            const under = r.base !== null && r.value < r.base;
-            const tip = `${r.key}：${b.title} ${show(r.value)} ${b.unit}${r.base !== null ? `，基准 ${show(r.base)} ${b.unit}（${under ? '低于' : '不低于'}基准）` : '，钻机型号未分档，无基准'}`;
+            const tip = `${r.key}：${b.title} ${show(r.value)} ${b.unit}`;
             return (
               <button key={r.key} type="button" className="rank-row pick" title={tip}
                 onClick={() => (r.well ? open(r.well.well_id, r.well.last_period) : setDrill(r.key))}>
@@ -256,7 +230,6 @@ function Rankings({ wells, open }: { wells: OverviewWell[]; open: (w: string, pe
                 <span className="rank-plot">
                   <span className="rank-bar" style={{ left: Math.min(z, v) + '%', width: Math.abs(v - z) + '%', background: neg ? 'var(--bad)' : board === 'net' ? 'var(--good)' : 'var(--accent)' }} />
                   {lo < 0 && hi > 0 && <span className="rank-zero" style={{ left: z + '%' }} />}
-                  {r.base !== null && <span className={'rank-base' + (under ? ' under' : '')} style={{ left: x(r.base) + '%' }} />}
                 </span>
                 <span className={'rank-val num' + (neg ? ' neg' : '')}>{show(r.value)}</span>
               </button>
@@ -265,8 +238,8 @@ function Rankings({ wells, open }: { wells: OverviewWell[]; open: (w: string, pe
           {rows.length > top.length && <div className="rank-gap">其余 {rows.length - top.length} {drill ? '口井见下方井列表' : `个${g.label}未列出`}</div>}
         </div>
       )}
-      <SrTable caption={`${scope}${b.label}`} head={['名次', drill ? '井号' : g.label, `${b.title}（${b.unit}）`, `基准（${b.unit}）`]}
-        rows={rows.map((r, i) => [i + 1, r.key, show(r.value), r.base === null ? '—' : show(r.base)])} />
+      <SrTable caption={`${scope}${b.label}`} head={['名次', drill ? '井号' : g.label, `${b.title}（${b.unit}）`]}
+        rows={rows.map((r, i) => [i + 1, r.key, show(r.value)])} />
     </div>
   );
 }

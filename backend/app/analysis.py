@@ -120,6 +120,18 @@ def _ops(conn, well_id: str, month: str) -> dict:
     return {'footage': footage, 'rig_months': min(days, days_in) / days_in, 'hours': hours}
 
 
+RIG_CLASSES = ('50 型', '70 型', '80 型以上')
+
+
+def rig_class(rig_type: str | None) -> str | None:
+    """钻机按型号数字分档：≤ 50（含 30、40 型）为 50 型，51–79 为 70 型，≥ 80 为 80 型以上；型号里没有数字的不分类。"""
+    m = re.search(r'(\d{2,3})', rig_type or '')
+    if not m:
+        return None
+    n = int(m.group(1))
+    return RIG_CLASSES[0] if n <= 50 else RIG_CLASSES[1] if n < 80 else RIG_CLASSES[2]
+
+
 def _months(conn, period: str) -> list[str]:
     """YYYY-MM 为单月；YYYY 为该年有数据的全部月份（升序）。"""
     if len(period) == 4 and period.isdigit():
@@ -166,12 +178,14 @@ def overview(conn, user: dict, period: str, with_extra: bool = True) -> dict:
             if row is None:
                 info = well_info(conn, wid, m)
                 row = acc[wid] = {'well_id': wid, 'market': info['market'], 'block': info['block'], 'well_type': info['well_type'],
-                                  'team': info['team'], 'phase': info['phase'], 'status': info['status'],
+                                  'team': info['team'], 'phase': info['phase'], 'status': info['status'], 'client': info['client'] or '',
+                                  'rig_type': info['rig_type'], 'rig_class': rig_class(info['rig_type']),
                                   'remark': remark(conn, wid, m), 'last_period': m, **{x: 0 for x in SUM_KEYS + OPS_KEYS},
                                   'hours': {}}
             else:
-                info = well_info(conn, wid, m)   # 全年累计时以最近一个月的队伍、开次、状态为准
-                row.update(team=info['team'], phase=info['phase'], status=info['status'], remark=remark(conn, wid, m), last_period=m)
+                info = well_info(conn, wid, m)   # 全年累计时以最近一个月的队伍、开次、状态、钻机为准
+                row.update(team=info['team'], phase=info['phase'], status=info['status'], remark=remark(conn, wid, m), last_period=m,
+                           rig_type=info['rig_type'], rig_class=rig_class(info['rig_type']))
             for x in ('revenue', 'fixed', 'variable', 'total_cost', 'net_profit'):
                 row[x] += k[x]
             row['gross_margin'] += k['gross_margin']

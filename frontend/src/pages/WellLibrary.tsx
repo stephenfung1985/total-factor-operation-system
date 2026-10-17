@@ -1,7 +1,6 @@
 import { Fragment, useState } from 'react';
 import { api } from '../api';
-import type { PageProps } from '../App';
-import { fmt, Icon, PageHead, useLoad } from '../ui';
+import { fmt, Icon, useLoad } from '../ui';
 
 interface Lib {
   columns: { key: string; label: string }[]; rows: Record<string, unknown>[]; role: string; scope: string; staff_visible: boolean;
@@ -83,14 +82,5 @@ export function WellLibrary({ refresh, onPick, collapsible = true }: { refresh?:
         </>
       )}
     </section>
-  );
-}
-
-export default function WellLibraryPage(_: PageProps) {
-  return (
-    <>
-      <PageHead title="基础信息库" sub="各队登记的单井基础信息；可见字段按角色权限裁剪" />
-      <WellLibrary collapsible={false} />
-    </>
   );
 }

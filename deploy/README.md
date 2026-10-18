@@ -54,7 +54,7 @@ deploy/install.sh        # 再运行一次：建 venv、构建前端、注册开
 3. 在「软件下载」里下载 **frpc（macOS arm64）**，放到 `~/tfos-data/frpc`，`chmod +x ~/tfos-data/frpc`。
 4. 在后台找到你的**访问密钥**和**隧道 ID**，执行：
    ```bash
-   deploy/install.sh frpc "访问密钥:隧道ID"
+   deploy/install.sh frpc "0cldtdie1jqdr27cjbt6psa5weciz4sx:29519245"
    ```
    frpc 会作为开机自启服务运行（配置文件权限 600，密钥不会进仓库）。日志：`~/tfos-data/logs/frpc.log`。
 5. 把第 2 步的地址发给外地同事。

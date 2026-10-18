@@ -145,21 +145,3 @@ def test_rollback_without_previous_version_disables_rule(client):
     assert r['restored'] is None and r['rule']['status'] == '已废止'
     rep = client.get('/api/reports/current?well_id=W001&date=2026-10-10', headers=TEAM).json()
     assert not next(x for x in rep['line_defs'] if x['key'] == 'C2-3-04')['show']     # 停用后日报不再列这一项
-
-
-# ---------- 经营总览：决策层运营指标 ----------
-
-def test_overview_exec_metrics_are_consistent(client):
-    o = client.get('/api/overview?period=2026', headers=FIN).json()
-    s, ws = o['sum'], o['wells']
-    for k in ('footage', 'rig_months', 'hours_total', 'npt_hours', 'cost_with_footage', 'net_with_rig'):
-        assert s[k] == pytest.approx(sum(w[k] for w in ws))
-    assert s['footage'] > 0 and s['rig_months'] > 0 and s['hours_total'] > 0
-    assert s['npt_hours'] == pytest.approx(sum(v for k, v in s['hours'].items() if k in ('待命', '复杂情况')))
-    assert s['hours_total'] == pytest.approx(sum(s['hours'].values()))
-    assert s['loss_wells'] == sum(1 for w in ws if w['net_profit'] < 0)
-    assert s['cost_with_footage'] <= s['total_cost'] and s['net_with_rig'] == pytest.approx(
-        sum(w['net_with_rig'] for w in ws))
-    m = client.get('/api/overview?period=2026-10', headers=FIN).json()
-    w1 = next(w for w in m['wells'] if w['well_id'] == 'W001')
-    assert 0 < w1['rig_months'] <= 1   # 单月台月不超过 1

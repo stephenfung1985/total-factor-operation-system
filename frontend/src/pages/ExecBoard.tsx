@@ -279,8 +279,8 @@ function Trend({ year }: { year: string }) {
         <h3>全年趋势<small>{year} 年 · 按月</small></h3>
         <span className="legend">{series.map((s) => <span key={s.k}><i style={{ background: s.color }} />{s.k}（{s.unit}）</span>)}</span>
       </div>
-      {!hasData ? <div className="empty">{data ? `${year} 年还没有月度数据` : '加载中…'}</div> : (
-        <div ref={ref} className="xchart" onMouseLeave={() => setHover(null)}>
+      <div ref={ref} className="xchart" onMouseLeave={() => setHover(null)}>
+        {!hasData ? <div className="empty">{data ? `${year} 年还没有月度数据` : '加载中…'}</div> : (<>
           <svg width={W} height={H} role="img" aria-label={`${year} 年按月进尺、创收、创效趋势`}>
             {tkL.map((t) => (
               <g key={t}>
@@ -289,7 +289,7 @@ function Trend({ year }: { year: string }) {
               </g>
             ))}
             {tkR.map((t) => <text key={t} x={W - P.r + 8} y={yR(t) + 4} className="xtick">{fmt(t, 0)}</text>)}
-            {months.map((m) => <text key={m} x={x(m)} y={H - 8} textAnchor="middle" className="xcat">{m}月</text>)}
+            {months.map((m) => <text key={m} x={x(m)} y={H - 8} textAnchor="middle" className="xcat">{band < 34 ? m : `${m}月`}</text>)}
             {series.map((s) => {
               const pts = months.filter((m) => byMonth.has(m)).map((m) => [x(m), ys(s, s.v(byMonth.get(m)!))] as const);
               return (
@@ -311,8 +311,8 @@ function Trend({ year }: { year: string }) {
               {series.map((s) => <span key={s.k}>{s.k} {s.show(s.v(byMonth.get(hover)!))} {s.unit}</span>)}
             </div>
           )}
-        </div>
-      )}
+        </>)}
+      </div>
       <SrTable caption={`${year} 年月度趋势`} head={['月份', '进尺（米）', '创收（万元）', '创效（万元）']}
         rows={months.filter((m) => byMonth.has(m)).map((m) => [`${m} 月`, ...series.map((s) => s.show(s.v(byMonth.get(m)!)))])} />
     </div>

@@ -17,7 +17,7 @@ from .db import jdump, jload, log, money, now
 
 STEPS = ['草稿', '待确认', '回算中', '待发布', '已发布']
 EDITABLE = ('草稿', '待确认')
-DIMENSIONS = ['市场', '区块', '甲方', '井别', '井型', '井深', '开次', '队伍', '钻机型号']
+DIMENSIONS = ['井号', '市场', '区块', '甲方', '井别', '井型', '井深', '开次', '队伍', '钻机型号']
 OPERATORS = ['等于', '属于', '大于', '小于']
 
 
@@ -65,8 +65,11 @@ def detail(conn, user: dict, rule_id: int) -> dict:
     for fr in params.get('factor_rules', []):
         cond_text += ('；' if cond_text else '') + f"{fr['dimension']} {fr['operator']} {fr['value']} 时系数 {fr['factor']}"
     price = f"{r['unit_price'] * 100:.2f}%" if r['pricing_method'] == '比例' else f"{r['unit_price']:,.4f} 元/{r['unit']}"
+    if engine.is_lump_sum(r):
+        price = f"合同总价 {r['unit_price']:,.0f} 元（÷ 设计井深折算米价，逐日按进尺确认，累计封顶为总价）"
+    method = r['pricing_method'] + (f" · {params['contract_mode']}" if params.get('contract_mode') else '')
     fields = [('科目', f"{r['item_code']} {r['item_name']}"), ('触发事实', r['fact_type'] or f"比例基数 {r['base_item_code']}"),
-              ('计价方式', r['pricing_method']), ('单价', price), ('适用条件', cond_text or '无（全部适用）'),
+              ('计价方式', method), ('单价', price), ('适用条件', cond_text or '无（全部适用）'),
               ('组合方式', r['combine_mode']), ('计算粒度', r['granularity'])]
     clause = None
     if r['clause_id']:

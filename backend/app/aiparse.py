@@ -24,6 +24,7 @@ PRICING = ['单价', '包干', '比例', '定额日费']
 COMBINE = ['互斥', '叠加']
 GRANULARITY = ['逐日', '按井累计', '按阶段', '按期间']
 BASE_FACTS = ['进尺', '日历天', '人员出勤', '工况时间']
+CONTRACT_MODES = ['单井总价', '总包', '日费', '米费']   # 形象收入的计价模式
 CATEGORICAL = {'市场': 'market', '区块': 'block', '甲方': 'client', '井别': 'well_category', '井型': 'well_type'}
 
 
@@ -59,6 +60,8 @@ def extract_text(name: str, data: bytes) -> tuple[str, int]:
                 if any(cells):
                     parts.append(' | '.join(cells))
         return '\n'.join(parts), 0
+    if ext == '.doc':
+        return _doc_text(data), 0
     if ext in ('.txt', '.md'):
         for enc in ('utf-8', 'gbk'):
             try:
@@ -66,7 +69,31 @@ def extract_text(name: str, data: bytes) -> tuple[str, int]:
             except UnicodeDecodeError:
                 continue
         raise HTTPException(422, '文本文件编码无法识别（请用 UTF-8 或 GBK）')
-    raise HTTPException(415, '第一期支持 PDF（文字版）、Word（.docx）、TXT；扫描件 OCR 在第三期')
+    raise HTTPException(415, '支持 PDF（文字版）、Word（.doc / .docx）、TXT；扫描件 OCR 在第三期')
+
+
+def _doc_text(data: bytes) -> str:
+    """旧版 Word（.doc，二进制格式）：用 macOS 自带的 textutil 转纯文本，其次 antiword；表格单元格转为制表符分隔。"""
+    import shutil
+    import subprocess
+    import tempfile
+    if not (data.startswith(bytes.fromhex('D0CF11E0A1B11AE1')) or data.lstrip().startswith(b'{\\rtf')):
+        raise HTTPException(422, '不是有效的 Word 文件（.doc）：请确认文件未损坏，或另存为 .docx 后上传')
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / 'in.doc'
+        src.write_bytes(data)
+        for cmd in (['textutil', '-convert', 'txt', '-encoding', 'UTF-8', '-stdout', str(src)], ['antiword', '-w', '0', str(src)]):
+            if not shutil.which(cmd[0]):
+                continue
+            try:
+                r = subprocess.run(cmd, capture_output=True, timeout=60)
+            except subprocess.TimeoutExpired as e:
+                raise HTTPException(422, 'Word 文件转换超时') from e
+            if r.returncode == 0:
+                lines = [ln.replace('\t', ' | ').strip() for ln in r.stdout.decode('utf-8', 'replace').splitlines()]
+                return '\n'.join(ln for ln in lines if ln)
+            raise HTTPException(422, 'Word 文件无法读取：可能已损坏或加密，请另存为 .docx 后上传')
+    raise HTTPException(415, '服务器缺少 .doc 转换工具（macOS 自带 textutil；Linux 请安装 antiword），可先另存为 .docx 上传')
 
 
 def upload(conn, name: str, data: bytes, meta: dict, user: dict) -> dict:
@@ -114,12 +141,13 @@ def vocab(conn) -> dict:
         'SELECT item_code, item_name, direction FROM cost_item WHERE is_leaf=1 ORDER BY sort_no')]
     lines = [dict(r) for r in conn.execute('SELECT line_key, label, unit, fact_type FROM report_line WHERE enabled=1 ORDER BY sort_no')]
     facts = sorted({ln['fact_type'] for ln in lines} | set(BASE_FACTS))
-    units = sorted({r['unit'] for r in conn.execute('SELECT unit FROM unit_of_measure')} | {ln['unit'] for ln in lines} | {'米', '队天', '天', '元'})
+    units = sorted({r['unit'] for r in conn.execute('SELECT unit FROM unit_of_measure')} | {ln['unit'] for ln in lines} | {'米', '队天', '天', '元', '井'})
     values = {dim: sorted({r[0] for r in conn.execute(f"SELECT DISTINCT {col} FROM well WHERE {col} IS NOT NULL AND {col}!=''")})
               for dim, col in CATEGORICAL.items()}
     values['开次'] = sorted({r[0] for r in conn.execute('SELECT DISTINCT phase FROM team_well_period')})
     values['队伍'] = sorted({r[0] for r in conn.execute('SELECT team_no FROM team')})
     values['钻机型号'] = sorted({r[0] for r in conn.execute('SELECT DISTINCT rig_type FROM team WHERE rig_type IS NOT NULL')})
+    values['井号'] = sorted({r[0] for r in conn.execute('SELECT well_id FROM well WHERE well_id NOT IN (SELECT well_id FROM well_deleted)')})
     return {'items': items, 'lines': lines, 'facts': facts, 'units': units, 'values': values}
 
 
@@ -132,6 +160,13 @@ SYSTEM_PROMPT = """你是钻井单井经营管控系统的规则解析助手。�
 4. 写不成“数量 × 单价 / 基数 × 比例”公式的条款（如“据实结算”“另行协商”“按发票”），放进 manual，不要硬凑规则。
 5. 金额单位为元，比例写成小数（3.1% 写 0.031）。日期写 YYYY-MM-DD。
 6. 只输出一个 JSON 对象，不要任何解释文字。
+7. 甲方合同（单井合同或框架合同）要识别形象收入（科目 R02）的计价模式，写在 contract_mode：
+   - 单井总价（单井固定总价）或 总包：pricing_method 写 包干，fact_type 写 进尺，unit 写 井，unit_price 写合同总价（元，万元要换算成元），
+     conditions 写 {"dimension": "井号", "operator": "等于", "value": 合同所指井号}；evidence 摘录写明总价的那一句。
+     系统按 总价 ÷ 设计井深 折算米价，逐日按进尺确认收入，累计封顶为总价，你不用折算。
+   - 日费：pricing_method 写 单价，fact_type 写 日历天，unit 写 天，unit_price 写日费单价；可用 开次 等条件区分不同日费。
+   - 米费：pricing_method 写 单价，fact_type 写 进尺，unit 写 米，unit_price 写每米单价；可用 井深 等条件分段。
+   其他科目的规则 contract_mode 写空字符串。
 
 输出格式：
 {
@@ -147,10 +182,11 @@ SYSTEM_PROMPT = """你是钻井单井经营管控系统的规则解析助手。�
           "fact_type": "触发事实；比例类写空字符串",
           "line": "报量项目编码；不限定具体报量项目时写空字符串",
           "pricing_method": "单价 | 包干 | 比例 | 定额日费",
+          "contract_mode": "单井总价 | 总包 | 日费 | 米费；不是形象收入写空字符串",
           "unit_price": 数字,
           "unit": "计价单位；比例类写 元",
           "base_item_code": "比例类的基数科目编码，其他写空字符串",
-          "conditions": [{"dimension": "市场|区块|甲方|井别|井型|井深|开次|队伍|钻机型号", "operator": "等于|属于|大于|小于", "value": "取值；属于用逗号分隔"}],
+          "conditions": [{"dimension": "井号|市场|区块|甲方|井别|井型|井深|开次|队伍|钻机型号", "operator": "等于|属于|大于|小于", "value": "取值；属于用逗号分隔"}],
           "combine_mode": "互斥 | 叠加",
           "granularity": "逐日 | 按井累计 | 按阶段 | 按期间",
           "valid_from": "生效日期，原文没写则空字符串",
@@ -263,6 +299,19 @@ def check_rule(r: dict, v: dict, text: str) -> tuple[dict | None, str | None]:
         if allowed and op in ('等于', '属于') and any(x.strip() not in map(str, allowed) for x in val.replace('，', ',').split(',')):
             levels['适用条件'] = '低'   # 取值在单井基础信息里没有，可能写错，也可能是新区块
         conds.append({'dimension': dim, 'operator': op, 'value': val})
+    mode = str(r.get('contract_mode') or '').strip()
+    if mode in CONTRACT_MODES:
+        params['contract_mode'] = mode
+        want = {'单井总价': ('包干', '进尺'), '总包': ('包干', '进尺'), '日费': ('单价', '日历天'), '米费': ('单价', '进尺')}[mode]
+        if (method, fact) != want:
+            levels['计价方式'] = '低'   # 计价模式与计价方式 / 触发事实对不上，确认时核对
+    elif mode:
+        levels['计价方式'] = '低'
+    if method == '包干' and fact == '进尺':
+        if not any(c['dimension'] == '井号' and c['operator'] == '等于' for c in conds):
+            levels['适用条件'] = '低'   # 单井总价必须限定到井，否则会套到所有井上
+        if not _amount_in(text[span[0]:span[1]], price):
+            levels['单价'] = '低'
     combine = r.get('combine_mode') if r.get('combine_mode') in COMBINE else '互斥'
     if r.get('combine_mode') not in COMBINE:
         levels['组合方式'] = '低'
@@ -282,6 +331,12 @@ def check_rule(r: dict, v: dict, text: str) -> tuple[dict | None, str | None]:
             'fact_type': fact, 'pricing_method': method, 'unit_price': price, 'unit': unit, 'base_item_code': base,
             'params': params, 'conditions': conds, 'combine_mode': combine, 'granularity': gran, 'valid_from': vf,
             'span': span, 'confidence': conf, 'levels': levels}, None
+
+
+def _amount_in(evidence: str, price: float) -> bool:
+    """合同总价能否在摘录里找到（元或万元写法均可），找不到时提示确认人核对金额。"""
+    nums = [float(x.replace(',', '')) for x in re.findall(r'\d[\d,]*(?:\.\d+)?', evidence)]
+    return any(abs(n - price) < 0.5 or abs(n * 1e4 - price) < 0.5 for n in nums)
 
 
 # ---------- 解析 ----------

@@ -1,5 +1,7 @@
 """AI 规则解析（第一期）：模型用替身，校验依据文件 → 草稿 → 现有确认流程。"""
 import json
+import shutil
+import subprocess
 from io import BytesIO
 
 import pytest
@@ -66,7 +68,8 @@ def test_not_configured_records_failed_task(client):
 def test_upload_rejects_duplicates_and_unsupported(client):
     assert upload(client).status_code == 200
     assert upload(client).status_code == 409                                          # 同一文件指纹
-    assert upload(client, name='x.doc', data=b'abc' * 20).status_code == 415
+    assert upload(client, name='x.xls', data=b'abc' * 20).status_code == 415
+    assert upload(client, name='x.doc', data=b'abc' * 20).status_code == 422                # 扩展名是 .doc 但不是 Word 文件
     assert upload(client, data=CONTRACT.encode(), doc_type='').status_code == 422
 
 
@@ -84,6 +87,19 @@ def test_docx_text_includes_tables():
     d.save(buf)
     text, _ = aiparse.extract_text('补充协议.docx', buf.getvalue())
     assert '价格调整' in text and '定向井服务 | 天 | 39000' in text
+
+
+@pytest.mark.skipif(not shutil.which('textutil') and not shutil.which('antiword'), reason='需要 textutil 或 antiword')
+def test_legacy_doc_text(client, tmp_path):
+    src = tmp_path / '补充协议.txt'
+    src.write_text('补充协议 第二条 价格调整\n定向井服务单价 39,000 元/天，自 2026-11-01 起执行。\n', encoding='utf-8')
+    if shutil.which('textutil'):
+        subprocess.run(['textutil', '-convert', 'doc', '-output', str(tmp_path / 'a.doc'), str(src)], check=True)
+    else:
+        pytest.skip('只有 antiword 时无法生成 .doc 样本')
+    r = upload(client, name='补充协议.doc', data=(tmp_path / 'a.doc').read_bytes())
+    assert r.status_code == 200, r.text
+    assert r.json()['chars'] > 20 and r.json()['file_name'] == '补充协议.doc'
 
 
 def test_parse_creates_checked_drafts(client, monkeypatch):
@@ -137,3 +153,42 @@ def test_evidence_matching_tolerates_pdf_line_breaks():
     text = '第五条 定向井服务按服务\n天数计价，单价 38,000\n元/天。'
     assert aiparse.find_span(text, '定向井服务按服务天数计价，单价 38,000 元/天') is not None
     assert aiparse.find_span(text, '单价 40,000 元/天') is None
+
+
+WELL_CONTRACT = """W001 井钻井工程施工合同
+第三条 合同价款：本井采用单井固定总价，合同总价 1,280 万元（含税），设计井深 5200 米。
+第四条 框架价格：其余井钻井按进尺 1,450 元/米结算。
+"""
+
+FAKE_MODES = {'clauses': [
+    {'clause_no': '第三条', 'rules': [{'name': 'W001 单井总价', 'item_code': 'R02', 'fact_type': '进尺', 'pricing_method': '包干',
+                                      'contract_mode': '单井总价', 'unit_price': 12800000, 'unit': '井',
+                                      'conditions': [{'dimension': '井号', 'operator': '等于', 'value': 'W001'}],
+                                      'evidence': '本井采用单井固定总价，合同总价 1,280 万元（含税）', 'confidence': 0.95}]},
+    {'clause_no': '第四条', 'rules': [{'name': '米费', 'item_code': 'R02', 'fact_type': '日历天', 'pricing_method': '单价',
+                                      'contract_mode': '米费', 'unit_price': 1450, 'unit': '米',
+                                      'evidence': '其余井钻井按进尺 1,450 元/米结算', 'confidence': 0.95}]},
+]}
+
+
+def test_parse_recognizes_contract_mode(client, monkeypatch):
+    from app import ai
+    seen = {}
+
+    def fake(messages):
+        seen['m'] = messages
+        return json.dumps(FAKE_MODES, ensure_ascii=False)
+    monkeypatch.setattr(ai, 'call_model', fake)
+    monkeypatch.setenv('TFOS_AI_BASE_URL', 'http://fake/v1')
+    monkeypatch.setenv('TFOS_AI_MODEL', 'fake-model')
+    doc = upload(client, name='W001合同.txt', data=WELL_CONTRACT.encode(), doc_type='甲方合同').json()
+    out = client.post(f"/api/ai/docs/{doc['doc_id']}/parse", headers=FIN).json()
+    assert '单井总价' in seen['m'][0]['content'] and 'W001' in seen['m'][1]['content']   # 计价模式说明与井号字典随提示词下发
+    lump, meter = out['created']
+    assert not {'单价', '适用条件', '计价方式'} & set(lump['low_fields'])   # 万元写法的总价能在原文找到；限定了井号
+    rule = client.get(f"/api/rules/{lump['rule_id']}", headers=FIN).json()
+    fields = {x['label']: x['value'] for x in rule['fields']}
+    assert rule['rule']['pricing_method'] == '包干' and rule['rule']['unit_price'] == 12800000
+    assert fields['计价方式'] == '包干 · 单井总价' and '合同总价 12,800,000 元' in fields['单价']
+    assert rule['params']['contract_mode'] == '单井总价'
+    assert '计价方式' in meter['low_fields']                # 米费却写成按日历天触发：标低，确认时核对

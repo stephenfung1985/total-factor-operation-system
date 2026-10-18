@@ -25,6 +25,7 @@ def well_context(conn, well_id: str, date: str, team_id: str | None = None, dept
         + ('AND p.team_id=? ' if team_id else '') + 'ORDER BY p.start_at DESC LIMIT 1',
         (well_id, date, date) + ((team_id,) if team_id else ())).fetchone()
     return {
+        '井号': well_id, '设计井深': w['design_depth'] or 0,
         '市场': w['market'], '区块': w['block'], '井别': w['well_category'], '井型': w['well_type'],
         '甲方': w['client'] or '',
         '开次': seg['phase'] if seg else '', '队伍': seg['team_no'] if seg else '',
@@ -71,37 +72,77 @@ def published_rules(conn, date: str, calc_orders: tuple) -> list[dict]:
     return [dict(r) for r in conn.execute(q, (date, date) + calc_orders)]
 
 
-def match_fact(conn, fact: dict, rules: list[dict]) -> list[tuple[dict, dict]]:
-    """返回命中的 (规则, 计算明细)。同一费用项目内：互斥取优先级最高的一条，叠加的全部生效。"""
+def match_fact(conn, fact: dict, rules: list[dict], used: dict | None = None) -> list[tuple[dict, dict]]:
+    """返回命中的 (规则, 计算明细)。同一费用项目内：互斥取优先级最高的一条，叠加的全部生效。
+
+    单井合同优先：某科目有带“井号”条件且适用于本井的规则时，同科目不带井号的规则（框架合同）对本井不生效，
+    避免单井总价与框架日费 / 米费重复确认收入。used 记录包干规则已确认的累计金额，供封顶（同一次重算内共享）。"""
     attrs = jload(fact['attributes'])
     ctx = well_context(conn, fact['well_id'], fact['fact_date'], fact['team_id'], attrs.get('depth_end'))
+    conds_of = {r['rule_id']: rule_conditions(conn, r['rule_id']) for r in rules}
+    applies = {r['rule_id']: all(cond_match(ctx, c['dimension'], c['operator'], c['value']) for c in conds_of[r['rule_id']]) for r in rules}
+    pinned = {r['item_code'] for r in rules if applies[r['rule_id']] and any(c['dimension'] == '井号' for c in conds_of[r['rule_id']])}
     by_item = defaultdict(list)
     for r in rules:
-        if r['fact_type'] != fact['fact_type']:
+        if r['fact_type'] != fact['fact_type'] or not applies[r['rule_id']]:
+            continue
+        conds = conds_of[r['rule_id']]
+        if r['item_code'] in pinned and not any(c['dimension'] == '井号' for c in conds):
             continue
         line = report_lines.rule_line(r)
         if line and report_lines.canon(attrs.get('line')) != line:
             continue   # 规则指定了报量项目时只取该项目的量；未指定（如伙食费）取该类事实全部
-        conds = rule_conditions(conn, r['rule_id'])
-        if all(cond_match(ctx, c['dimension'], c['operator'], c['value']) for c in conds):
-            by_item[r['item_code']].append((r, conds))
+        by_item[r['item_code']].append((r, conds))
     hits = []
     for item, cand in by_item.items():
         exclusive = [x for x in cand if x[0]['combine_mode'] == '互斥']
         chosen = exclusive[:1] + [x for x in cand if x[0]['combine_mode'] == '叠加']
         for r, conds in chosen:
             f, notes = factor_of(r, ctx)
+            snap = {'conditions': [f"{c['dimension']} {c['operator']} {c['value']}" for c in conds],
+                    'context': {k: ctx[k] for k in ('市场', '区块', '井型', '开次', '队伍')}, 'factor_notes': notes}
+            if is_lump_sum(r):
+                c = _lump_sum(conn, fact, r, ctx, f, used if used is not None else {})
+                if c is None:
+                    continue
+                snap.update(c.pop('snapshot'))
+                hits.append((r, {**c, 'snapshot': snap}))
+                continue
             amount = money(fact['quantity'] * r['unit_price'] * f)
-            hits.append((r, {
-                'quantity': fact['quantity'], 'unit_price': r['unit_price'], 'factor': f, 'amount': amount,
-                'snapshot': {
-                    'formula': f"{fmt_qty(fact['quantity'])} {fact['unit']} × {r['unit_price']:,.4f} 元/{r['unit']} × {f:.2f}",
-                    'conditions': [f"{c['dimension']} {c['operator']} {c['value']}" for c in conds],
-                    'context': {k: ctx[k] for k in ('市场', '区块', '井型', '开次', '队伍')},
-                    'factor_notes': notes,
-                },
-            }))
+            snap['formula'] = f"{fmt_qty(fact['quantity'])} {fact['unit']} × {r['unit_price']:,.4f} 元/{r['unit']} × {f:.2f}"
+            hits.append((r, {'quantity': fact['quantity'], 'unit_price': r['unit_price'], 'factor': f, 'amount': amount,
+                             'snapshot': snap}))
     return hits
+
+
+def is_lump_sum(rule: dict) -> bool:
+    """单井固定总价 / 总包：包干规则按进尺确认，unit_price 为合同总价。"""
+    return rule['pricing_method'] == '包干' and rule['fact_type'] == '进尺'
+
+
+def _lump_sum(conn, fact: dict, r: dict, ctx: dict, f: float, used: dict) -> dict | None:
+    """米价 = 合同总价 ÷ 设计井深；当日金额 = 进尺 × 米价 × 系数，累计封顶为合同总价（超深部分不再确认）。"""
+    depth = float(ctx.get('设计井深') or 0)
+    if depth <= 0:
+        return None   # 没有设计井深无法折算米价：不确认收入，规则详情与单井页可看到该井未计
+    total = r['unit_price']
+    key = (r['item_code'], fact['well_id'])
+    if key not in used:   # 单井合同覆盖整口井：以前月份本井该科目已确认的全部金额（含历史导入；不含本月，本月正在重算）
+        used[key] = conn.execute(
+            "SELECT COALESCE(SUM(amount), 0) FROM economic_event WHERE item_code=? AND well_id=? AND period<? AND status='有效'",
+            (r['item_code'], fact['well_id'], fact['fact_date'][:7])).fetchone()[0]
+    per_m = total / depth
+    raw = money(fact['quantity'] * per_m * f)
+    amount = money(max(0.0, min(raw, total - used[key])))
+    if amount <= 0 and raw > 0:
+        return None   # 已封顶
+    used[key] += amount
+    formula = (f"{fmt_qty(fact['quantity'])} 米 × {per_m:,.4f} 元/米（合同总价 {total:,.0f} 元 ÷ 设计井深 {fmt_qty(depth)} 米）"
+               + (f" × {f:.2f}" if f != 1 else ''))
+    if amount < raw:
+        formula += f"；累计封顶为合同总价，本次只确认 {amount:,.0f} 元"
+    return {'quantity': fact['quantity'], 'unit_price': round(per_m, 4), 'factor': f, 'amount': amount,
+            'snapshot': {'formula': formula, 'lump_sum': {'total': total, 'design_depth': depth, 'capped': amount < raw}}}
 
 
 def fmt_qty(q: float) -> str:
@@ -127,8 +168,9 @@ def _desired(conn, well_id: str, period: str) -> dict:
     facts = [dict(r) for r in conn.execute(
         "SELECT * FROM business_fact WHERE well_id=? AND substr(fact_date,1,7)=? AND status='已审核' AND scenario='实际' "
         'ORDER BY fact_date, fact_id', (well_id, period))]
+    used: dict = {}   # 包干规则累计已确认金额（按日期顺序累加，用于封顶）
     for fact in facts:
-        for r, c in match_fact(conn, fact, published_rules(conn, fact['fact_date'], (1, 2))):
+        for r, c in match_fact(conn, fact, published_rules(conn, fact['fact_date'], (1, 2)), used):
             if r['item_code'] in imported:
                 continue
             it = item[r['item_code']]
@@ -262,8 +304,9 @@ def backtest(conn, rule_id: int, threshold: float = 0.05) -> dict:
         if not facts:
             continue
         calc_amt = 0
-        for f in facts:
-            for r, c in match_fact(conn, f, [rule]):
+        used: dict = {}
+        for f in sorted(facts, key=lambda x: (x['fact_date'], x['fact_id'])):
+            for r, c in match_fact(conn, f, [rule], used):
                 calc_amt += c['amount']
         dev = (calc_amt - s['amt']) / s['amt'] if s['amt'] else (0.0 if calc_amt == 0 else 1.0)
         res = '通过' if abs(dev) <= threshold else '不通过'

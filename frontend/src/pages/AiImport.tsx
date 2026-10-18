@@ -128,7 +128,7 @@ export default function AiImport({ open, onClose, onDone, onPick }: { open: bool
                 <button type="button" className="btn" onClick={() => fileRef.current?.click()} title={files.map((x) => x.name).join('\n')}>
                   {files.length === 0 ? '选择文件' : multi ? `已选 ${files.length} 份` : files[0].name}
                 </button>
-                <input ref={fileRef} type="file" accept=".pdf,.docx,.txt" multiple hidden onChange={(e) => { if (e.target.files?.length) chooseFiles([...e.target.files]); e.target.value = ''; }} />
+                <input ref={fileRef} type="file" accept=".pdf,.doc,.docx,.txt" multiple hidden onChange={(e) => { if (e.target.files?.length) chooseFiles([...e.target.files]); e.target.value = ''; }} />
               </div>
               <label className="field">文件类型 *
                 <select className="input" value={f.doc_type} onChange={(e) => setF({ ...f, doc_type: e.target.value })}>

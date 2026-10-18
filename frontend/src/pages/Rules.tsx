@@ -240,6 +240,7 @@ function RollbackModal({ open, d, busy, onClose, onRollback }: { open: boolean; 
 function RuleEditor({ d, onCancel, onSaved }: { d: RuleDetail; onCancel: () => void; onSaved: (r: RuleDetail) => void }) {
   const toast = useToast();
   const ratio = d.rule.pricing_method === '比例';
+  const lump = d.rule.pricing_method === '包干' && d.rule.fact_type === '进尺';   // 单井总价 / 总包：按设计井深折算米价
   const [price, setPrice] = useState(String(ratio ? d.rule.unit_price * 100 : d.rule.unit_price));
   const [conds, setConds] = useState<Condition[]>(d.conditions);
   const [combine, setCombine] = useState(d.rule.combine_mode);
@@ -260,7 +261,7 @@ function RuleEditor({ d, onCancel, onSaved }: { d: RuleDetail; onCancel: () => v
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-        <label className="field">{ratio ? '比例（%）' : `单价（元/${d.rule.unit}）`}<input className="input" type="number" value={price} onChange={(e) => setPrice(e.target.value)} /></label>
+        <label className="field">{ratio ? '比例（%）' : lump ? '合同总价（元）' : `单价（元/${d.rule.unit}）`}<input className="input" type="number" value={price} onChange={(e) => setPrice(e.target.value)} /></label>
         <label className="field">生效日期<input className="input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
         <label className="field">组合方式<select className="input" value={combine} onChange={(e) => setCombine(e.target.value)}><option>互斥</option><option>叠加</option></select></label>
         <label className="field">计算粒度<select className="input" value={gran} onChange={(e) => setGran(e.target.value)}>{['逐日', '按井', '按阶段', '按期间'].map((g) => <option key={g}>{g}</option>)}</select></label>

@@ -13,12 +13,12 @@ const EV_COLS = '1fr 0.9fr 1fr 0.6fr 1.1fr 1.2fr 1.5fr 24px';
 function delta(cur: number, prev: number | undefined, kind: 'amt' | 'rate', better: 'high' | 'low', label: string): KpiItem['delta'] {
   if (prev === undefined || (kind === 'amt' && prev === 0)) return undefined;
   const d = cur - prev;
-  const text = kind === 'rate' ? `${label} ${d >= 0 ? '+' : ''}${(d * 100).toFixed(1)} pp` : `${label} ${d >= 0 ? '+' : ''}${((d / Math.abs(prev)) * 100).toFixed(1)}%`;
+  const text = kind === 'rate' ? `${label}${d >= 0 ? '增加' : '减少'} ${Math.abs(d * 100).toFixed(1)} 个百分点` : `${label} ${d >= 0 ? '+' : ''}${((d / Math.abs(prev)) * 100).toFixed(1)}%`;
   if (Math.abs(d) < 1e-9) return { text, tone: 'flat' };
   return { text, tone: (d > 0) === (better === 'high') ? 'good' : 'bad' };
 }
 
-/** 首屏指标卡：规模（井数、进尺）→ 收入与毛益（形象收入、毛益额、毛益率）→ 利润（净利润、利润率、百元收入营业成本）。 */
+/** 首屏指标卡：规模（井数、进尺）→ 收入与成本（形象收入、百元收入营业成本）→ 毛益（毛益额、毛益率）→ 利润（净利润、利润率）。 */
 function execKpis(s: OverviewSum, prev: OverviewSum | undefined, label: string): KpiItem[] {
   const gm = s.revenue - s.variable;
   const net = s.revenue - s.total_cost;
@@ -35,11 +35,11 @@ function execKpis(s: OverviewSum, prev: OverviewSum | undefined, label: string):
       delta: wellDelta === undefined ? undefined : { text: `${label} ${wellDelta > 0 ? '+' : ''}${wellDelta} 口`, tone: wellDelta === 0 ? 'flat' : wellDelta > 0 ? 'good' : 'bad' } },
     { label: '进尺', value: fmt(s.footage, 0), unit: '米', delta: opt(s.footage, prev?.footage, 'amt', 'high') },
     { label: '形象收入', value: wan(s.revenue), unit: '万元', delta: opt(s.revenue, prev?.revenue, 'amt', 'high') },
+    { label: '百元收入营业成本', value: c100 === undefined ? '—' : fmt(c100, 0), unit: '元', delta: opt(c100, prev && per100(prev), 'amt', 'low') },
     { label: '毛益额', value: wan(gm), unit: '万元', delta: opt(gm, pgm, 'amt', 'high') },
     { label: '毛益率', value: pct(gm, s.revenue), unit: '%', delta: opt(ratio(gm, s.revenue), ratio(pgm, prev?.revenue), 'rate', 'high') },
     { label: '净利润', value: wan(net), unit: '万元', delta: opt(net, pnet, 'amt', 'high') },
     { label: '利润率', value: pct(net, s.revenue), unit: '%', delta: opt(ratio(net, s.revenue), ratio(pnet, prev?.revenue), 'rate', 'high') },
-    { label: '百元收入营业成本', value: c100 === undefined ? '—' : fmt(c100, 0), unit: '元', delta: opt(c100, prev && per100(prev), 'amt', 'low') },
   ];
 }
 

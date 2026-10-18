@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { Overview as OV, OverviewWell } from '../api';
-import { fmt, wan } from '../ui';
+import { api, type Overview as OV, type OverviewWell, type OverviewSum } from '../api';
+import { fmt, useLoad, wan } from '../ui';
 
 /**
  * 经营总览首屏（决策层）：利润瀑布、排行（队伍 / 区块 / 甲方 × 进尺 / 创收 / 创效，可下钻）。
@@ -73,6 +73,7 @@ export default function ExecBoard({ data, open }: { data: OV; open: (w: string, 
     <section className="exec" aria-label="决策层经营概览">
       <Waterfall data={data} />
       <Rankings wells={data.wells} open={open} />
+      <Trend year={data.period.slice(0, 4)} />
     </section>
   );
 }
@@ -240,6 +241,80 @@ function Rankings({ wells, open }: { wells: OverviewWell[]; open: (w: string, pe
       )}
       <SrTable caption={`${scope}${b.label}`} head={['名次', drill ? '井号' : g.label, `${b.title}（${b.unit}）`]}
         rows={rows.map((r, i) => [i + 1, r.key, show(r.value)])} />
+    </div>
+  );
+}
+
+// ---------- ④ 全年月度趋势：进尺 / 创收 / 创效 ----------
+
+type TrendRow = OverviewSum & { period: string };
+
+function Trend({ year }: { year: string }) {
+  const { data } = useLoad(() => api.get<TrendRow[]>('/api/overview/trend'), []);
+  const [ref, W] = useWidth();
+  const [hover, setHover] = useState<number | null>(null);
+  const byMonth = new Map((data || []).filter((r) => r.period.startsWith(year + '-')).map((r) => [Number(r.period.slice(5)), r]));
+  const months = Array.from({ length: 12 }, (_, i) => i + 1);
+  const series = [
+    { k: '进尺', unit: '米', color: 'var(--chart-neutral)', right: true, v: (r: TrendRow) => r.footage, show: (v: number) => fmt(v, 0) },
+    { k: '创收', unit: '万元', color: 'var(--accent)', right: false, v: (r: TrendRow) => r.revenue, show: wan },
+    { k: '创效', unit: '万元', color: 'var(--good)', right: false, v: (r: TrendRow) => r.revenue - r.total_cost, show: wan },
+  ];
+  const H = 280;
+  const P = { l: 56, r: 56, t: 16, b: 30 };
+  const left = series.filter((s) => !s.right).flatMap((s) => [...byMonth.values()].map(s.v));
+  const right = series.filter((s) => s.right).flatMap((s) => [...byMonth.values()].map(s.v));
+  const tkL = ticks(Math.min(0, ...left), Math.max(0, ...left));
+  const tkR = ticks(Math.min(0, ...right), Math.max(0, ...right), tkL.length - 1);
+  const loL = tkL[0], hiL = tkL[tkL.length - 1], loR = tkR[0], hiR = tkR[tkR.length - 1];
+  const yL = (v: number) => P.t + ((hiL - v) / (hiL - loL || 1)) * (H - P.t - P.b);
+  const yR = (v: number) => P.t + ((hiR - v) / (hiR - loR || 1)) * (H - P.t - P.b);
+  const band = (W - P.l - P.r) / 12;
+  const x = (m: number) => P.l + band * (m - 0.5);
+  const ys = (s: typeof series[number], v: number) => (s.right ? yR(v) : yL(v));
+  const hasData = byMonth.size > 0;
+  return (
+    <div className="card pad exec-card" style={{ gridColumn: '1 / -1' }}>
+      <div className="sec-head">
+        <h3>全年趋势<small>{year} 年 · 按月</small></h3>
+        <span className="legend">{series.map((s) => <span key={s.k}><i style={{ background: s.color }} />{s.k}（{s.unit}）</span>)}</span>
+      </div>
+      {!hasData ? <div className="empty">{data ? `${year} 年还没有月度数据` : '加载中…'}</div> : (
+        <div ref={ref} className="xchart" onMouseLeave={() => setHover(null)}>
+          <svg width={W} height={H} role="img" aria-label={`${year} 年按月进尺、创收、创效趋势`}>
+            {tkL.map((t) => (
+              <g key={t}>
+                <line x1={P.l} x2={W - P.r} y1={yL(t)} y2={yL(t)} className={t === 0 ? 'xbase' : 'xgrid'} />
+                <text x={P.l - 8} y={yL(t) + 4} textAnchor="end" className="xtick">{wan(t).replace(/\.00$/, '')}</text>
+              </g>
+            ))}
+            {tkR.map((t) => <text key={t} x={W - P.r + 8} y={yR(t) + 4} className="xtick">{fmt(t, 0)}</text>)}
+            {months.map((m) => <text key={m} x={x(m)} y={H - 8} textAnchor="middle" className="xcat">{m}月</text>)}
+            {series.map((s) => {
+              const pts = months.filter((m) => byMonth.has(m)).map((m) => [x(m), ys(s, s.v(byMonth.get(m)!))] as const);
+              return (
+                <g key={s.k}>
+                  <polyline points={pts.map((p) => p.join(',')).join(' ')} fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+                  {pts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r={3} fill={s.color} />)}
+                </g>
+              );
+            })}
+            {hover !== null && byMonth.has(hover) && <line x1={x(hover)} x2={x(hover)} y1={P.t} y2={H - P.b} className="xgrid" />}
+            {months.map((m) => (
+              <rect key={m} x={P.l + band * (m - 1)} y={P.t} width={band} height={H - P.t - P.b} fill="transparent" tabIndex={byMonth.has(m) ? 0 : -1}
+                onMouseMove={() => setHover(m)} onFocus={() => setHover(m)} onBlur={() => setHover(null)} />
+            ))}
+          </svg>
+          {hover !== null && byMonth.has(hover) && (
+            <div className="xtip" style={{ left: Math.min(Math.max(x(hover), 90), W - 90), top: P.t + 70 }} role="status">
+              <b>{year} 年 {hover} 月</b>
+              {series.map((s) => <span key={s.k}>{s.k} {s.show(s.v(byMonth.get(hover)!))} {s.unit}</span>)}
+            </div>
+          )}
+        </div>
+      )}
+      <SrTable caption={`${year} 年月度趋势`} head={['月份', '进尺（米）', '创收（万元）', '创效（万元）']}
+        rows={months.filter((m) => byMonth.has(m)).map((m) => [`${m} 月`, ...series.map((s) => s.show(s.v(byMonth.get(m)!)))])} />
     </div>
   );
 }

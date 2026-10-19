@@ -91,6 +91,7 @@ NEW_COLUMNS = [
     ('source_doc', 'valid_from', 'TEXT'),
     ('source_doc', 'uploaded_by', 'TEXT'),
     ('source_doc', 'uploaded_at', 'TEXT'),
+    ('material', 'enabled', 'INTEGER NOT NULL DEFAULT 1'),   # 主数据维护：物资停用
 ]
 
 

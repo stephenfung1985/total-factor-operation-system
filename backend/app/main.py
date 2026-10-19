@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import accounts, ai, aiparse, allocation, analysis, auth, costdetail, engine, excel, reports, results_import, rules, wellinfo
+from . import accounts, ai, aiparse, allocation, analysis, auth, costdetail, engine, excel, master, reports, results_import, rules, wellinfo
 from .db import init_db, log, rows, transaction
 
 def docs_kwargs() -> dict:
@@ -829,7 +829,7 @@ async def info_import(commit: bool = False, file: UploadFile = File(...), user=U
 # ---------- 主数据 ----------
 
 @app.get('/api/master/{kind}')
-def master(kind: str, user=User):
+def master_list(kind: str, user=User):
     q = {
         'items': 'SELECT item_code, item_name, parent_code, level, is_leaf, direction, cost_behavior, calc_type, owner_dept, '
                  'report_col, finance_account FROM cost_item ORDER BY sort_no',
@@ -843,6 +843,82 @@ def master(kind: str, user=User):
         raise HTTPException(404, '未知主数据类别')
     with transaction() as c:
         return rows(c.execute(q))
+
+
+class TeamBody(BaseModel):
+    name: str | None = None
+    rig_type: str | None = None
+    unit: str | None = None
+    captain: str | None = None
+
+
+class MaterialBody(BaseModel):
+    material_code: str | None = None   # 只在新增时使用
+    name: str | None = None
+    unit: str | None = None
+    item_code: str | None = None
+    enabled: bool | None = None
+
+
+class UnitBody(BaseModel):
+    unit: str | None = None            # 只在新增时使用
+    usage: str | None = None
+
+
+class LineBody(BaseModel):
+    label: str | None = None
+    unit: str | None = None
+    enabled: bool | None = None
+    needs_doc: bool | None = None
+    sort_no: int | None = None
+
+
+def _master_write(fn, *args, user):
+    """主数据写操作：仅管理端；只提交请求里实际给出的字段。"""
+    auth.require(user, 'finance')
+    with transaction() as c:
+        return fn(c, *args, user['who'])
+
+
+@app.put('/api/master/teams/{team_id}')
+def master_team(team_id: str, body: TeamBody, user=User):
+    return _master_write(master.update_team, team_id, body.model_dump(exclude_unset=True), user=user)
+
+
+@app.post('/api/master/materials')
+def master_material_new(body: MaterialBody, user=User):
+    return _master_write(master.create_material, body.model_dump(exclude_unset=True), user=user)
+
+
+@app.put('/api/master/materials/{code}')
+def master_material(code: str, body: MaterialBody, user=User):
+    return _master_write(master.update_material, code, body.model_dump(exclude_unset=True, exclude={'material_code'}), user=user)
+
+
+@app.post('/api/master/units')
+def master_unit_new(body: UnitBody, user=User):
+    return _master_write(master.create_unit, body.model_dump(exclude_unset=True), user=user)
+
+
+@app.put('/api/master/units/{unit}')
+def master_unit(unit: str, body: UnitBody, user=User):
+    return _master_write(master.update_unit, unit, body.model_dump(exclude_unset=True, exclude={'unit'}), user=user)
+
+
+@app.put('/api/master/report_lines/{key}')
+def master_line(key: str, body: LineBody, user=User):
+    return _master_write(master.update_line, key, body.model_dump(exclude_unset=True), user=user)
+
+
+@app.delete('/api/master/report_lines/{key}')
+def master_line_delete(key: str, user=User):
+    return _master_write(master.delete_line, key, user=user)
+
+
+@app.put('/api/master/items/{code}')
+def master_item(code: str, body: dict, user=User):
+    """费用科目只开放说明字段；请求里带编码、层级、方向、成本性态等字段时整单拒绝。"""
+    return _master_write(master.update_item, code, body, user=user)
 
 
 # ---------- 角色与权限 ----------

@@ -84,7 +84,8 @@ CREATE TABLE IF NOT EXISTS material (
   material_code TEXT PRIMARY KEY,
   name          TEXT NOT NULL,
   unit          TEXT NOT NULL,
-  item_code     TEXT REFERENCES cost_item(item_code)
+  item_code     TEXT REFERENCES cost_item(item_code),
+  enabled       INTEGER NOT NULL DEFAULT 1   -- 停用后不再选用，历史引用保留
 );
 
 CREATE TABLE IF NOT EXISTS unit_of_measure (

@@ -273,6 +273,7 @@ export interface BenchGroup {
   revenue: number; fixed: number; variable: number; total_cost: number; gross_margin: number; net_profit: number;
   footage: number; cost_with_footage: number;
   gm_rate: number | null; net_rate: number | null; avg_cost: number; avg_net: number; avg_revenue: number; cost_per_m: number | null;
+  group_count?: number;   // 仅 scope / total：分组个数
   items: { well_id: string; period: string; market: string; block: string; team: string; revenue: number; total_cost: number;
     gross_margin: number; net_profit: number; footage: number; remark: string }[];
 }
@@ -280,6 +281,7 @@ export interface Benchmark {
   period: string; selected: string[]; periods: string[]; period_options: { value: string; wells: number }[]; dims: string[]; dim_labels: Record<string, string>;
   filters: Record<'market' | 'block' | 'team' | 'well', string[]>; options: Record<'market' | 'block' | 'team' | 'well', { value: string; wells: number }[]>;
   filtered: boolean; groups: BenchGroup[]; scope: BenchGroup; total: BenchGroup;
+  rank: Record<string, number[]>;   // 各排名指标的分组下标顺序
 }
 
 // ---------- 单井经营结果模板导入 ----------

@@ -419,6 +419,19 @@ def _aggregate(rows: list[dict], keys: dict) -> dict:
     return _ratios(g)
 
 
+# 排名指标与方向：True 为越高越好。合计类（进尺、收入、毛益额、净利润）按分组合计排名，率类按分组合计后再求率；
+# 口径同 compute：毛益额 = 形象收入 − 变动成本，毛益率 = 毛益额 ÷ 形象收入，净利润 = 形象收入 − 总成本（固定 + 变动）。
+RANK_METRICS = {'net_rate': True, 'footage': True, 'revenue': True, 'gross_margin': True, 'gm_rate': True, 'net_profit': True,
+                'avg_net': True, 'avg_revenue': True, 'avg_cost': False, 'cost_per_m': False}
+
+
+def ranking(groups: list[dict], metric: str) -> list[int]:
+    """按指标排名，返回分组下标；没有该指标值（如没有收入时的率、没有进尺时的单位进尺成本）的分组不参与排名。"""
+    high = RANK_METRICS[metric]
+    idx = [i for i, g in enumerate(groups) if g[metric] is not None]
+    return sorted(idx, key=lambda i: -groups[i][metric] if high else groups[i][metric])
+
+
 def benchmark(conn, period: str | list[str], dims: list[str], filters: dict[str, list[str]] | None = None) -> dict:
     """经营对标。
     period：可多选的期间，元素为 YYYY-MM（单月）、YYYY（整年）或 all；多个期间取并集，空或 all 表示全部期间。
@@ -464,8 +477,12 @@ def benchmark(conn, period: str | list[str], dims: list[str], filters: dict[str,
     for row in scoped:
         buckets.setdefault(tuple(row[d] for d in dims), []).append(row)
     groups = [_aggregate(rs, dict(zip(dims, key))) for key, rs in buckets.items()]
+    scope, total = _aggregate(scoped, {}), _aggregate(rows, {})
+    # 分组个数：合计类指标以“全部井 / 所选范围”为基准时，前端取每组平均值作比较
+    scope['group_count'], total['group_count'] = len(groups), len({tuple(r[d] for d in dims) for r in rows})
     return {'period': 'all' if not sel else ','.join(sel), 'selected': periods, 'periods': periods_all, 'period_options': period_options, 'dims': dims, 'dim_labels': DIMS, 'filters': filters, 'options': options,
-            'filtered': any(filters.values()), 'groups': groups, 'scope': _aggregate(scoped, {}), 'total': _aggregate(rows, {})}
+            'filtered': any(filters.values()), 'groups': groups, 'scope': scope, 'total': total,
+            'rank': {m: ranking(groups, m) for m in RANK_METRICS}}
 
 
 def delete_well(conn, well_id: str, user: dict) -> dict:

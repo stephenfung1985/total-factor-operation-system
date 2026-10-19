@@ -303,3 +303,28 @@ def test_benchmark_multiple_periods(client):
     assert [o['value'] for o in both['period_options']] == ['2026-08', '2026-10'] and both['period_options'][0]['wells'] == 4
     # 不存在的期间：没有对象，不报错
     assert client.get('/api/benchmark?period=1999-01&dims=team', headers=FIN).json()['groups'] == []
+
+
+def test_benchmark_rank_metrics(client):
+    r = client.get('/api/benchmark?period=2026-08&dims=team', headers=FIN).json()
+    gs = r['groups']
+    for g in gs:   # 口径：毛益额 = 收入 − 变动成本，毛益率 = 毛益额 ÷ 收入，净利润 = 收入 − 固定 − 变动
+        assert g['gross_margin'] == pytest.approx(g['revenue'] - g['variable'])
+        assert g['net_profit'] == pytest.approx(g['revenue'] - g['fixed'] - g['variable'])
+        assert g['gm_rate'] == pytest.approx(g['gross_margin'] / g['revenue'])
+        assert g['footage'] == pytest.approx(sum(i['footage'] for i in g['items']))
+    for m in ('net_rate', 'footage', 'revenue', 'gross_margin', 'gm_rate', 'net_profit'):
+        vals = [gs[i][m] for i in r['rank'][m]]
+        assert sorted(r['rank'][m]) == list(range(len(gs))) and vals == sorted(vals, reverse=True)
+    vals = [gs[i]['cost_per_m'] for i in r['rank']['cost_per_m']]
+    assert vals == sorted(vals)
+    assert r['total']['group_count'] == 4 and r['scope']['group_count'] == 4
+    f = client.get('/api/benchmark?period=2026-08&dims=team&block=B区块', headers=FIN).json()
+    assert f['scope']['group_count'] == 2 and f['total']['group_count'] == 4
+
+
+def test_ranking_skips_missing_values():
+    from app.analysis import ranking
+    gs = [{'gm_rate': 0.1, 'cost_per_m': None}, {'gm_rate': None, 'cost_per_m': 300}, {'gm_rate': 0.3, 'cost_per_m': 200}]
+    assert ranking(gs, 'gm_rate') == [2, 0]
+    assert ranking(gs, 'cost_per_m') == [2, 1]

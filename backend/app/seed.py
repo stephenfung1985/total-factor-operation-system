@@ -40,7 +40,7 @@ def run_empty(conn) -> None:
     """对外服务模式的空库：只写成本项目树、物资和计量单位，不含示例井、队伍、规则、历史金额和日报。"""
     td = json.loads(DATA.read_text(encoding='utf-8'))
     _cost_items(conn, td['tree'])
-    conn.executemany('INSERT INTO material VALUES (?,?,?,?)', MATERIALS)
+    conn.executemany('INSERT INTO material (material_code, name, unit, item_code) VALUES (?,?,?,?)', MATERIALS)
     conn.executemany('INSERT INTO unit_of_measure VALUES (?,?)', UNITS)
 
 
@@ -65,7 +65,7 @@ def run(conn) -> None:
     seed_well_info(conn)
 
     _cost_items(conn, tree)
-    conn.executemany('INSERT INTO material VALUES (?,?,?,?)', MATERIALS)
+    conn.executemany('INSERT INTO material (material_code, name, unit, item_code) VALUES (?,?,?,?)', MATERIALS)
     conn.executemany('INSERT INTO unit_of_measure VALUES (?,?)', UNITS)
 
     _rules(conn)

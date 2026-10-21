@@ -614,6 +614,7 @@ def ai_tasks(user=User):
 # ---------- 费用分摊（企划财务部） ----------
 
 class PoolBody(BaseModel):
+    year: str | None = None               # 归属年份，空 = 当年
     item_code: str = ''
     amount: float | None = None          # 上年发生总额
     prev_rig_months: float | None = None  # 上年实际钻机台月

@@ -3,7 +3,7 @@ import { api } from '../api';
 import type { PageProps } from '../App';
 import { Drawer, fmt, PageHead, useLoad, useToast, yuan } from '../ui';
 
-interface Opts { items: { item_code: string; item_name: string; owner_dept: string }[]; scopes: string[]; year: string; ref_rig_months: Record<string, number> }
+interface Opts { items: { item_code: string; item_name: string; owner_dept: string }[]; scopes: string[]; years: string[]; year: string; ref_rig_months: Record<string, Record<string, number>> }
 interface Pool {
   pool_id: number; period: string; item_code: string; item_name: string; scope_team_id: string | null; team_no: string | null;
   scope_market: string | null; prev_rig_months: number | null;
@@ -23,24 +23,28 @@ export default function Allocation(_: PageProps) {
   const toast = useToast();
   const opts = useLoad(() => api.get<Opts>('/api/allocation/options'), []);
   const pools = useLoad(() => api.get<Pool[]>('/api/allocation/pools'), []);
-  const [f, setF] = useState({ item_code: '', scope_market: '', amount: '', prev_rig_months: '', note: '' });
+  const [f, setF] = useState({ year: '', item_code: '', scope_market: '', amount: '', prev_rig_months: '', note: '' });
   const [pv, setPv] = useState<Preview | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
   const detail = useLoad(() => (open === null ? Promise.resolve(null) : api.get<PoolDetail>(`/api/allocation/pools/${open}`)), [open]);
 
+  useEffect(() => {
+    if (opts.data && !f.year) setF((x) => ({ ...x, year: opts.data!.year }));
+  }, [opts.data, f.year]);
+
   const num = (v: string) => (v === '' ? null : Number(v));
   const body = () => ({ ...f, amount: num(f.amount), prev_rig_months: num(f.prev_rig_months), scope_market: f.scope_market || null, note: f.note || null });
   useEffect(() => {
     setPv(null);
     setErr(null);
-    if (!f.item_code || !(Number(f.amount) > 0) || !(Number(f.prev_rig_months) > 0)) return;
+    if (!f.year || !f.item_code || !(Number(f.amount) > 0) || !(Number(f.prev_rig_months) > 0)) return;
     let alive = true;
     api.post<Preview>('/api/allocation/preview', body()).then((r) => alive && setPv(r)).catch((e: Error) => alive && setErr(e.message));
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [f.item_code, f.amount, f.prev_rig_months, f.scope_market]);
+  }, [f.year, f.item_code, f.amount, f.prev_rig_months, f.scope_market]);
 
   const submit = async () => {
     setBusy(true);
@@ -69,13 +73,19 @@ export default function Allocation(_: PageProps) {
 
   const o = opts.data;
   const d = detail.data && detail.data.pool_id === open ? detail.data : null;
-  const ref = o?.ref_rig_months[f.scope_market];
+  const prevY = f.year ? `（${Number(f.year) - 1}）` : '';
+  const ref = o?.ref_rig_months[f.year]?.[f.scope_market];
   const depts = [...new Set(o?.items.map((i) => i.owner_dept || '其他'))];
   return (
     <>
-      <PageHead title="费用分摊" sub={`分摊标准 = 上年该科目发生总额 ÷ 上年实际钻机台月；${o?.year ?? '本'} 年度沿用上年标准，按各井每月钻机台月分到队、到井，取代同科目规则计算`} />
+      <PageHead title="费用分摊" sub={`分摊标准 = 上年该科目发生总额 ÷ 上年实际钻机台月；归属年份沿用其上一年标准，按各井每月钻机台月分到队、到井，取代同科目规则计算`} />
       <section className="card" style={{ padding: 16 }}>
         <div className="form-grid">
+          <label className="field">归属年份
+            <select className="input" value={f.year} onChange={(e) => setF({ ...f, year: e.target.value, prev_rig_months: '' })}>
+              {o?.years.map((y) => <option key={y} value={y}>{y} 年</option>)}
+            </select>
+          </label>
           <label className="field">科目
             <select className="input" value={f.item_code} onChange={(e) => setF({ ...f, item_code: e.target.value })}>
               <option value="">请选择科目</option>
@@ -92,14 +102,14 @@ export default function Allocation(_: PageProps) {
               {o?.scopes.map((m) => <option key={m} value={m}>{m}</option>)}
             </select>
           </label>
-          <label className="field">上年发生总额（元）
+          <label className="field">上年{prevY}发生总额（元）
             <input className="input" inputMode="decimal" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} />
           </label>
-          <label className="field">上年实际钻机台月
+          <label className="field">上年{prevY}实际钻机台月
             <input className="input" inputMode="decimal" value={f.prev_rig_months} onChange={(e) => setF({ ...f, prev_rig_months: e.target.value })}
               placeholder={ref ? `参考 ${fmt(ref, 2)}` : ''} />
             {ref !== undefined && (
-              <span className="small muted" style={{ whiteSpace: 'nowrap' }} title="按施工时段自动算出的上年实际钻机台月，仅供参考">
+              <span className="small muted" style={{ whiteSpace: 'nowrap' }} title={`按施工时段自动算出的 ${Number(f.year) - 1} 年实际钻机台月，仅供参考`}>
                 参考 {fmt(ref, 2)} 台月
                 {ref > 0 && String(ref) !== f.prev_rig_months && (
                   <> · <a href="#" onClick={(e) => { e.preventDefault(); setF({ ...f, prev_rig_months: String(ref) }); }}>填入</a></>
@@ -136,7 +146,7 @@ export default function Allocation(_: PageProps) {
         <div className="scroll-x">
           <div style={{ minWidth: 860 }}>
             <div className="grid-row grid-head" style={{ gridTemplateColumns: COLS }}>
-              <span>费用池</span><span>年度</span><span>科目</span><span>范围</span><span>标准</span><span className="r">上年台月</span><span className="r">上年发生总额（元）</span><span>状态</span><span>录入</span>
+              <span>费用池</span><span>归属年份</span><span>科目</span><span>范围</span><span>标准</span><span className="r">上年台月</span><span className="r">上年发生总额（元）</span><span>状态</span><span>录入</span>
             </div>
             {pools.data?.length === 0 && <div className="empty">还没有费用池</div>}
             {pools.data?.map((p) => (

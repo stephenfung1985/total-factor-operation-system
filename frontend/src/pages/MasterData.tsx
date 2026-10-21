@@ -23,8 +23,8 @@ export default function MasterData(_: PageProps) {
   const refs = useLoad(() => Promise.all([api.get<Row[]>('/api/master/units'), api.get<Row[]>('/api/master/items')]), []);
   const unitRows = refs.data?.[0] ?? [];
   const units = unitRows.map((u) => String(u.unit));
-  const items = refs.data?.[1] ?? [];
-  const leafOptions = [{ v: '', label: '未关联' }, ...items.filter((i) => i.is_leaf).map((i) => ({ v: String(i.item_code), label: `${i.item_code} ${i.item_name}` }))];
+  const items = (refs.data?.[1] ?? []).filter((i) => i.is_leaf);
+  const leafOptions = [{ v: '', label: '未关联' }, ...items.map((i) => ({ v: String(i.item_code), label: `${i.item_code} ${i.item_name}` }))];
 
   const act = async (fn: () => Promise<unknown>, ok: string) => {
     try {
@@ -100,14 +100,16 @@ export default function MasterData(_: PageProps) {
               {data?.map((r) => {
                 const group = !r.is_leaf;
                 return (
-                  <div key={r.item_code as string} className="grid-row line" role="button" tabIndex={0} title="编辑说明字段"
-                    onClick={() => editItem(r)} onKeyDown={(e) => e.key === 'Enter' && editItem(r)}
+                  <div key={r.item_code as string} className={'grid-row' + (group ? '' : ' line')} {...(group ? {} : {
+                    role: 'button', tabIndex: 0, title: '编辑说明字段', onClick: () => editItem(r), onKeyDown: (e: { key: string }) => e.key === 'Enter' && editItem(r) })}
                     style={{ gridTemplateColumns: ITEM_COLS, minHeight: group ? 44 : 40, background: group && Number(r.level) <= 2 ? 'var(--fill)' : undefined, fontWeight: group ? 600 : 400 }}>
                     <span className="muted num" style={{ fontWeight: 400 }}>{r.item_code}</span>
                     <span style={{ paddingLeft: (Number(r.level) - 1) * 16 }} title={String(r.item_name)}>{r.item_name}</span>
                     <span>{r.direction}</span><span>{r.cost_behavior || '—'}</span>
-                    <span className="text3" style={{ fontWeight: 400 }}>{r.calc_type || ''}</span><span style={{ fontWeight: 400 }}>{r.owner_dept || ''}</span>
-                    <span className="muted" style={{ fontWeight: 400 }}>{r.report_col || ''}</span><span className="muted" style={{ fontWeight: 400 }}>{r.finance_account || ''}</span>
+                    {group ? <><span /><span /><span /><span /></> : <>   {/* 归属只在末级科目上显示和维护 */}
+                      <span className="text3">{r.calc_type || ''}</span><span>{r.owner_dept || ''}</span>
+                      <span className="muted">{r.report_col || ''}</span><span className="muted">{r.finance_account || ''}</span>
+                    </>}
                   </div>
                 );
               })}

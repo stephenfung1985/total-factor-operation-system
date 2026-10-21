@@ -60,6 +60,13 @@ def _leaf_item(conn, code: str | None) -> None:
         raise HTTPException(422, f'费用科目 {code} 不存在或不是末级科目')
 
 
+def _ensure_unit(conn, unit: str | None, usage: str, operator: str) -> None:
+    """物资、报量项目在下拉里新增的计量单位，保存时登记到计量单位表，之后各处下拉都能选到。"""
+    if unit and not conn.execute('SELECT 1 FROM unit_of_measure WHERE unit=?', (unit,)).fetchone():
+        conn.execute('INSERT INTO unit_of_measure (unit, usage) VALUES (?,?)', (unit, usage))
+        log(conn, '主数据', f'计量单位:{unit}', '新增', operator, usage)
+
+
 def _one(conn, sql: str, key, what: str) -> dict:
     r = conn.execute(sql, (key,)).fetchone()
     if not r:
@@ -90,6 +97,7 @@ def create_material(conn, body: dict, operator: str) -> dict:
     if conn.execute('SELECT 1 FROM material WHERE material_code=?', (code,)).fetchone():
         raise HTTPException(409, f'物资编码 {code} 已存在')
     _leaf_item(conn, f.get('item_code'))
+    _ensure_unit(conn, f['unit'], f['name'], operator)
     conn.execute('INSERT INTO material (material_code, name, unit, item_code, enabled) VALUES (?,?,?,?,1)',
                  (code, f['name'], f['unit'], f.get('item_code')))
     log(conn, '主数据', f'物资:{code}', '新增', operator, f"{f['name']} · {f['unit']} · {f.get('item_code') or '未关联科目'}")
@@ -101,6 +109,7 @@ def update_material(conn, code: str, body: dict, operator: str) -> dict:
     changes = _pick(body, MATERIAL_FIELDS)
     _require(changes, 'name', 'unit')
     _leaf_item(conn, changes.get('item_code'))
+    _ensure_unit(conn, changes.get('unit'), changes.get('name') or old['name'], operator)
     return _update(conn, 'material', 'material_code', code, old, changes, 'materials', operator)
 
 
@@ -142,6 +151,7 @@ def update_line(conn, key: str, body: dict, operator: str) -> dict:
     _require(changes, 'label', 'unit', 'sort_no')
     if 'sort_no' in changes:
         changes['sort_no'] = int(changes['sort_no'])
+    _ensure_unit(conn, changes.get('unit'), changes.get('label') or old['label'], operator)
     return _update(conn, 'report_line', 'line_key', key, old, changes, 'report_lines', operator)
 
 

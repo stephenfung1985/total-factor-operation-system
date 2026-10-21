@@ -1,15 +1,15 @@
 import { useState, type ReactNode } from 'react';
 import { api } from '../api';
 import type { PageProps } from '../App';
-import { Modal, PageHead, Seg, useLoad, useToast } from '../ui';
+import { Combo, Modal, PageHead, Seg, useLoad, useToast } from '../ui';
 
 type Tab = 'items' | 'report_lines' | 'teams' | 'materials' | 'units';
 const SEC: Record<string, string> = { energy: '能耗与材料', equip: '设备与工具在用', service: '外包技术服务', logistics: '运输与环保' };
 type Row = Record<string, string | number | null>;
 const ITEM_COLS = '1.1fr 2fr 0.6fr 0.6fr 1.1fr 0.8fr 0.6fr 0.9fr';
 
-/** 编辑弹窗的字段：text 文本（可带候选 list）、select 下拉、bool 勾选、number 数字。 */
-interface Field { k: string; label: string; kind?: 'text' | 'select' | 'bool' | 'number'; options?: { v: string; label: string }[]; list?: string[]; hint?: string }
+/** 编辑弹窗的字段：text 文本（带 list 时为可新增的下拉，取值来自已有数据）、select 固定下拉、bool 勾选、number 数字。 */
+interface Field { k: string; label: string; kind?: 'text' | 'select' | 'bool' | 'number'; options?: { v: string; label: string }[]; list?: string[]; required?: boolean; hint?: string }
 interface Edit { title: string; method: 'post' | 'put'; url: string; fields: Field[]; init: Row; note?: string }
 
 const enc = encodeURIComponent;
@@ -21,7 +21,8 @@ export default function MasterData(_: PageProps) {
   const [edit, setEdit] = useState<Edit | null>(null);
   const { data, reload } = useLoad(() => api.get<Row[]>(`/api/master/${tab}`), [tab]);
   const refs = useLoad(() => Promise.all([api.get<Row[]>('/api/master/units'), api.get<Row[]>('/api/master/items')]), []);
-  const units = (refs.data?.[0] ?? []).map((u) => String(u.unit));
+  const unitRows = refs.data?.[0] ?? [];
+  const units = unitRows.map((u) => String(u.unit));
   const items = refs.data?.[1] ?? [];
   const leafOptions = [{ v: '', label: '未关联' }, ...items.filter((i) => i.is_leaf).map((i) => ({ v: String(i.item_code), label: `${i.item_code} ${i.item_name}` }))];
 
@@ -41,25 +42,26 @@ export default function MasterData(_: PageProps) {
     fields: [
       { k: 'owner_dept', label: '归口部室', list: uniq(items.map((i) => i.owner_dept)) },
       { k: 'calc_type', label: '计价类型', list: uniq(items.map((i) => i.calc_type)) },
-      { k: 'report_col', label: '总表列' },
-      { k: 'finance_account', label: '会计科目' },
+      { k: 'report_col', label: '总表列', list: uniq(items.map((i) => i.report_col)) },
+      { k: 'finance_account', label: '会计科目', list: uniq(items.map((i) => i.finance_account)) },
     ],
   });
   const editLine = (r: Row) => setEdit({
     title: `报量项目 · ${r.line_key}`, method: 'put', url: `/api/master/report_lines/${enc(String(r.line_key))}`, init: r,
     note: '停用后日报不再显示，已填数据和业务事实保留',
     fields: [
-      { k: 'label', label: '名称' }, { k: 'unit', label: '单位', list: units }, { k: 'sort_no', label: '排序', kind: 'number', hint: '段内按数字从小到大' },
+      { k: 'label', label: '名称' }, { k: 'unit', label: '单位', list: units, required: true }, { k: 'sort_no', label: '排序', kind: 'number', hint: '段内按数字从小到大' },
       { k: 'needs_doc', label: '须填签证单', kind: 'bool' }, { k: 'enabled', label: '启用', kind: 'bool' },
     ],
   });
   const editTeam = (r: Row) => setEdit({
     title: `队伍 · ${r.team_no}`, method: 'put', url: `/api/master/teams/${enc(String(r.team_id))}`, init: r,
     note: '队号不可改；改队名后该队账号的数据范围同步更新',
-    fields: [{ k: 'name', label: '队伍名称' }, { k: 'rig_type', label: '钻机型号' }, { k: 'unit', label: '所属单位' }, { k: 'captain', label: '队长' }],
+    fields: [{ k: 'name', label: '队伍名称' }, { k: 'rig_type', label: '钻机型号', list: uniq(data?.map((t) => t.rig_type) ?? []) },
+      { k: 'unit', label: '所属单位', list: uniq(data?.map((t) => t.unit) ?? []) }, { k: 'captain', label: '队长' }],
   });
   const materialFields: Field[] = [
-    { k: 'name', label: '名称' }, { k: 'unit', label: '计量单位', list: units },
+    { k: 'name', label: '名称' }, { k: 'unit', label: '计量单位', list: units, required: true },
     { k: 'item_code', label: '对应费用科目', kind: 'select', options: leafOptions },
   ];
   const editMaterial = (r: Row | null) => setEdit(r
@@ -67,9 +69,9 @@ export default function MasterData(_: PageProps) {
     : { title: '新增物资', method: 'post', url: '/api/master/materials', init: { material_code: '', name: '', unit: '', item_code: '' },
         note: '物资编码引用物资系统编码，新增后不可修改', fields: [{ k: 'material_code', label: '物资编码' }, ...materialFields] });
   const editUnit = (r: Row | null) => setEdit(r
-    ? { title: `计量单位 · ${r.unit}`, method: 'put', url: `/api/master/units/${enc(String(r.unit))}`, init: r, fields: [{ k: 'usage', label: '用于' }],
+    ? { title: `计量单位 · ${r.unit}`, method: 'put', url: `/api/master/units/${enc(String(r.unit))}`, init: r, fields: [{ k: 'usage', label: '用于', list: uniq(unitRows.map((u) => u.usage)), required: true }],
         note: '单位名称被物资、报量项目、规则引用，只能改用途说明' }
-    : { title: '新增计量单位', method: 'post', url: '/api/master/units', init: { unit: '', usage: '' }, fields: [{ k: 'unit', label: '计量单位' }, { k: 'usage', label: '用于' }] });
+    : { title: '新增计量单位', method: 'post', url: '/api/master/units', init: { unit: '', usage: '' }, fields: [{ k: 'unit', label: '计量单位' }, { k: 'usage', label: '用于', list: uniq(unitRows.map((u) => u.usage)), required: true }] });
 
   const toggleLine = (r: Row) => act(() => api.put(`/api/master/report_lines/${enc(String(r.line_key))}`, { enabled: !r.enabled }), r.enabled ? `已停用 ${r.label}` : `已启用 ${r.label}`);
   const deleteLine = (r: Row) => {
@@ -214,9 +216,10 @@ function EditModal({ edit, onClose, onDone }: { edit: Edit | null; onClose: () =
               ? <select className="input" value={String(f[d.k] ?? '')} onChange={(e) => setF({ ...f, [d.k]: e.target.value })}>
                   {d.options?.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
                 </select>
-              : <input className="input" type={d.kind === 'number' ? 'number' : 'text'} value={String(f[d.k] ?? '')} list={d.list ? `dl-${d.k}` : undefined}
-                  placeholder={d.hint} onChange={(e) => setF({ ...f, [d.k]: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && dirty && submit()} />}
-            {d.list && <datalist id={`dl-${d.k}`}>{d.list.map((x) => <option key={x} value={x} />)}</datalist>}
+              : d.list
+                ? <Combo value={String(f[d.k] ?? '')} options={d.list} allowEmpty={!d.required} onChange={(v) => setF({ ...f, [d.k]: v })} onEnter={() => dirty && submit()} />
+                : <input className="input" type={d.kind === 'number' ? 'number' : 'text'} value={String(f[d.k] ?? '')}
+                    placeholder={d.hint} onChange={(e) => setF({ ...f, [d.k]: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && dirty && submit()} />}
           </label>
         ))}
       </div>

@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 // ---------- 数字格式 ----------
 
@@ -208,6 +209,79 @@ export function PeriodPicker({ value, periods, onChange, allowYear }: { value: s
         {allowYear && <option value="all">全年</option>}
         {months.map((m) => <option key={m} value={m}>{Number(m)} 月</option>)}
       </select>
+    </div>
+  );
+}
+
+// ---------- 下拉选择（可新增） ----------
+
+/** 从已有取值里下拉选择；输入可筛选，输入的值不在列表里时可“新增”。没选中也没新增就离开，恢复原值。 */
+export function Combo({ value, options, onChange, onEnter, allowEmpty = true }: {
+  value: string; options: string[]; onChange: (v: string) => void; onEnter?: () => void; allowEmpty?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const [hi, setHi] = useState(0);
+  const [added, setAdded] = useState<string[]>([]);
+  const [box, setBox] = useState<DOMRect | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const all = [...new Set([...options, ...added, ...(value ? [value] : [])])];
+  const t = q.trim();
+  const rows: { v: string; label: string; add?: boolean }[] = t
+    ? [...all.filter((x) => x.toLowerCase().includes(t.toLowerCase())).map((v) => ({ v, label: v })), ...(all.includes(t) ? [] : [{ v: t, label: `新增“${t}”`, add: true }])]
+    : [...(allowEmpty && value ? [{ v: '', label: '不填' }] : []), ...all.map((v) => ({ v, label: v }))];
+  useEffect(() => {
+    list.current?.querySelector<HTMLElement>(`[data-i="${hi}"]`)?.scrollIntoView({ block: 'nearest' });
+  }, [hi, open]);
+  const show = () => {
+    if (open) return;
+    setBox(input.current?.getBoundingClientRect() ?? null);
+    setQ('');
+    setHi(Math.max(0, all.indexOf(value) + (allowEmpty && value ? 1 : 0)));
+    setOpen(true);
+  };
+  const close = () => { setOpen(false); setQ(''); };
+  const pick = (r: { v: string; add?: boolean }) => {
+    if (r.add) setAdded([...added, r.v]);
+    onChange(r.v);
+    close();
+  };
+  const key = (e: ReactKeyboardEvent) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!open) return show();
+      setHi((h) => Math.min(rows.length - 1, Math.max(0, h + (e.key === 'ArrowDown' ? 1 : -1))));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (open && rows[hi]) pick(rows[hi]);
+      else if (!open) onEnter?.();
+    } else if (e.key === 'Escape' && open) {
+      e.nativeEvent.stopPropagation();   // 只收起下拉，不关闭弹窗
+      close();
+    }
+  };
+  return (
+    <div style={{ position: 'relative' }}>
+      <input ref={input} className="input" role="combobox" aria-expanded={open} value={open ? q : value} placeholder={open ? (value || '搜索或输入新值') : '请选择'}
+        style={{ paddingRight: 32, cursor: open ? 'text' : 'pointer' }}
+        onFocus={show} onClick={show} onBlur={close} onKeyDown={key} onChange={(e) => { show(); setQ(e.target.value); setHi(0); }} />
+      <span style={{ position: 'absolute', right: 12, top: 15, pointerEvents: 'none', transform: open ? 'rotate(180deg)' : undefined }}>{Icon.down()}</span>
+      {open && box && createPortal(
+        <div ref={list} className="combo-list" role="listbox" onMouseDown={(e) => e.preventDefault()}
+          style={{ left: box.left, width: box.width, ...(box.bottom + 260 > window.innerHeight ? { bottom: window.innerHeight - box.top + 4 } : { top: box.bottom + 4 }) }}>
+          {rows.map((r, i) => (
+            <div key={(r.add ? '+' : '') + r.v} data-i={i} role="option" aria-selected={r.v === value && !r.add}
+              className={'combo-opt' + (i === hi ? ' hi' : '') + (r.add ? ' add' : '') + (r.v === '' ? ' none' : '')}
+              onMouseEnter={() => setHi(i)} onClick={(e) => { e.preventDefault(); pick(r); }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.label}</span>
+              {r.v === value && !r.add && value !== '' && <span style={{ color: 'var(--accent)' }}>✓</span>}
+            </div>
+          ))}
+          {!t && <div className="combo-tip">没有合适的？直接输入新值即可新增</div>}
+        </div>,
+        document.body,   // 弹窗带 transform，fixed 定位要挂到 body 上才按视口计算
+      )}
     </div>
   );
 }

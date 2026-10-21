@@ -34,41 +34,38 @@ def test_allocation_replaces_rule_amount_and_void_restores(client):
     _submitted(client)   # 提交即生效
     rule_amt = _c105(client)
     assert rule_amt > 0
-    body = {'period': '2026-10', 'item_code': 'C1-05', 'basis': '队天', 'amount': 100000}
+    body = {'item_code': 'C1-05', 'amount': 1200000, 'prev_rig_months': 12}   # 标准 100000 元/台月
     assert client.post('/api/allocation/pools', json=body, headers=H('u_team')).status_code == 403
     pv = client.post('/api/allocation/preview', json=body, headers=H('u_fin')).json()
-    assert pv['total'] == 100000 and sum(s['amount'] for s in pv['shares']) == 100000
+    assert pv['rate'] == 100000 and pv['total'] == 1200000
     out = client.post('/api/allocation/pools', json=body, headers=H('u_fin'))
     assert out.status_code == 200
     pid = out.json()['pool_id']
-    assert _c105(client) == 100000                      # 规则算的制造费被分摊金额取代，不重复计入
+    w = next(s['w'] for s in out.json()['shares'] if s['well_id'] == 'W001' and s['period'] == '2026-10')
+    assert _c105(client) == pytest.approx(100000 * w, abs=1)   # 规则算的制造费被分摊金额取代，不重复计入
     assert client.post('/api/allocation/pools', json=body, headers=H('u_fin')).status_code == 409   # 同范围不能重复建池
     ev = next(e for e in client.get('/api/wells/W001/items/C1-05/events?period=2026-10', headers=H('u_fin')).json()['events']
               if e['origin'] == '分摊' and e['status'] == '有效')
     t = client.get(f"/api/events/{ev['event_id']}/trace", headers=H('u_fin')).json()
-    assert t['src_title'] == '费用池' and '费用池' in t['formula']
+    assert t['src_title'] == '费用池' and '上年发生总额' in t['formula']
     d = client.get(f'/api/allocation/pools/{pid}', headers=H('u_fin')).json()
-    assert d['total'] == 100000 and d['events'][0]['well_id'] == 'W001'
-    assert client.post(f'/api/allocation/pools/{pid}/void', headers=H('u_fin')).json()['reversed'] == 1
+    assert d['rate'] == 100000 and d['prev_rig_months'] == 12 and any(e['well_id'] == 'W001' for e in d['events'])
+    assert client.post(f'/api/allocation/pools/{pid}/void', headers=H('u_fin')).json()['reversed'] == len(d['events'])
     assert _c105(client) == pytest.approx(rule_amt, abs=1)   # 作废后恢复规则计算
     assert client.post(f'/api/allocation/pools/{pid}/void', headers=H('u_fin')).status_code == 409
 
 
 def test_allocation_validations(client):
-    base = {'period': '2026-10', 'basis': '队天', 'amount': 1000}
-    assert client.post('/api/allocation/preview', json={**base, 'item_code': 'C2-1-04'}, headers=H('u_fin')).status_code == 422
-    assert client.post('/api/allocation/preview', json={**base, 'item_code': 'C1-05', 'amount': 0}, headers=H('u_fin')).status_code == 422
-    assert client.post('/api/allocation/preview', json={**base, 'item_code': 'C1-05', 'period': '2030-01'},
-                       headers=H('u_fin')).status_code == 409   # 无已审核事实
-    # 已有历史导入金额的井不能再分摊
-    assert client.post('/api/allocation/preview', json={**base, 'item_code': 'C1-05', 'period': '2026-08'},
-                       headers=H('u_fin')).status_code in (409,)
-
-
-def test_allocation_splits_by_basis_with_tail_to_last_well():
-    from app.allocation import shares
-    sh = shares(100, [{'w': 1, 'well_id': 'A'}, {'w': 1, 'well_id': 'B'}, {'w': 1, 'well_id': 'C'}])
-    assert [s['amount'] for s in sh] == [33, 33, 34]
+    base = {'item_code': 'C1-05', 'amount': 1000, 'prev_rig_months': 10}
+    assert client.post('/api/allocation/preview', json={**base, 'item_code': 'NOPE'}, headers=H('u_fin')).status_code == 422
+    assert client.post('/api/allocation/preview', json={**base, 'amount': 0}, headers=H('u_fin')).status_code == 422
+    assert client.post('/api/allocation/preview', json={**base, 'prev_rig_months': 0}, headers=H('u_fin')).status_code == 422
+    assert client.post('/api/allocation/preview', json={**base, 'prev_rig_months': None}, headers=H('u_fin')).status_code == 422
+    assert client.post('/api/allocation/preview', json={**base, 'scope_market': '云南'}, headers=H('u_fin')).status_code == 422
+    # 全科目开放：非原四类的成本科目也能分摊
+    assert client.post('/api/allocation/preview', json={**base, 'item_code': 'C2-1-04'}, headers=H('u_fin')).status_code in (200, 409)
+    opt = client.get('/api/allocation/options', headers=H('u_fin')).json()
+    assert opt['scopes'] == ['大港', '长庆', '西北'] and len(opt['items']) > 4
 
 
 # ---------- 基础信息库按角色裁剪 ----------
@@ -83,13 +80,12 @@ def test_info_library_is_role_scoped(client):
     assert all(r['team_no'] == team['rows'][0]['team_no'] for r in team['rows'])
 
 
-# ---------- 元/台月：年度池 ----------
+# ---------- 元/台月：上年数据 ----------
 
-def test_rig_month_basis_annual_pool(client):
-    body = {'period': '2026', 'item_code': 'C1-03-03', 'basis': '台月', 'amount': 1200000}
+def test_rig_month_rate_from_last_year(client):
+    body = {'item_code': 'C1-03-03', 'amount': 1200000, 'prev_rig_months': 8}
     pv = client.post('/api/allocation/preview', json=body, headers=H('u_fin')).json()
-    assert pv['unit'] == '台月' and pv['period'] == '2026'
-    assert pv['rate'] == pytest.approx(1200000 / pv['basis_total'], rel=1e-5)    # 标准 = 费用池 ÷ 全年实际钻机台月
+    assert pv['unit'] == '台月' and pv['period'] == '2026' and pv['rate'] == 150000   # 标准 = 上年发生总额 ÷ 上年实际钻机台月
     # 8 月各井已有历史导入，跳过不分；其余井月按 标准 × 当月台月
     assert {s['period'] for s in pv['skipped']} == {'2026-08'}
     assert '2026-08' not in {s['period'] for s in pv['shares']}
@@ -106,6 +102,16 @@ def test_rig_month_basis_annual_pool(client):
     assert client.post(f"/api/allocation/pools/{out['pool_id']}/void", headers=H('u_fin')).json()['reversed'] == len(d['events'])
 
 
+def test_scope_by_market(client):
+    body = {'item_code': 'C1-05', 'amount': 1000000, 'prev_rig_months': 10}
+    nw = client.post('/api/allocation/preview', json={**body, 'scope_market': '西北'}, headers=H('u_fin'))
+    dg = client.post('/api/allocation/preview', json={**body, 'scope_market': '大港'}, headers=H('u_fin'))
+    assert nw.status_code == 200 and {s['well_id'] for s in nw.json()['shares']}
+    assert dg.status_code == 409 or not ({s['well_id'] for s in dg.json()['shares']} & {s['well_id'] for s in nw.json()['shares']})
+    assert client.post('/api/allocation/pools', json={**body, 'scope_market': '西北'}, headers=H('u_fin')).status_code == 200
+    assert client.post('/api/allocation/pools', json=body, headers=H('u_fin')).status_code == 409   # 全部与西北重叠
+
+
 def test_rig_months_split_by_calendar_month(client):
     from datetime import date
     from app.allocation import rig_months
@@ -119,14 +125,26 @@ def test_rig_months_split_by_calendar_month(client):
     assert got == {'2025-01': round(15 / 31, 4), '2025-02': 1.0, '2025-03': round(15 / 31, 4)}
 
 
-def test_annual_and_monthly_pools_cannot_overlap(client):
+def test_legacy_monthly_pool_blocks_new_pool(client):
     from app.db import connect
     c = connect()
     c.execute("INSERT INTO cost_pool (period, item_code, basis, amount, status, created_by, created_at) "
-              "VALUES ('2026', 'C1-05', '台月', 1, '有效', 't', 't')")
+              "VALUES ('2026-10', 'C1-05', '队天', 1, '有效', 't', 't')")
     c.commit()
     c.close()
-    _submitted(client)   # 提交即生效
-    r = client.post('/api/allocation/preview', json={'period': '2026-10', 'item_code': 'C1-05', 'basis': '队天', 'amount': 1000},
-                    headers=H('u_fin'))
+    r = client.post('/api/allocation/preview', json={'item_code': 'C1-05', 'amount': 1000, 'prev_rig_months': 10}, headers=H('u_fin'))
     assert r.status_code == 409 and '重叠' in r.json()['detail']
+
+
+def test_ref_rig_months_from_construction_periods(client):
+    from app.db import connect
+    c = connect()
+    c.execute("INSERT INTO team_well_period (team_id, well_id, phase, start_at, end_at) "
+              "SELECT team_id, 'W001', '测试', '2025-02-01', '2025-03-31' FROM team LIMIT 1")
+    c.commit()
+    market = c.execute("SELECT market FROM well WHERE well_id='W001'").fetchone()['market']
+    c.close()
+    ref = client.get('/api/allocation/options', headers=H('u_fin')).json()['ref_rig_months']
+    assert set(ref) == {'', '大港', '长庆', '西北'}
+    assert ref[''] >= 2 and ref[market] >= 2   # W001 上年 2、3 月整月施工 = 2 台月
+    assert ref[''] >= sum(v for k, v in ref.items() if k) - 0.05   # 全部 ≥ 三个地区之和（含云南等其他市场）

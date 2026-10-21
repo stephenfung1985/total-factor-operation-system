@@ -614,11 +614,10 @@ def ai_tasks(user=User):
 # ---------- 费用分摊（企划财务部） ----------
 
 class PoolBody(BaseModel):
-    period: str = ''
     item_code: str = ''
-    basis: str = ''
-    amount: float | None = None
-    scope_team_id: str | None = None
+    amount: float | None = None          # 上年发生总额
+    prev_rig_months: float | None = None  # 上年实际钻机台月
+    scope_market: str | None = None       # 大港 / 长庆 / 西北，空 = 全部
     note: str | None = None
 
 

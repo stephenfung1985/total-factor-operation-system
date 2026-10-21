@@ -358,8 +358,9 @@ def trace(conn, user: dict, event_id: int) -> dict:
     elif e['origin_type'] == '分摊':
         pool = conn.execute('SELECT * FROM cost_pool WHERE pool_id=?', (e['pool_id'],)).fetchone()
         out['src_title'] = '费用池'
-        out['src_lines'] = [{'k': '费用池', 'v': f"#{e['pool_id']} · {pool['period']} · {pool['amount']:,.0f} 元" if pool else '—'},
-                            {'k': '分摊标准', 'v': pool['basis'] if pool else '—'},
+        out['src_lines'] = [{'k': '费用池', 'v': f"#{e['pool_id']} · {pool['period']} · 上年发生 {pool['amount']:,.0f} 元" if pool else '—'},
+                            {'k': '分摊标准', 'v': (f"{pool['amount'] / pool['prev_rig_months']:,.2f} 元/台月（上年 {pool['prev_rig_months']:.2f} 台月）"
+                                            if pool['prev_rig_months'] else pool['basis']) if pool else '—'},
                             {'k': '录入', 'v': f"{pool['created_by']} · {pool['created_at'][:16]}" if pool else '—'},
                             {'k': '批次', 'v': f"费用分摊 · 批次 {e['batch_id']}"}]
     else:

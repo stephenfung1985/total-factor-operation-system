@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "tfos",
-      "runtimeExecutable": "python",
+      "runtimeExecutable": "backend/.venv/bin/python",
       "runtimeArgs": ["-m", "uvicorn", "--app-dir", "backend", "app.main:app", "--port", "8000"],
       "port": 8000
     },

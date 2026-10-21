@@ -80,6 +80,8 @@ NEW_COLUMNS = [
     ('app_user', 'is_debug', 'INTEGER NOT NULL DEFAULT 0'),
     ('app_session', 'acting_user_id', 'TEXT'),
     ('economic_event', 'pool_id', 'INTEGER'),
+    ('cost_pool', 'scope_market', 'TEXT'),       # 费用池范围：大港 / 长庆 / 西北，空 = 全部
+    ('cost_pool', 'prev_rig_months', 'REAL'),    # 上年实际钻机台月
     ('daily_report', 'checked_by', 'TEXT'),     # 管理端抽查确认
     ('daily_report', 'checked_at', 'TEXT'),
     ('economic_rule', 'change_basis', 'TEXT'),  # 发布时登记的变化依据（部室提供的文件、通知）
@@ -113,7 +115,8 @@ def _widen_pool_basis(conn) -> None:
     create = ddl[start:ddl.index(');', start) + 2]
     conn.execute('ALTER TABLE cost_pool RENAME TO cost_pool_old')
     conn.execute(create)
-    conn.execute('INSERT INTO cost_pool SELECT * FROM cost_pool_old')
+    cols = ', '.join(r['name'] for r in conn.execute('PRAGMA table_info(cost_pool_old)'))
+    conn.execute(f'INSERT INTO cost_pool ({cols}) SELECT {cols} FROM cost_pool_old')
     conn.execute('DROP TABLE cost_pool_old')
 
 

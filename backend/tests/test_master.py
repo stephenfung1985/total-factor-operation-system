@@ -79,6 +79,18 @@ def test_unit_create_update(client):
     assert client.put('/api/master/units/不存在', headers=FIN, json={'usage': 'x'}).status_code == 404
 
 
+def test_new_unit_from_dropdown_registered(client):
+    # 物资、报量项目下拉里新增的单位，保存时登记到计量单位表
+    assert client.post('/api/master/materials', headers=FIN, json={'material_code': 'M-7', 'name': '钻杆', 'unit': '根'}).status_code == 200
+    assert client.put('/api/master/report_lines/C2-1-04', headers=FIN, json={'unit': '立方米'}).status_code == 200
+    units = {u['unit']: u['usage'] for u in master(client, 'units')}
+    assert units['根'] == '钻杆' and '立方米' in units
+    assert [lg['action'] for lg in logs('计量单位:根')] == ['新增']
+    n = len(units)
+    assert client.put('/api/master/materials/M-7', headers=FIN, json={'unit': '米'}).status_code == 200   # 已有单位不重复登记
+    assert len(master(client, 'units')) == n
+
+
 def test_report_line_update_and_disable(client):
     r = client.put('/api/master/report_lines/C2-1-04', headers=FIN, json={'label': '柴油（吨）', 'enabled': False, 'needs_doc': True, 'sort_no': 99})
     assert r.status_code == 200

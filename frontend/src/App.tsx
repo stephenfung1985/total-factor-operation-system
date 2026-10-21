@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Component, useCallback, useEffect, useState, type ReactNode } from 'react';
 import { api, hasToken, setToken, setUnauthorizedHandler, type Me } from './api';
 import { LoginPage, PasswordModal } from './auth';
 import { Icon, NAV_ICON, Seg, ToastHost } from './ui';
@@ -201,11 +201,28 @@ export default function App() {
           <main className="main">
             <div className="wrap">
               {err && <div className="notice">{err}</div>}
-              <div key={me?.user_id} style={{ display: 'contents' }}>{page}</div>
+              <PageGuard key={`${me?.user_id}|${route.screen}`}><div style={{ display: 'contents' }}>{page}</div></PageGuard>
             </div>
           </main>
         </div>
       </div>
     </ToastHost>
   );
+}
+
+/** 页面渲染出错时不再整屏变黑：多半是系统刚更新、页面还是旧版本，提示刷新。 */
+class PageGuard extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <section className="card" style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+        <span style={{ flex: 1 }}>页面加载出错，可能是系统刚更新。请刷新后重试。<span className="small muted"> {this.state.error.message}</span></span>
+        <button type="button" className="btn primary" onClick={() => window.location.reload()}>刷新</button>
+      </section>
+    );
+  }
 }

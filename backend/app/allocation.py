@@ -1,12 +1,13 @@
-"""费用分摊：上年发生总额 → 本年各队、各井。
+"""费用分摊：上年发生总额 → 归属年份各队、各井。
 
 全部成本科目都可按需选择填报（下拉选科目）。企划财务部填写：
+  归属年份   分摊到哪一年，默认当年；“上年”指归属年份的前一年；
   上年发生总额   该科目上年度实际发生的总金额；
   上年实际钻机台月   上年度全部（或所选市场）实际钻机台月；
   范围   全部 / 大港 / 长庆 / 西北（按井所属市场）。
-分摊标准 = 上年该科目发生总额 ÷ 上年实际钻机台月（元/台月）；本年度一律沿用上年数据计算，不再逐期录入。
-本年度各 (队伍, 井, 月) 分得 标准 × 当月钻机台月，写入“分摊”类经济事项；
-钻机台月 = 施工时段落在当月的天数 ÷ 当月天数（与费用导出口径一致），本年只算到今天为止。
+分摊标准 = 上年该科目发生总额 ÷ 上年实际钻机台月（元/台月）；归属年份一律沿用其上一年数据计算，不再逐期录入。
+归属年份各 (队伍, 井, 月) 分得 标准 × 当月钻机台月，写入“分摊”类经济事项；
+钻机台月 = 施工时段落在当月的天数 ÷ 当月天数（与费用导出口径一致），当年只算到今天为止。
 作废时冲销该池全部事项；分摊后该井该月该科目不再由规则重复计算（见 engine._desired）。
 历史上按队天 / 进尺录入的月度池只保留查看与作废。
 """
@@ -29,9 +30,17 @@ def allocable_items(conn) -> list[dict]:
                                   'ORDER BY sort_no')]
 
 
+def years(conn) -> list[str]:
+    """可选的归属年份：当年及有施工时段的年份，最新在前。"""
+    this = date.today().year
+    ys = {this} | {int(r['y']) for r in conn.execute('SELECT DISTINCT substr(start_at,1,4) y FROM team_well_period') if (r['y'] or '').isdigit()}
+    return [str(y) for y in sorted((y for y in ys if y <= this), reverse=True)]
+
+
 def options(conn) -> dict:
-    year = date.today().year
-    return {'items': allocable_items(conn), 'scopes': SCOPES, 'year': str(year), 'ref_rig_months': ref_rig_months(conn, str(year - 1))}
+    ys = years(conn)
+    return {'items': allocable_items(conn), 'scopes': SCOPES, 'years': ys, 'year': ys[0],
+            'ref_rig_months': {y: ref_rig_months(conn, str(int(y) - 1)) for y in ys}}
 
 
 def ref_rig_months(conn, year: str) -> dict:
@@ -74,7 +83,9 @@ def rig_months(conn, year: str, market: str | None, today: date | None = None) -
 
 
 def _check(conn, body: dict) -> tuple[dict, list[dict]]:
-    year = str(date.today().year)
+    year = str(body.get('year') or date.today().year)
+    if year not in years(conn):
+        raise HTTPException(422, '请选择归属年份')
     code = body.get('item_code') or ''
     market = body.get('scope_market') or None
     if market and market not in SCOPES:
@@ -97,7 +108,7 @@ def _check(conn, body: dict) -> tuple[dict, list[dict]]:
     rec = rig_months(conn, year, market)
     if not rec:
         raise HTTPException(409, f'{year} 年{market or ""}没有施工时段（钻机台月），无可分摊的井')
-    # 同科目、范围重叠（任一为全部或同一市场）、本年度已有的有效池不能并存，否则重复计入
+    # 同科目、范围重叠（任一为全部或同一市场）、同一归属年份已有的有效池不能并存，否则重复计入
     for o in conn.execute("SELECT pool_id, period, scope_market, scope_team_id FROM cost_pool WHERE item_code=? AND status='有效'", (code,)):
         if (o['period'].startswith(year) or year.startswith(o['period'])) and (
                 not o['scope_market'] or not market or o['scope_market'] == market or o['scope_team_id']):

@@ -144,7 +144,29 @@ def test_ref_rig_months_from_construction_periods(client):
     c.commit()
     market = c.execute("SELECT market FROM well WHERE well_id='W001'").fetchone()['market']
     c.close()
-    ref = client.get('/api/allocation/options', headers=H('u_fin')).json()['ref_rig_months']
+    opt = client.get('/api/allocation/options', headers=H('u_fin')).json()
+    ref = opt['ref_rig_months'][opt['year']]   # 当年的参考 = 上一年施工时段
     assert set(ref) == {'', '大港', '长庆', '西北'}
     assert ref[''] >= 2 and ref[market] >= 2   # W001 上年 2、3 月整月施工 = 2 台月
     assert ref[''] >= sum(v for k, v in ref.items() if k) - 0.05   # 全部 ≥ 三个地区之和（含云南等其他市场）
+
+
+def test_year_field(client):
+    from datetime import date
+    from app.db import connect
+    this = date.today().year
+    c = connect()
+    c.execute("INSERT INTO team_well_period (team_id, well_id, phase, start_at, end_at) "
+              f"SELECT team_id, 'W001', '测试', '{this - 1}-03-01', '{this - 1}-04-30' FROM team LIMIT 1")
+    c.commit()
+    c.close()
+    opt = client.get('/api/allocation/options', headers=H('u_fin')).json()
+    assert opt['year'] == str(this) and str(this - 1) in opt['years'] and set(opt['ref_rig_months']) == set(opt['years'])
+    body = {'item_code': 'C1-05', 'amount': 1000000, 'prev_rig_months': 10}
+    assert client.post('/api/allocation/preview', json={**body, 'year': '1999'}, headers=H('u_fin')).status_code == 422
+    assert client.post('/api/allocation/preview', json={**body, 'year': str(this + 1)}, headers=H('u_fin')).status_code == 422
+    pv = client.post('/api/allocation/preview', json={**body, 'year': str(this - 1)}, headers=H('u_fin')).json()
+    assert pv['period'] == str(this - 1) and pv['shares'] and all(s['period'].startswith(str(this - 1)) for s in pv['shares'])
+    # 不同归属年份的池互不重叠
+    assert client.post('/api/allocation/pools', json={**body, 'year': str(this - 1)}, headers=H('u_fin')).status_code == 200
+    assert client.post('/api/allocation/preview', json=body, headers=H('u_fin')).status_code == 200

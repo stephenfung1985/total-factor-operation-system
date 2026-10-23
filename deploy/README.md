@@ -77,7 +77,7 @@ deploy/install.sh        # 再运行一次：建 venv、构建前端、注册开
 | 备份 | 每天 02:30 自动执行，保留最近 30 份在 `~/tfos-data/backups`。**请把备份目录指到外接硬盘或网盘同步目录**（在 `~/tfos-data/env` 里加 `TFOS_BACKUP_DIR=/Volumes/xxx/tfos-backups`，改后重新运行 `deploy/install.sh`）。Mac mini 只有一块盘，盘坏了数据就没了 |
 | 手动备份 | `deploy/backup.sh` |
 | 恢复 | `deploy/restore.sh ~/tfos-data/backups/tfos-xxxx.db`（先停服务，旧库保留为 `.before-restore.*`） |
-| 更新版本 | `git pull && deploy/install.sh`（会先自动备份，再重建前端并重启） |
+| 更新版本 | `deploy/update.sh`：拉取 main，先在线上数据的副本上跑测试和启动检查，通过才部署（内部调用 install.sh，会自动备份、重建前端并重启）；失败则线上不动。`deploy/update.sh --check` 只演练不部署 |
 | 重启服务 | `launchctl kickstart -k gui/$(id -u)/com.tfos.server` |
 | 停止服务 | `launchctl bootout gui/$(id -u)/com.tfos.server` |
 | 重置 admin 密码 | 在其他管理员账号的账号管理里重置；都忘了就停服务后换回备份库 |

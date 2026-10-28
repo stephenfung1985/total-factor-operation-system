@@ -192,3 +192,27 @@ def test_parse_recognizes_contract_mode(client, monkeypatch):
     assert fields['计价方式'] == '包干 · 单井总价' and '合同总价 12,800,000 元' in fields['单价']
     assert rule['params']['contract_mode'] == '单井总价'
     assert '计价方式' in meter['low_fields']                # 米费却写成按日历天触发：标低，确认时核对
+
+
+# ---------- 填报端 AI 解析 ----------
+
+def test_fill_extract_wellinfo(client, monkeypatch):
+    from app import ai
+    monkeypatch.setenv('TFOS_AI_BASE_URL', 'http://x')
+    monkeypatch.setenv('TFOS_AI_MODEL', 'm')
+    monkeypatch.setattr(ai, 'call_model', lambda msgs: json.dumps({
+        'fields': {'well_id': 'T-1', 'market': '西北', 'well_type': '火星井', 'design_depth': '4,500米', 'spud_sections': 3, 'period': '2026年11月'},
+        'milestones': {'开钻1': '2026-11-02 08:30', '乱写': '2026-11-03', '完钻1': '不是时间'}, 'staff': {'合同化': '12人'}}))
+    r = client.post('/api/fill/ai-extract/wellinfo', headers=TEAM, files={'file': ('a.txt', '井号 T-1 西北市场 设计井深4500米'.encode())})
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j['fields']['well_id'] == 'T-1' and j['fields']['market'] == '西北' and 'well_type' not in j['fields']
+    assert j['fields']['design_depth'] == 4500 and j['fields']['period'] == '2026-11'
+    assert j['milestones'] == {'开钻1': '2026-11-02 08:30'} and j['staff'] == {'合同化': 12}
+    assert any('井型' in n for n in j['notes'])
+
+
+def test_fill_extract_disabled(client):
+    r = client.post('/api/fill/ai-extract/wellinfo', headers=TEAM, files={'file': ('a.txt', b'hello world 123')})
+    assert r.status_code == 503
+    assert client.get('/api/fill/ai-status', headers=TEAM).json()['enabled'] is False

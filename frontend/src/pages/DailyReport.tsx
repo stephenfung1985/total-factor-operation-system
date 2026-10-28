@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, download, type Check, type Report, type ReportCatalog } from '../api';
 import type { PageProps } from '../App';
+import { AiFillButton, AiNotes } from '../AiFill';
 import { fmt, Icon, PageHead, today, useLoad, useToast } from '../ui';
 
 interface Mine { report_id: number; well_id: string; report_date: string; version: number; status: string; review_comment: string | null }
+interface AiRep { depth_start?: number; depth_end?: number; hours: Record<string, number>; lines: Record<string, number>; labels: Record<string, string>; doc_nos: Record<string, string>; notes: string[] }
 interface Draft { depth_start: number; depth_end: number; hours: Record<string, number>; lines: Record<string, number>; notes: Record<string, string> }
 
 const STATUS_TAG: Record<string, string> = { 草稿: '', 驳回: 'bad', 已提交: 'warn', 已审核: 'good', 新建: '' };
@@ -23,6 +25,7 @@ export default function DailyReport(_: PageProps) {
   const [busy, setBusy] = useState(false);
   const [range, setRange] = useState({ start: '', end: '' });
   const fileRef = useRef<HTMLInputElement>(null);
+  const [aiNotes, setAiNotes] = useState<string[] | null>(null);
 
   // 默认打开最早的待办日报，否则今天
   useEffect(() => {
@@ -101,6 +104,19 @@ export default function DailyReport(_: PageProps) {
     if (fileRef.current) fileRef.current.value = '';
   };
 
+  const onAi = (r: AiRep) => {
+    setDraft((d) => d && {
+      ...d,
+      depth_start: r.depth_start ?? d.depth_start,
+      depth_end: r.depth_end ?? d.depth_end,
+      hours: { ...d.hours, ...r.hours },
+      lines: { ...d.lines, ...r.lines },
+      notes: { ...d.notes, ...r.doc_nos },
+    });
+    const cnt = Object.keys(r.hours).length + Object.keys(r.lines).length + (r.depth_end !== undefined ? 1 : 0);
+    setAiNotes([`AI 已识别并填入 ${cnt} 项（${date}），请逐项核对后再提交；文件里没有的内容保持原样。`, ...r.notes]);
+  };
+
   const sections = cat.data?.sections ?? [];
   const conds = cat.data?.work_conditions ?? [];
   const defs = rep?.line_defs ?? [];
@@ -137,10 +153,12 @@ export default function DailyReport(_: PageProps) {
               </select>
             </label>
             <label className="pill">日期<input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} /></label>
+            {editable && <AiFillButton<AiRep> url="/api/fill/ai-extract/report" extra={{ well_id: well, date }} onResult={onAi} />}
             <RecentSelect mine={mine.data || []} well={well} date={date} onPick={(w, d) => { setWell(w); setDate(d); }} />
           </div>
         } />
 
+      <AiNotes notes={aiNotes} onClose={() => setAiNotes(null)} />
       {rep && draft && (
         <>
           <div className="rep-bar">

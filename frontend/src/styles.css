@@ -55,7 +55,6 @@ button:disabled { cursor: not-allowed; }
 .who { margin-top: auto; padding: 12px 10px; border-top: 1px solid var(--sep); display: flex; flex-direction: column; gap: 4px; }
 .who b { font-size: 13px; font-weight: 500; }
 .who span { font-size: 12px; color: var(--text2); }
-@media (max-width: 760px) { .side { flex-basis: 100%; border-right: none; border-bottom: 1px solid var(--sep); } .who { display: none; } }
 
 .main { flex: 1 1 520px; min-width: 0; padding: 32px 40px 56px; }
 @media (max-width: 760px) { .main { padding: 20px 16px 40px; } }
@@ -527,3 +526,60 @@ div.rank-row { cursor: default; }
 .combo-opt.add { color: var(--accent); font-weight: 500; }
 .combo-opt.none { color: var(--text2); }
 .combo-tip { padding: 8px 10px 6px; font-size: 12px; color: var(--mute); border-top: 1px solid var(--sep2); margin-top: 4px; white-space: nowrap; }
+
+/* 手机适配（≤760px）：顶栏精简、导航改为横向可滑动标签条、卡片与抽屉铺满、输入框 16px 防 iOS 自动放大 */
+html { -webkit-text-size-adjust: 100%; }
+body { overflow-x: hidden; }
+@media (max-width: 760px) {
+  .topbar { padding: 10px 16px; padding-top: calc(10px + env(safe-area-inset-top)); gap: 8px 12px; }
+  .brand-sub, .user-chip > span:not(.avatar) { display: none; }
+  .brand-name { font-size: 15px; }
+  .user-box { gap: 6px; }
+  .role-switch { width: 100%; }
+  .role-switch .seg { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; }
+  .body { flex-direction: column; flex-wrap: nowrap; }
+  .side { flex: none; padding: 0; gap: 0; border-right: none; border-bottom: 1px solid var(--sep); position: sticky; top: 0; z-index: 6; }
+  .who { display: none; }
+  .nav { flex-direction: row; gap: 0; overflow-x: auto; scrollbar-width: none; padding: 6px 12px; -webkit-overflow-scrolling: touch; }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav-group { flex-direction: row; gap: 4px; flex: none; }
+  .nav-group + .nav-group { margin-left: 4px; padding-left: 8px; border-left: 1px solid var(--sep); }
+  .nav-label { display: none; }
+  .nav-item { flex: none; min-height: 38px; padding: 0 12px; white-space: nowrap; }
+  .nav-item .lbl { flex: none; overflow: visible; }
+  .main { padding: 16px 16px calc(40px + env(safe-area-inset-bottom)); }
+  .wrap { gap: 16px; }
+  h1 { font-size: 24px; line-height: 30px; }
+  h2 { font-size: 17px; }
+  .card.pad { padding: 16px; }
+  .card-head { padding: 14px 16px 10px; }
+  .grid-row { padding: 0 16px; }
+  .card.list, .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .chips { padding: 16px; }
+  .kpi { padding: 14px 16px; }
+  .split { gap: 16px; }
+  .split > .grow, .split > .aside { flex-basis: 100%; }
+  .title-row { align-items: flex-start; }
+  .head-actions { justify-content: flex-start; }
+  .input, .input.num, .input.sm, .dt input, .filters .input, .cond-row select, .cond-row input, .ov-search, .add-line select, select, textarea { font-size: 16px; }
+  .cond-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 36px; }
+  .cond-row > :nth-child(3) { grid-column: 1 / -1; grid-row: 2; }
+  .drawer, .drawer.wide { width: 100%; }
+  .drawer-head { padding: 18px 16px 12px; padding-top: calc(18px + env(safe-area-inset-top)); }
+  .drawer-body { padding: 16px 16px 32px; }
+  .drawer-foot { padding: 12px 16px calc(16px + env(safe-area-inset-bottom)); }
+  .drawer-foot > .btn { flex: 1 1 100px; }
+  .exp-row { padding: 0 16px; grid-template-columns: 32px minmax(0, 1fr) 110px; }
+  .modal { padding: 18px; width: calc(100% - 24px); }
+  .toast { bottom: calc(20px + env(safe-area-inset-bottom)); }
+  .ms-pop { max-width: calc(100vw - 32px); }
+  .sec-nav { overflow-x: auto; flex-wrap: nowrap; top: 52px; }
+  .sec-nav button { flex: none; white-space: nowrap; }
+  .rsec { scroll-margin-top: 110px; }
+  .charts { grid-template-columns: minmax(0, 1fr); }
+  .wtable-wrap { max-height: 70vh; }
+  .xtip { max-width: 70vw; }
+}
+@media (max-width: 400px) {
+  .user-box .btn.sm { padding: 0 10px; }
+}

@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import accounts, ai, aiparse, allocation, analysis, auth, costdetail, engine, excel, master, reports, results_import, rules, wellinfo
+from . import accounts, ai, aiparse, allocation, analysis, auth, costdetail, engine, excel, fillparse, master, reports, results_import, rules, wellinfo
 from .db import init_db, log, rows, transaction
 
 def docs_kwargs() -> dict:
@@ -570,6 +570,30 @@ def rule_new_version(rid: int, body: NewVersion, user=User):
     auth.require(user, 'finance')
     with transaction() as c:
         return rules.new_version(c, user, rid, body.valid_from)
+
+
+# ---------- 填报端 AI 解析：上传文档 / 表格，抽取为建议值（不落库，基层核对后走原有提交流程） ----------
+
+@app.get('/api/fill/ai-status')
+def fill_ai_status(user=User):
+    auth.require(user, 'team')
+    return {'enabled': ai.enabled(), 'exts': list(fillparse.FILE_EXTS)}
+
+
+@app.post('/api/fill/ai-extract/wellinfo')
+async def fill_extract_wellinfo(file: UploadFile = File(...), user=User):
+    auth.require(user, 'team')
+    data = await _read_upload(file)
+    with transaction() as c:
+        return fillparse.extract_wellinfo(c, file.filename or '文件', data)
+
+
+@app.post('/api/fill/ai-extract/report')
+async def fill_extract_report(file: UploadFile = File(...), well_id: str = Form(...), date: str = Form(...), user=User):
+    data = await _read_upload(file)
+    with transaction() as c:
+        _team_ctx(c, user, well_id)
+        return fillparse.extract_report(c, file.filename or '文件', data, well_id, date, user['team_id'])
 
 
 # ---------- AI 规则解析（第一期，管理端）：依据文件 → 规则草稿 ----------

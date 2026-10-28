@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react';
 import { api, type Check, type InfoDerived, type InfoFields, type InfoMine, type InfoOptions, type InfoRecord } from '../api';
 import type { PageProps } from '../App';
 import { fmt, Icon, PageHead, useLoad, useToast } from '../ui';
+import { AiFillButton, AiNotes } from '../AiFill';
 import { WellLibrary } from './WellLibrary';
+
+interface AiWell { fields: Partial<InfoFields>; milestones: Record<string, string>; staff: Record<string, number>; notes: string[] }
 
 const FIELD_KEYS: (keyof InfoFields)[] = ['well_id', 'period', 'market', 'captain', 'rig_type', 'client', 'block', 'well_category',
   'well_type', 'spud_sections', 'design_depth', 'milestones', 'staff'];
@@ -27,6 +30,7 @@ export default function WellReg(_: PageProps) {
   const [derived, setDerived] = useState<InfoDerived | null>(null);
   const [busy, setBusy] = useState(false);
   const [libTick, setLibTick] = useState(0);
+  const [aiNotes, setAiNotes] = useState<string[] | null>(null);
 
   useEffect(() => {
     if (sel !== null || !mine.data) return;
@@ -65,6 +69,20 @@ export default function WellReg(_: PageProps) {
     for (let k = n + 1; k <= 5; k++) { ms[`开钻${k}`] = null; ms[`完钻${k}`] = null; }
     return { ...f, spud_sections: n, milestones: ms };
   });
+
+  const onAi = (r: AiWell) => {
+    setForm((f) => {
+      if (!f) return f;
+      const fields = { ...r.fields };
+      if (!idEditable) delete fields.well_id;
+      const ms = { ...f.milestones, ...r.milestones };
+      const n = fields.spud_sections ?? f.spud_sections;
+      for (let k = n + 1; k <= 5; k++) { ms[`开钻${k}`] = null; ms[`完钻${k}`] = null; }
+      return { ...f, ...fields, milestones: ms, staff: { ...f.staff, ...r.staff } };
+    });
+    const cnt = Object.keys(r.fields).length + Object.keys(r.milestones).length + Object.keys(r.staff).length;
+    setAiNotes([`AI 已识别并填入 ${cnt} 项，请逐项核对后再提交；文件里没有的内容保持原样。`, ...r.notes]);
+  };
 
   const run = async (fn: () => Promise<InfoRecord>, ok: (r: InfoRecord) => string) => {
     setBusy(true);
@@ -121,6 +139,7 @@ export default function WellReg(_: PageProps) {
                 {mine.data?.map((m) => <option key={m.well_id} value={m.well_id}>{wellLabel(m)}</option>)}
               </select>
             </label>
+            {editable && <AiFillButton<AiWell> url="/api/fill/ai-extract/wellinfo" onResult={onAi} />}
             {sel !== '' && <button type="button" className="btn primary sm" onClick={() => setSel('')}>登记新井</button>}
           </div>
         } />
@@ -129,6 +148,7 @@ export default function WellReg(_: PageProps) {
         <div className="notice">企划财务部退回 {returned.length} 口井待修改：{returned.map((m) => m.well_id).join('、')}。在“井号”下拉中选择后修改并重新提交。</div>
       )}
 
+      <AiNotes notes={aiNotes} onClose={() => setAiNotes(null)} />
       {rec && form && o && (
         <div className="split">
           <div className="grow">

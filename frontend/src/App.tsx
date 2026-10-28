@@ -14,6 +14,35 @@ import BenchmarkPage from './pages/Benchmark';
 import CostDetail from './pages/CostDetail';
 import Allocation from './pages/Allocation';
 
+/** 服务器状态灯：定时探测 /api/health，请求失败或超时即判为离线 */
+function ServerLight() {
+  const [online, setOnline] = useState<boolean | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const probe = async () => {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 5000);
+      try {
+        const r = await fetch('/api/health', { cache: 'no-store', signal: ctl.signal });
+        const j = r.ok ? await r.json() : null;
+        if (alive) setOnline(j?.ok === true);
+      } catch {
+        if (alive) setOnline(false);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    probe();
+    const id = setInterval(probe, 15000);
+    const onNet = () => { probe(); };
+    window.addEventListener('online', onNet);
+    window.addEventListener('offline', onNet);
+    return () => { alive = false; clearInterval(id); window.removeEventListener('online', onNet); window.removeEventListener('offline', onNet); };
+  }, []);
+  const text = online === null ? '服务器状态：检测中' : online ? '服务器状态：在线' : '服务器状态：离线';
+  return <span className={`srv-light ${online === null ? 'wait' : online ? 'on' : 'off'}`} title={text} aria-label={text} role="status" />;
+}
+
 export interface Route { screen: string; well?: string; item?: string; period?: string }
 export interface PageProps { me: Me; route: Route; setRoute: (r: Route) => void }
 
@@ -167,6 +196,7 @@ export default function App() {
                 ? <span><b>{me.login_username}</b><span className="small muted"> · 调试账号</span></span>
                 : <span><b>{me.name}</b><span className="small muted"> · {me.role_name}</span></span>}
             </span>
+            <ServerLight />
             <button type="button" className="btn sm" onClick={() => setPwd(true)}>修改密码</button>
             <button type="button" className="btn sm" onClick={logout}>退出</button>
             {themeBtn}

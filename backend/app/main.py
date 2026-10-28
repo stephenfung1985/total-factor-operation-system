@@ -137,6 +137,11 @@ def switch_identity(body: SwitchBody, authorization: str | None = Header(default
         return _me(user, c)
 
 
+@app.get('/api/health')
+def health():
+    return {'ok': True}
+
+
 @app.get('/api/me')
 def me(user=User):
     with transaction() as c:

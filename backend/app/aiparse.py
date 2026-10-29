@@ -69,7 +69,7 @@ def extract_text(name: str, data: bytes) -> tuple[str, int]:
             except UnicodeDecodeError:
                 continue
         raise HTTPException(422, '文本文件编码无法识别（请用 UTF-8 或 GBK）')
-    raise HTTPException(415, '支持 PDF（文字版）、Word（.doc / .docx）、TXT；扫描件 OCR 在第三期')
+    raise HTTPException(415, '支持 PDF（文字版）、Word（.doc / .docx）、TXT、Markdown（.md）；扫描件 OCR 在第三期')
 
 
 def _doc_text(data: bytes) -> str:

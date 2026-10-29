@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { api } from './api';
 import { useLoad, useToast } from './ui';
 
-const ACCEPT = '.xlsx,.xlsm,.csv,.tsv,.docx,.doc,.pdf,.txt';
+const ACCEPT = '.xlsx,.xlsm,.csv,.tsv,.docx,.doc,.pdf,.txt,.md';
 
 /** 填报页的“AI 解析”按钮：选文档或表格 → 后端抽取 → 把建议值交给页面填入表单（不保存，核对后仍走原提交流程）。 */
 export function AiFillButton<T extends { notes: string[] }>({ url, extra, disabled, onResult }: {
@@ -31,7 +31,7 @@ export function AiFillButton<T extends { notes: string[] }>({ url, extra, disabl
   return (
     <>
       <button type="button" className="btn" disabled={disabled || busy || off} onClick={() => ref.current?.click()}
-        title={off ? '管理员未配置 AI 服务，请手工填报' : '上传 Excel / CSV / Word / PDF / TXT，AI 识别后填入表单，核对后再提交'}>
+        title={off ? '管理员未配置 AI 服务，请手工填报' : '上传 Excel / CSV / Word / PDF / TXT / Markdown，AI 识别后填入表单，核对后再提交'}>
         {busy ? 'AI 解析中…' : 'AI 解析导入'}
       </button>
       <input ref={ref} type="file" accept={ACCEPT} hidden onChange={(e) => e.target.files?.[0] && pick(e.target.files[0])} />

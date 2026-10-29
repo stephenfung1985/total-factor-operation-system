@@ -124,11 +124,11 @@ export default function AiImport({ open, onClose, onDone, onPick }: { open: bool
         {!batch.length && (
           <>
             <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
-              <div className="field"><span>文件 *（PDF / Word / TXT，可多选）</span>
+              <div className="field"><span>文件 *（PDF / Word / TXT / Markdown，可多选）</span>
                 <button type="button" className="btn" onClick={() => fileRef.current?.click()} title={files.map((x) => x.name).join('\n')}>
                   {files.length === 0 ? '选择文件' : multi ? `已选 ${files.length} 份` : files[0].name}
                 </button>
-                <input ref={fileRef} type="file" accept=".pdf,.doc,.docx,.txt" multiple hidden onChange={(e) => { if (e.target.files?.length) chooseFiles([...e.target.files]); e.target.value = ''; }} />
+                <input ref={fileRef} type="file" accept=".pdf,.doc,.docx,.txt,.md" multiple hidden onChange={(e) => { if (e.target.files?.length) chooseFiles([...e.target.files]); e.target.value = ''; }} />
               </div>
               <label className="field">文件类型 *
                 <select className="input" value={f.doc_type} onChange={(e) => setF({ ...f, doc_type: e.target.value })}>

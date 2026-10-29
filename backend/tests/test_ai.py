@@ -216,3 +216,9 @@ def test_fill_extract_disabled(client):
     r = client.post('/api/fill/ai-extract/wellinfo', headers=TEAM, files={'file': ('a.txt', b'hello world 123')})
     assert r.status_code == 503
     assert client.get('/api/fill/ai-status', headers=TEAM).json()['enabled'] is False
+
+
+def test_upload_markdown(client):
+    r = upload(client, name='价目表.md', data=('# 结算价目\n\n| 项目 | 单价 |\n|---|---|\n' + CONTRACT).encode())
+    assert r.status_code == 200, r.text
+    assert r.json()['file_name'] == '价目表.md' and r.json()['chars'] > 20

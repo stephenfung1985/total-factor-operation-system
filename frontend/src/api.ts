@@ -122,7 +122,7 @@ export interface OverviewWell extends KpiSum, OpsSum {
 export interface OverviewSum extends KpiSum, OpsSum { well_count: number; loss_wells: number; loss_amount: number }
 export interface Overview {
   period: string; months: string[]; wells: OverviewWell[]; sum: OverviewSum; show_revenue: boolean; scope: string;
-  prev: { period: string; sum: OverviewSum } | null; structure: { code: string; name: string; behavior: string; amount: number }[];
+  prev: { period: string; months?: string[]; sum: OverviewSum } | null; structure: { code: string; name: string; behavior: string; amount: number }[];
 }
 
 export interface TreeNode {

@@ -140,12 +140,29 @@ def _months(conn, period: str) -> list[str]:
 
 
 def _prev_period(conn, period: str) -> str | None:
-    """环比对象：单月取上一个有数据的月份，全年取上一年。"""
+    """环比对象：单月取上一个有数据的月份。全年同比见 _yoy_months。"""
     if len(period) == 4:
-        prev = str(int(period) - 1)
-        return prev if _months(conn, prev) else None
+        return None
     earlier = [p for p in periods(conn) if p < period]
     return earlier[0] if earlier else None
+
+
+def _yoy_months(conn, period: str, months: list[str]) -> list[str] | None:
+    """全年同比的基线月份。
+
+    本年已有月份不满 12 个时，取上一年里 MM 与之相同的月份（去年同期，如本年 1–9 月对上年 1–9 月）。
+    本年已满 12 个月时，取上一年全部有数据的月份。
+    """
+    if len(period) != 4 or not period.isdigit():
+        return None
+    prev_all = _months(conn, str(int(period) - 1))
+    if not prev_all:
+        return None
+    if len(months) >= 12:
+        return prev_all
+    suffixes = {m[-2:] for m in months}
+    aligned = [p for p in prev_all if p[-2:] in suffixes]
+    return aligned or None
 
 
 def _sum_wells(rows: list[dict]) -> dict:
@@ -161,10 +178,13 @@ def _sum_wells(rows: list[dict]) -> dict:
     return out
 
 
-def overview(conn, user: dict, period: str, with_extra: bool = True) -> dict:
+def overview(conn, user: dict, period: str, with_extra: bool = True, *, months: list[str] | None = None) -> dict:
     """经营总览：period 为 YYYY-MM（单月）或 YYYY（全年，按月累加）。
-    返回各井指标、合计、上期合计（环比）、成本科目结构（二级科目）。历史数据井（未经基层队登记）按完成井处理。"""
-    months = _months(conn, period)
+    返回各井指标、合计、上期合计、成本科目结构（二级科目）。历史数据井（未经基层队登记）按完成井处理。
+    单月上期是上一有数据的月份（环比）。全年不满 12 个月时上期是去年同期；满 12 个月时上期是上年全年。
+    months 只在内部复用本函数、按指定月份汇总同比基线时传入。"""
+    if months is None:
+        months = _months(conn, period)
     wells = auth.visible_wells(conn, user)
     acc: dict[str, dict] = {}
     structure: dict[str, dict] = {}
@@ -212,8 +232,15 @@ def overview(conn, user: dict, period: str, with_extra: bool = True) -> dict:
     out = {'period': period, 'months': months, 'wells': rows, 'sum': _sum_wells(rows),
            'show_revenue': True, 'scope': user['scope_label']}
     if with_extra:
-        prev = _prev_period(conn, period)
-        out['prev'] = {'period': prev, 'sum': overview(conn, user, prev, False)['sum']} if prev else None
+        if len(period) == 4 and period.isdigit():
+            base = _yoy_months(conn, period, months)
+            out['prev'] = None if not base else {
+                'period': base[0][:4], 'months': base,
+                'sum': overview(conn, user, base[0][:4], False, months=base)['sum'],
+            }
+        else:
+            prev = _prev_period(conn, period)
+            out['prev'] = {'period': prev, 'sum': overview(conn, user, prev, False)['sum']} if prev else None
         out['structure'] = sorted(structure.values(), key=lambda d: -d['amount'])
     return out
 

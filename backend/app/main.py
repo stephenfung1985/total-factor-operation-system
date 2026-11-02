@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import accounts, ai, aiparse, allocation, analysis, auth, costdetail, engine, excel, fillparse, master, reports, results_import, rules, wellinfo
+from . import accounts, ai, aiparse, allocation, analysis, auth, costdetail, engine, excel, fillparse, filltrace, master, reports, results_import, rules, wellinfo
 from .db import init_db, log, rows, transaction
 
 def docs_kwargs() -> dict:
@@ -295,6 +295,7 @@ class ReportBody(BaseModel):
     hours: dict[str, float] = {}
     lines: dict[str, float] = {}
     notes: dict[str, str] = {}
+    ai_task_ids: list[int] | None = None   # 本次表单采纳的填报解析任务；不传表示不改已挂上的任务
 
 
 class Comment(BaseModel):
@@ -572,7 +573,7 @@ def rule_new_version(rid: int, body: NewVersion, user=User):
         return rules.new_version(c, user, rid, body.valid_from)
 
 
-# ---------- 填报端 AI 解析：上传文档 / 表格，抽取为建议值（不落库，基层核对后走原有提交流程） ----------
+# ---------- 填报端 AI 解析：上传文档 / 表格，抽取为建议值（不写业务表，基层核对后走原有提交流程） ----------
 
 @app.get('/api/fill/ai-status')
 def fill_ai_status(user=User):
@@ -585,7 +586,7 @@ async def fill_extract_wellinfo(file: UploadFile = File(...), user=User):
     auth.require(user, 'team')
     data = await _read_upload(file)
     with transaction() as c:
-        return fillparse.extract_wellinfo(c, file.filename or '文件', data)
+        return fillparse.extract_wellinfo(c, file.filename or '文件', data, user)
 
 
 @app.post('/api/fill/ai-extract/report')
@@ -593,7 +594,39 @@ async def fill_extract_report(file: UploadFile = File(...), well_id: str = Form(
     data = await _read_upload(file)
     with transaction() as c:
         _team_ctx(c, user, well_id)
-        return fillparse.extract_report(c, file.filename or '文件', data, well_id, date, user['team_id'])
+        return fillparse.extract_report(c, file.filename or '文件', data, well_id, date, user)
+
+
+def _fill_object(c, user, object_type: str, object_id: int) -> None:
+    """填报留痕：本队看自己的单据，管理端看全部。"""
+    if user['role'] not in ('team', 'finance'):
+        raise HTTPException(403, '无权查看')
+    if object_type == '日报':
+        r = c.execute('SELECT team_id FROM daily_report WHERE report_id=?', (object_id,)).fetchone()
+        if not r or (user['role'] == 'team' and r['team_id'] != user['team_id']):
+            raise HTTPException(404, '日报不存在')
+    elif object_type == '新开井':
+        r = c.execute('SELECT team_id FROM well_info_report WHERE report_id=?', (object_id,)).fetchone()
+        if not r or (user['role'] == 'team' and r['team_id'] != user['team_id']):
+            raise HTTPException(404, '基础信息记录不存在')
+    else:
+        raise HTTPException(422, '对象类型不正确')
+
+
+@app.get('/api/fill/ai-trace')
+def fill_ai_trace(object_type: str, object_id: int, user=User):
+    """某张日报或新开井登记的字段级 AI 核对留痕（建议值、最终值、是否改过、任务、操作人、时间）。"""
+    with transaction() as c:
+        _fill_object(c, user, object_type, object_id)
+        return filltrace.query(c, object_type, object_id)
+
+
+@app.get('/api/fill/ai-traces')
+def fill_ai_traces(user=User):
+    """管理端：最近的填报 AI 核对留痕。"""
+    auth.require(user, 'finance')
+    with transaction() as c:
+        return filltrace.recent(c)
 
 
 # ---------- AI 规则解析（第一期，管理端）：依据文件 → 规则草稿 ----------
@@ -727,6 +760,7 @@ class InfoBody(BaseModel):
     design_depth: float = 0
     milestones: dict[str, str | None] = {}
     staff: dict[str, float | int | None] = {}
+    ai_task_ids: list[int] | None = None   # 本次表单采纳的填报解析任务；不传表示不改已挂上的任务
 
 
 @app.exception_handler(wellinfo.InfoError)

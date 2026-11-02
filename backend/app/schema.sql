@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS well_info_report (
   completion_reported_at TEXT,        -- 完井时间首次填报时间
   supersedes_report_id INTEGER REFERENCES well_info_report(report_id),
   source        TEXT NOT NULL DEFAULT '填报',   -- 填报 / 导入
+  ai_task_ids   TEXT NOT NULL DEFAULT '[]',  -- JSON：核对前挂上的填报解析任务，提交时据此落字段留痕
   return_comment TEXT,                -- 企划财务部退回队伍修改的原因（或导入校验未通过的问题）
   returned_by   TEXT,
   returned_at   TEXT
@@ -207,7 +208,7 @@ CREATE TABLE IF NOT EXISTS rule_test (
 -- AI 调用记录：每次解析一条，含文件指纹、模型与提示词版本、原始输出与结果统计；采纳情况从规则状态与修改记录统计
 CREATE TABLE IF NOT EXISTS ai_task (
   task_id        INTEGER PRIMARY KEY AUTOINCREMENT,
-  task_type      TEXT NOT NULL,          -- 规则解析
+  task_type      TEXT NOT NULL,          -- 规则解析 / 日报解析 / 新开井解析
   doc_id         INTEGER REFERENCES source_doc(doc_id),
   status         TEXT NOT NULL CHECK (status IN ('进行中', '完成', '失败')),
   model          TEXT,
@@ -224,6 +225,25 @@ CREATE TABLE IF NOT EXISTS ai_task (
   created_at     TEXT NOT NULL,
   finished_at    TEXT
 );
+
+-- 填报 AI 核对留痕：人提交之后，每个被 AI 填过的字段一行。
+-- 建议值来自 ai_task（解析时只记任务，不写日报 / 基础信息）；最终值在提交时对比后写入。
+CREATE TABLE IF NOT EXISTS ai_fill_trace (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  capture_no   INTEGER NOT NULL,             -- 同一次提交的各字段共用一个编号
+  ai_task_id   INTEGER NOT NULL REFERENCES ai_task(task_id),
+  object_type  TEXT NOT NULL,                -- 日报 / 新开井
+  object_id    TEXT NOT NULL,                -- report_id
+  field_key    TEXT NOT NULL,
+  field_label  TEXT NOT NULL,
+  suggested    TEXT NOT NULL DEFAULT '',     -- 原始 AI 建议（展示文本）
+  submitted    TEXT NOT NULL DEFAULT '',     -- 最终提交值；空串表示提交时该字段为空
+  modified     INTEGER NOT NULL,             -- 1 被人工改过
+  operator     TEXT NOT NULL,
+  submitted_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_fill_trace_object ON ai_fill_trace (object_type, object_id, capture_no);
+CREATE INDEX IF NOT EXISTS ix_fill_trace_task ON ai_fill_trace (ai_task_id);
 
 -- ---------- 三、事实 ----------
 
@@ -262,7 +282,8 @@ CREATE TABLE IF NOT EXISTS daily_report (
   reviewer     TEXT,
   reviewed_at  TEXT,
   review_comment TEXT,
-  supersedes_report_id INTEGER REFERENCES daily_report(report_id)
+  supersedes_report_id INTEGER REFERENCES daily_report(report_id),
+  ai_task_ids  TEXT NOT NULL DEFAULT '[]'    -- JSON：核对前挂上的填报解析任务，提交时据此落字段留痕
 );
 
 CREATE TABLE IF NOT EXISTS business_fact (

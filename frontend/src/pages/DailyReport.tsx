@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { api, download, type Check, type Report, type ReportCatalog } from '../api';
 import type { PageProps } from '../App';
 import { AiFillButton, AiNotes } from '../AiFill';
+import { AiTracePanel } from '../AiTrace';
 import { fmt, Icon, PageHead, today, useLoad, useToast } from '../ui';
 
 interface Mine { report_id: number; well_id: string; report_date: string; version: number; status: string; review_comment: string | null }
-interface AiRep { depth_start?: number; depth_end?: number; hours: Record<string, number>; lines: Record<string, number>; labels: Record<string, string>; doc_nos: Record<string, string>; notes: string[] }
+interface AiRep { task_id?: number; depth_start?: number; depth_end?: number; hours: Record<string, number>; lines: Record<string, number>; labels: Record<string, string>; doc_nos: Record<string, string>; notes: string[] }
 interface Draft { depth_start: number; depth_end: number; hours: Record<string, number>; lines: Record<string, number>; notes: Record<string, string> }
 
 const STATUS_TAG: Record<string, string> = { 草稿: '', 驳回: 'bad', 已提交: 'warn', 已审核: 'good', 新建: '' };
@@ -26,6 +27,7 @@ export default function DailyReport(_: PageProps) {
   const [range, setRange] = useState({ start: '', end: '' });
   const fileRef = useRef<HTMLInputElement>(null);
   const [aiNotes, setAiNotes] = useState<string[] | null>(null);
+  const [aiTasks, setAiTasks] = useState<number[]>([]);
 
   // 默认打开最早的待办日报，否则今天
   useEffect(() => {
@@ -39,6 +41,7 @@ export default function DailyReport(_: PageProps) {
     setRep(r);
     setDraft({ depth_start: r.depth_start, depth_end: r.depth_end, hours: { ...r.hours }, lines: { ...r.lines }, notes: { ...(r.notes || {}) } });
     setChecks(r.checks);
+    setAiTasks(r.ai_task_ids || []);
   };
   const load = async (w = well, d = date) => {
     if (!w || !d) return;
@@ -67,7 +70,7 @@ export default function DailyReport(_: PageProps) {
 
   const save = async (): Promise<Report | null> => {
     if (!rep || !draft) return null;
-    const body = { well_id: well, report_date: date, ...draft };
+    const body = { well_id: well, report_date: date, ...draft, ai_task_ids: aiTasks };
     const r = rep.report_id ? await api.put<Report>(`/api/reports/${rep.report_id}`, body) : await api.post<Report>('/api/reports', body);
     setRep(r);
     return r;
@@ -113,8 +116,10 @@ export default function DailyReport(_: PageProps) {
       lines: { ...d.lines, ...r.lines },
       notes: { ...d.notes, ...r.doc_nos },
     });
+    if (r.task_id) setAiTasks((ids) => (ids.includes(r.task_id!) ? ids : [...ids, r.task_id!]));
     const cnt = Object.keys(r.hours).length + Object.keys(r.lines).length + (r.depth_end !== undefined ? 1 : 0);
-    setAiNotes([`AI 已识别并填入 ${cnt} 项（${date}），请逐项核对后再提交；文件里没有的内容保持原样。`, ...r.notes]);
+    setAiNotes([`AI 已识别并填入 ${cnt} 项（${date}），请逐项核对后再提交；文件里没有的内容保持原样。`
+      + (r.task_id ? ` 解析任务 #${r.task_id} 已记下，提交后可对照建议值与最终值。` : ''), ...r.notes]);
   };
 
   const sections = cat.data?.sections ?? [];
@@ -269,6 +274,9 @@ export default function DailyReport(_: PageProps) {
                   <input ref={fileRef} type="file" accept=".xlsx" hidden onChange={(e) => e.target.files?.[0] && onImport(e.target.files[0])} />
                 </div>
               </details>
+              {rep.report_id != null && (
+                <AiTracePanel key={rep.report_id} objectType="日报" objectId={rep.report_id} refresh={`${rep.status}|${rep.submitted_at || ''}|${aiTasks.join(',')}`} />
+              )}
               {rep.history.length > 0 && (
                 <details className="card pad" style={{ gap: 8 }}>
                   <summary className="bold" style={{ cursor: 'pointer' }}>处理记录（{rep.history.length}）</summary>

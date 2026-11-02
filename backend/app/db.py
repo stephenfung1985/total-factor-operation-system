@@ -94,6 +94,8 @@ NEW_COLUMNS = [
     ('source_doc', 'uploaded_by', 'TEXT'),
     ('source_doc', 'uploaded_at', 'TEXT'),
     ('material', 'enabled', 'INTEGER NOT NULL DEFAULT 1'),   # 主数据维护：物资停用
+    ('daily_report', 'ai_task_ids', "TEXT NOT NULL DEFAULT '[]'"),       # 填报 AI 解析任务，提交时落字段留痕
+    ('well_info_report', 'ai_task_ids', "TEXT NOT NULL DEFAULT '[]'"),
 ]
 
 

@@ -1,7 +1,8 @@
 """填报端 AI 解析：上传文档 / 表格 → 文本 → AI 按填报字段抽取 → 系统校验 → 返回“建议值”。
 
-只返回建议值，不落库：前端把建议值填入表单并标出，基层核对、修改后仍走原有的校验、保存、提交流程。
-AI 不接触数据库；字典（市场、井别、报量项目等）随提示词下发，不在字典内的取值一律丢弃并在提示里说明。
+只返回建议值，不写日报、不写基础信息：前端把建议值填入表单并标出，基层核对、修改后仍走原有的校验、保存、提交流程。
+解析成功时另记一条 ai_task（建议值留在任务上，供提交后按字段对照）；字典（市场、井别、报量项目等）随提示词下发，
+不在字典内的取值一律丢弃并在提示里说明。AI 不直接把业务数据写入数据库。
 """
 import csv
 import re
@@ -10,7 +11,7 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from . import ai, aiparse, reports, wellinfo
+from . import ai, aiparse, filltrace, reports, wellinfo
 
 MAX_CHARS = 40000
 SHEET_EXTS = ('.xlsx', '.xlsm', '.csv', '.tsv')
@@ -65,11 +66,11 @@ def _call(messages: list[dict]) -> dict:
         raise HTTPException(502, str(e)) from e
 
 
-def _trunc(text: str, notes: list[str]) -> str:
+def _trunc(text: str, notes: list[str]) -> tuple[str, bool]:
     if len(text) > MAX_CHARS:
         notes.append(f'文件内容过长，仅解析前 {MAX_CHARS} 字')
-        return text[:MAX_CHARS]
-    return text
+        return text[:MAX_CHARS], True
+    return text, False
 
 
 def _num(v):
@@ -97,10 +98,10 @@ def _dt_text(v) -> str | None:
     return wellinfo._fmt(d)
 
 
-def extract_wellinfo(conn, name: str, data: bytes) -> dict:
+def extract_wellinfo(conn, name: str, data: bytes, user: dict) -> dict:
     text = file_text(name, data)
     notes: list[str] = []
-    text = _trunc(text, notes)
+    text, truncated = _trunc(text, notes)
     ms_desc = {k: wellinfo.MILESTONE_LABEL[k] for k in wellinfo.milestone_keys()}
     prompt = (
         '抽取新开井登记信息，输出 JSON：\n'
@@ -150,15 +151,19 @@ def extract_wellinfo(conn, name: str, data: bytes) -> dict:
             staff[k] = int(n)
     if not (fields or milestones or staff):
         raise HTTPException(422, '没有从文件中识别到可填写的内容，请确认文件是新开井登记相关资料')
-    return {'fields': fields, 'milestones': milestones, 'staff': staff, 'notes': notes, 'chars': len(text)}
+    task_id = filltrace.record_extract(
+        conn, user, kind='新开井', name=name, data=data, text=text, truncated=truncated,
+        suggestions={'fields': fields, 'milestones': milestones, 'staff': staff}, labels={}, notes=notes)
+    return {'fields': fields, 'milestones': milestones, 'staff': staff, 'notes': notes, 'chars': len(text), 'task_id': task_id}
 
 
 # ---------- 成本日报 ----------
 
-def extract_report(conn, name: str, data: bytes, well_id: str, rdate: str, team_id: str) -> dict:
+def extract_report(conn, name: str, data: bytes, well_id: str, rdate: str, user: dict) -> dict:
     text = file_text(name, data)
     notes: list[str] = []
-    text = _trunc(text, notes)
+    text, truncated = _trunc(text, notes)
+    team_id = user['team_id']
     defs = [d for d in reports.line_defs(conn, well_id, rdate, team_id) if d['priced']]
     by_key = {d['key']: d for d in defs}
     conds = reports.WORK_CONDITIONS
@@ -198,5 +203,12 @@ def extract_report(conn, name: str, data: bytes, well_id: str, rdate: str, team_
     total = sum(res['hours'].values())
     if res['hours'] and abs(total - 24) > 1e-6:
         notes.append(f'识别到的工况时间合计 {total:g} 小时，不是 24 小时，请核对')
-    res.update(notes=notes, labels={k: by_key[k]['label'] for k in res['lines']}, chars=len(text))
+    labels = {k: by_key[k]['label'] for k in res['lines']}
+    sugg = {'hours': res['hours'], 'lines': res['lines'], 'doc_nos': res['doc_nos']}
+    if 'depth_end' in res:
+        sugg['depth_start'], sugg['depth_end'] = res['depth_start'], res['depth_end']
+    task_id = filltrace.record_extract(
+        conn, user, kind='日报', name=name, data=data, text=text, truncated=truncated, suggestions=sugg, labels=labels,
+        notes=notes, well_id=well_id, report_date=rdate)
+    res.update(notes=notes, labels=labels, chars=len(text), task_id=task_id)
     return res

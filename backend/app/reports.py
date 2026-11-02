@@ -13,7 +13,7 @@
 """
 from datetime import date as Date, timedelta
 
-from . import engine, report_lines
+from . import engine, filltrace, report_lines
 from .db import jdump, jload, log, now
 
 WORK_CONDITIONS = ['钻进', '起下钻', '接单根', '循环', '下套管', '固井', '测井', '待命', '复杂情况', '其他']
@@ -170,6 +170,7 @@ def _load(conn, report_id: int) -> dict:
     d['hours'] = jload(d['hours'])
     d['lines'] = report_lines.canon_map(jload(d['lines']))
     d['notes'] = report_lines.canon_map(jload(d.pop('line_notes', None)))
+    d['ai_task_ids'] = jload(d.get('ai_task_ids') or '[]', [])
     return d
 
 
@@ -204,7 +205,7 @@ def find_or_new(conn, well_id: str, date: str, team_id: str) -> dict:
         'report_id': None, 'well_id': well_id, 'team_id': team_id, 'report_date': date, 'version': 1, 'status': '新建',
         'phase': h['phase'], 'depth_start': prev['depth_end'] if prev else 0, 'depth_end': prev['depth_end'] if prev else 0,
         'hours': {n: 0 for n in WORK_CONDITIONS}, 'lines': lines, 'notes': notes, 'reporter': None,
-        'header': h, 'line_defs': defs, 'history': [], 'carried': bool(lines),
+        'header': h, 'line_defs': defs, 'history': [], 'carried': bool(lines), 'ai_task_ids': [],
     }
     rep['staff'] = staff_on(conn, well_id, date)
     rep['checks'] = validate(conn, rep, defs)
@@ -217,6 +218,15 @@ def _fields(body: dict, phase) -> tuple:
     return (body.get('depth_start'), body.get('depth_end'), jdump(body.get('hours') or {}), jdump(lines), jdump(notes), phase)
 
 
+def _keep_tasks(conn, rid: int, body: dict, user: dict, well_id: str, date: str) -> None:
+    if body.get('ai_task_ids') is None:
+        return
+    try:
+        filltrace.attach(conn, '日报', rid, body['ai_task_ids'], user, well_id=well_id, report_date=date)
+    except filltrace.FillTraceError as e:
+        raise ReportError(str(e)) from e
+
+
 def save_draft(conn, body: dict, user: dict) -> int:
     well_id, date, team_id = body['well_id'], body['report_date'], body['team_id']
     cur = conn.execute(
@@ -227,6 +237,7 @@ def save_draft(conn, body: dict, user: dict) -> int:
     if cur and cur['status'] in ('草稿', '驳回'):
         conn.execute("UPDATE daily_report SET depth_start=?, depth_end=?, hours=?, lines=?, line_notes=?, phase=?, status='草稿', "
                      'reporter=? WHERE report_id=?', fields + (user['who'], cur['report_id']))
+        _keep_tasks(conn, cur['report_id'], body, user, well_id, date)
         return cur['report_id']
     if cur and cur['status'] == '已提交':
         raise ReportError('日报已提交、待审核，不能再改；如需修改请联系审核人驳回')
@@ -236,6 +247,7 @@ def save_draft(conn, body: dict, user: dict) -> int:
         'INSERT INTO daily_report (well_id, team_id, report_date, status, depth_start, depth_end, hours, lines, line_notes, phase, '
         "reporter) VALUES (?,?,?, '草稿', ?,?,?,?,?,?,?)", (well_id, team_id, date) + fields + (user['who'],)).lastrowid
     log(conn, '日报', rid, '保存草稿', user['who'])
+    _keep_tasks(conn, rid, body, user, well_id, date)
     return rid
 
 
@@ -254,6 +266,10 @@ def submit(conn, report_id: int, user: dict) -> dict:
                  'checked_at=NULL WHERE report_id=?', (now(), user['who'], report_id))
     facts_from_report(conn, report_id, '已提交')
     log(conn, '日报', report_id, '提交', user['who'])
+    try:
+        filltrace.snapshot_report(conn, rep, user)
+    except filltrace.FillTraceError as e:
+        raise ReportError(str(e)) from e
     out = take_effect(conn, report_id, SYSTEM_REVIEWER, '阻断项全部通过，提交即生效'
                       + ('；有警告，进入管理端抽查' if any(c['level'] == '警告' for c in checks) else ''))
     return out
@@ -376,9 +392,10 @@ def correct(conn, report_id: int, user: dict) -> int:
         return pending['report_id']
     rid = conn.execute(
         'INSERT INTO daily_report (well_id, team_id, report_date, version, status, phase, depth_start, depth_end, hours, lines, '
-        "line_notes, reporter, supersedes_report_id) VALUES (?,?,?,?, '草稿', ?,?,?,?,?,?,?,?)",
+        "line_notes, reporter, supersedes_report_id, ai_task_ids) VALUES (?,?,?,?, '草稿', ?,?,?,?,?,?,?,?,?)",
         (rep['well_id'], rep['team_id'], rep['report_date'], rep['version'] + 1, rep['phase'], rep['depth_start'],
-         rep['depth_end'], jdump(rep['hours']), jdump(rep['lines']), jdump(rep['notes']), user['who'], report_id)).lastrowid
+         rep['depth_end'], jdump(rep['hours']), jdump(rep['lines']), jdump(rep['notes']), user['who'], report_id,
+         jdump(rep.get('ai_task_ids') or []))).lastrowid
     log(conn, '日报', rid, '发起更正', user['who'], f'更正版本 {rep["version"]} → {rep["version"] + 1}')
     return rid
 
@@ -390,6 +407,7 @@ def update_draft(conn, report_id: int, body: dict, user: dict) -> None:
     f = _fields(body, rep['phase'])
     conn.execute("UPDATE daily_report SET depth_start=?, depth_end=?, hours=?, lines=?, line_notes=?, status='草稿', reporter=? "
                  'WHERE report_id=?', f[:5] + (user['who'], report_id))
+    _keep_tasks(conn, report_id, body, user, rep['well_id'], rep['report_date'])
 
 
 def catalog(conn) -> dict:

@@ -115,9 +115,12 @@ function Level0({ period, title, picker, open, canImport, onImported }: {
     return [...list].sort((a, b) => (sort === 'id' ? a.well_id.localeCompare(b.well_id) : key(b) - key(a)));
   }, [data, q, sort]);
   const isYear = period.length === 4;
+  // 全年未满 12 个月时，同比基线是去年同期（同月），不是上年全年
+  const partialYear = isYear && !!data && data.months.length < 12;
+  const compareLabel = isYear ? (partialYear ? '去年同期' : '同比') : '环比';
   return (
     <>
-      <PageHead title={title} sub={data ? `数据范围：${data.scope}${isYear ? ` · ${period} 年累计（${data.months.length} 个月）` : ''}` : undefined}
+      <PageHead title={title} sub={data ? `数据范围：${data.scope}${isYear ? ` · ${period} 年累计（${data.months.length} 个月${partialYear ? '，较去年同期' : ''}）` : ''}` : undefined}
         right={
           <div className="head-actions">
             {canImport && (
@@ -135,7 +138,7 @@ function Level0({ period, title, picker, open, canImport, onImported }: {
       {error && <div className="notice">{error}</div>}
       {data && (
         <>
-          <Kpis board items={execKpis(data.sum, data.prev?.sum, isYear ? '同比' : '环比')} />
+          <Kpis board items={execKpis(data.sum, data.prev?.sum, compareLabel)} />
           <ExecBoard data={data} open={open} />
           <OverviewCharts data={data} />
           <div className="ov-bar" role="group" aria-label="井列表筛选">

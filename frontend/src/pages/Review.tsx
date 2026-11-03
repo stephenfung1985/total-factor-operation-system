@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { api, type Report, type ReviewRow } from '../api';
+import { api, type AiFillTraceGroup, type Report, type ReviewRow } from '../api';
+import { AiTracePanel } from '../AiTrace';
 import type { PageProps } from '../App';
 import { Drawer, fmt, Icon, PageHead, Seg, useLoad, useToast, yuan } from '../ui';
 
@@ -13,7 +14,9 @@ export default function Review(_: PageProps) {
   const [tab, setTab] = useState<Tab>('todo');
   const sum = useLoad(() => api.get<Summary>('/api/monitor/summary'), [tab]);
   const list = useLoad(() => api.get<ReviewRow[]>(`/api/monitor/reports?tab=${tab}`), [tab]);
+  const traces = useLoad(() => api.get<AiFillTraceGroup[]>('/api/fill/ai-traces'), [tab]);
   const [open, setOpen] = useState<number | null>(null);
+  const [wellTrace, setWellTrace] = useState<number | null>(null);
   const detail = useLoad(() => (open === null ? Promise.resolve(null) : api.get<Report>(`/api/reports/${open}`)), [open]);
   const [comment, setComment] = useState('');
   const [busy, setBusy] = useState(false);
@@ -27,6 +30,7 @@ export default function Review(_: PageProps) {
       setComment('');
       list.reload();
       sum.reload();
+      traces.reload();
     } catch (e) {
       toast((e as Error).message, true);
     } finally {
@@ -68,6 +72,29 @@ export default function Review(_: PageProps) {
             ))}
           </div>
         </div>
+      </section>
+      <section className="card list">
+        <div className="sec-head" style={{ padding: '14px 24px 0' }}><h3>AI 导入核对留痕</h3></div>
+        <div className="hint" style={{ padding: '4px 24px 8px', whiteSpace: 'normal' }}>提交后按字段记下 AI 建议值、最终值和是否被人工改过，可据此追责、统计准确率。</div>
+        {traces.error && <div className="msg block" style={{ padding: '0 24px 12px' }}>{traces.error}</div>}
+        {traces.data?.length === 0 && <div className="empty">还没有经过 AI 解析导入后提交的单据</div>}
+        {traces.data?.map((g) => {
+          const id = Number(g.object_id);
+          const active = g.object_type === '新开井' && wellTrace === id;
+          return (
+            <div key={`${g.object_type}-${g.object_id}-${g.capture_no}`}>
+              <button type="button" className="grid-row line" style={{ gridTemplateColumns: '72px 1fr 1fr 1.2fr 16px' }}
+                onClick={() => (g.object_type === '日报' ? setOpen(id) : setWellTrace(active ? null : id))}>
+                <span className="tag">{g.object_type}</span>
+                <span><span className="bold">{g.well_id}</span> <span className="num muted">{g.report_date || g.period}</span> · {g.team}</span>
+                <span>{g.fields} 项 · 人工改过 {g.modified} 项</span>
+                <span className="small muted">{g.operator} · {g.submitted_at?.slice(0, 16)}</span>
+                {Icon.chevron()}
+              </button>
+              {active && <div style={{ padding: '0 16px 12px' }}><AiTracePanel objectType="新开井" objectId={id} /></div>}
+            </div>
+          );
+        })}
       </section>
       <Drawer open={open !== null} onClose={() => setOpen(null)} label="日报详情"
         head={<>
@@ -117,6 +144,7 @@ export default function Review(_: PageProps) {
               {d.checks.length === 0 && <div className="msg">全部校验通过</div>}
               {d.checks.map((c, i) => <div key={i} className={'msg' + (c.level === '阻断' ? ' block' : '')}>· {c.level}：{c.message}</div>)}
             </section>
+            {d.report_id != null && <AiTracePanel key={d.report_id} objectType="日报" objectId={d.report_id} refresh={`${d.status}|${d.submitted_at || ''}`} />}
             <section className="sec">
               <div className="sec-label">处理记录</div>
               {d.history.map((h, i) => <div key={i} className="msg">{h.operated_at.slice(5, 16)} · {h.action} · {h.operator}{h.comment ? '：' + h.comment : ''}</div>)}

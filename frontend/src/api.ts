@@ -164,11 +164,11 @@ export interface ReportCatalog {
 export interface Report {
   report_id: number | null; well_id: string; team_id: string; report_date: string; version: number; status: string; phase: string;
   depth_start: number; depth_end: number; hours: Record<string, number>; lines: Record<string, number>; notes: Record<string, string>;
-  reporter: string | null; carried?: boolean; staff?: Record<string, number>;
+  reporter: string | null; submitted_at?: string | null; carried?: boolean; staff?: Record<string, number>;
   review_comment?: string | null; supersedes_report_id?: number | null; reviewer?: string | null;
   checked_by?: string | null; checked_at?: string | null;
   header: { well_id: string; date: string; team: string; block: string; well_type: string; phase: string; in_period: boolean };
-  line_defs: LineDef[]; checks: Check[];
+  line_defs: LineDef[]; checks: Check[]; ai_task_ids?: number[];
   history: { action: string; operator: string; operated_at: string; comment: string | null }[];
   batch?: { created: number; reversed: number; amount_change: number };
 }
@@ -232,7 +232,7 @@ export interface InfoRecord extends InfoFields {
   report_id: number | null; team_id: string; team_no: string; version: number; status: string; creator: string;
   registered_at: string | null; completion_reported_at: string | null; submitted_at: string | null;
   source?: string; return_comment?: string | null; returned_by?: string | null; returned_at?: string | null;
-  derived: InfoDerived; checks: Check[];
+  derived: InfoDerived; checks: Check[]; ai_task_ids?: number[];
   history: { report_id: number; version: number; status: string; submitted_at: string | null; creator: string;
     source: string; return_comment: string | null; returned_by: string | null; returned_at: string | null }[];
   batch?: { created: number; reversed: number; amount_change: number } | null;
@@ -255,6 +255,19 @@ export interface InfoWellDetail extends InfoSummaryRow {
   segments: { phase: string; start_at: string; end_at: string | null; team: string }[];
   versions: { report_id: number; version: number; status: string; submitted_at: string; creator: string; team: string;
     source: string; return_comment: string | null }[];
+}
+export interface AiFillField {
+  id: number; capture_no: number; ai_task_id: number; field_key: string; field_label: string;
+  suggested: string; submitted: string; modified: boolean; operator: string; submitted_at: string;
+}
+export interface AiFillTrace {
+  object_type: string; object_id: string; fields: AiFillField[]; latest: AiFillField[];
+  tasks: { task_id: number; task_type: string; model: string | null; created_by: string; created_at: string }[];
+  summary: { fields: number; modified: number; unchanged: number; captures: number };
+}
+export interface AiFillTraceGroup {
+  object_type: string; object_id: string; capture_no: number; submitted_at: string; operator: string;
+  fields: number; modified: number; well_id?: string; report_date?: string; period?: string; team?: string; version?: number;
 }
 export interface PendingReturn {
   report_id: number; well_id: string; version: number; source: string; return_comment: string; returned_by: string;

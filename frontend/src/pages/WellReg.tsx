@@ -3,9 +3,10 @@ import { api, type Check, type InfoDerived, type InfoFields, type InfoMine, type
 import type { PageProps } from '../App';
 import { fmt, Icon, PageHead, useLoad, useToast } from '../ui';
 import { AiFillButton, AiNotes } from '../AiFill';
+import { AiTracePanel } from '../AiTrace';
 import { WellLibrary } from './WellLibrary';
 
-interface AiWell { fields: Partial<InfoFields>; milestones: Record<string, string>; staff: Record<string, number>; notes: string[] }
+interface AiWell { task_id?: number; fields: Partial<InfoFields>; milestones: Record<string, string>; staff: Record<string, number>; notes: string[] }
 
 const FIELD_KEYS: (keyof InfoFields)[] = ['well_id', 'period', 'market', 'captain', 'rig_type', 'client', 'block', 'well_category',
   'well_type', 'spud_sections', 'design_depth', 'milestones', 'staff'];
@@ -31,6 +32,7 @@ export default function WellReg(_: PageProps) {
   const [busy, setBusy] = useState(false);
   const [libTick, setLibTick] = useState(0);
   const [aiNotes, setAiNotes] = useState<string[] | null>(null);
+  const [aiTasks, setAiTasks] = useState<number[]>([]);
 
   useEffect(() => {
     if (sel !== null || !mine.data) return;
@@ -42,6 +44,7 @@ export default function WellReg(_: PageProps) {
     setForm(pick(r));
     setChecks(r.checks);
     setDerived(r.derived);
+    setAiTasks(r.ai_task_ids || []);
   };
   useEffect(() => {
     if (sel === null) return;
@@ -80,8 +83,10 @@ export default function WellReg(_: PageProps) {
       for (let k = n + 1; k <= 5; k++) { ms[`开钻${k}`] = null; ms[`完钻${k}`] = null; }
       return { ...f, ...fields, milestones: ms, staff: { ...f.staff, ...r.staff } };
     });
+    if (r.task_id) setAiTasks((ids) => (ids.includes(r.task_id!) ? ids : [...ids, r.task_id!]));
     const cnt = Object.keys(r.fields).length + Object.keys(r.milestones).length + Object.keys(r.staff).length;
-    setAiNotes([`AI 已识别并填入 ${cnt} 项，请逐项核对后再提交；文件里没有的内容保持原样。`, ...r.notes]);
+    setAiNotes([`AI 已识别并填入 ${cnt} 项，请逐项核对后再提交；文件里没有的内容保持原样。`
+      + (r.task_id ? ` 解析任务 #${r.task_id} 已记下，提交后可对照建议值与最终值。` : ''), ...r.notes]);
   };
 
   const run = async (fn: () => Promise<InfoRecord>, ok: (r: InfoRecord) => string) => {
@@ -99,7 +104,7 @@ export default function WellReg(_: PageProps) {
       setBusy(false);
     }
   };
-  const save = () => api.post<InfoRecord>('/api/wellinfo', { ...form, report_id: rec?.report_id });
+  const save = () => api.post<InfoRecord>('/api/wellinfo', { ...form, report_id: rec?.report_id, ai_task_ids: aiTasks });
   const onSave = () => run(save, () => '草稿已保存');
   const onSubmit = () => run(async () => {
     const r = await save();
@@ -279,6 +284,9 @@ export default function WellReg(_: PageProps) {
               <div className="kvline"><span>创建人</span><span>{rec.creator}</span></div>
             </section>
 
+            {rec.report_id != null && (
+              <AiTracePanel key={rec.report_id} objectType="新开井" objectId={rec.report_id} refresh={`${rec.status}|${rec.submitted_at || ''}|${aiTasks.join(',')}`} />
+            )}
             {rec.history.length > 0 && (
               <details className="card pad" style={{ gap: 8 }}>
                 <summary className="bold" style={{ cursor: 'pointer' }}>版本记录（{rec.history.length}）</summary>

@@ -362,8 +362,10 @@ def task_row(conn, t) -> dict:
 
 
 def list_tasks(conn) -> list[dict]:
+    """规则解析任务。填报解析（日报 / 新开井）走填报核对留痕，不混进这里。"""
     return [task_row(conn, t) for t in conn.execute(
-        'SELECT t.*, d.doc_name FROM ai_task t LEFT JOIN source_doc d ON d.doc_id=t.doc_id ORDER BY t.task_id DESC LIMIT 50')]
+        "SELECT t.*, d.doc_name FROM ai_task t LEFT JOIN source_doc d ON d.doc_id=t.doc_id "
+        "WHERE t.task_type='规则解析' ORDER BY t.task_id DESC LIMIT 50")]
 
 
 def parse(conn, doc_id: int, user: dict) -> dict:

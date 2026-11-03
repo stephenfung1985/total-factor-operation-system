@@ -8,7 +8,7 @@
 import re
 from datetime import date, datetime, timedelta
 
-from . import engine
+from . import engine, filltrace
 from .db import jdump, jload, log, now
 
 SECTIONS = ['一开', '二开', '三开', '四开', '五开']
@@ -217,6 +217,7 @@ def _row_to_rec(r) -> dict:
     d = dict(r)
     d['milestones'] = jload(d['milestones'])
     d['staff'] = jload(d['staff'])
+    d['ai_task_ids'] = jload(d.get('ai_task_ids') or '[]', [])
     return d
 
 
@@ -257,6 +258,7 @@ def template(conn, user: dict) -> dict:
         'client': '', 'block': '', 'well_category': '', 'well_type': '', 'spud_sections': 2, 'design_depth': 0,
         'milestones': {k: None for k in milestone_keys()}, 'staff': {k: 0 for k, _ in STAFF},
         'creator': user['name'], 'registered_at': None, 'completion_reported_at': None, 'submitted_at': None,
+        'ai_task_ids': [],
     }
 
 
@@ -276,6 +278,15 @@ def my_wells(conn, user: dict) -> list[dict]:
     return out
 
 
+def _keep_tasks(conn, rid: int, body: dict, user: dict) -> None:
+    if body.get('ai_task_ids') is None:
+        return
+    try:
+        filltrace.attach(conn, '新开井', rid, body['ai_task_ids'], user)
+    except filltrace.FillTraceError as e:
+        raise InfoError(str(e)) from e
+
+
 def save_draft(conn, body: dict, user: dict) -> int:
     rec = normalize(body)
     team_id = user['team_id']
@@ -292,6 +303,7 @@ def save_draft(conn, body: dict, user: dict) -> int:
         conn.execute('UPDATE well_info_report SET well_id=?, period=?, market=?, captain=?, rig_type=?, client=?, block=?, '
                      'well_category=?, well_type=?, spud_sections=?, design_depth=?, milestones=?, staff=?, updated_at=? '
                      'WHERE report_id=?', fields + (now(), rid))
+        _keep_tasks(conn, rid, body, user)
         return rid
     if not rec['well_id']:
         raise InfoError('请先填写井号')
@@ -307,6 +319,7 @@ def save_draft(conn, body: dict, user: dict) -> int:
         "VALUES (?,?,1,'草稿',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (rec['well_id'], team_id) + fields[1:] + (user['name'], now(), now())).lastrowid
     log(conn, '基础信息', rid, '保存草稿', user['who'])
+    _keep_tasks(conn, rid, body, user)
     return rid
 
 
@@ -327,9 +340,9 @@ def _copy_draft(conn, rid: int, creator: str) -> int:
     return conn.execute(
         'INSERT INTO well_info_report (well_id, team_id, version, status, period, market, captain, rig_type, client, block, '
         'well_category, well_type, spud_sections, design_depth, milestones, staff, creator, created_at, updated_at, '
-        "registered_at, completion_reported_at, supersedes_report_id) SELECT well_id, team_id, version+1, '草稿', period, market, "
-        'captain, rig_type, client, block, well_category, well_type, spud_sections, design_depth, milestones, staff, ?, ?, ?, '
-        'registered_at, completion_reported_at, report_id FROM well_info_report WHERE report_id=?',
+        "registered_at, completion_reported_at, supersedes_report_id, ai_task_ids) SELECT well_id, team_id, version+1, '草稿', "
+        'period, market, captain, rig_type, client, block, well_category, well_type, spud_sections, design_depth, milestones, '
+        'staff, ?, ?, ?, registered_at, completion_reported_at, report_id, ai_task_ids FROM well_info_report WHERE report_id=?',
         (creator, now(), now(), rid)).lastrowid
 
 
@@ -355,6 +368,10 @@ def submit(conn, rid: int, user: dict, at: datetime | None = None, recalc: bool 
     blocks = [c['message'] for c in checks if c['level'] == '阻断']
     if blocks:
         raise InfoError('存在阻断项，不能提交：' + '；'.join(blocks))
+    try:
+        filltrace.snapshot_well(conn, rec, user)
+    except filltrace.FillTraceError as e:
+        raise InfoError(str(e)) from e
     if prev:
         conn.execute("UPDATE well_info_report SET status='已被更新' WHERE report_id=?", (prev['report_id'],))
     conn.execute("UPDATE well_info_report SET status='已提交', submitted_at=?, registered_at=?, completion_reported_at=? "

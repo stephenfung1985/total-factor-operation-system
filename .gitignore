@@ -1,0 +1,14 @@
+# 本机私有配置（口令、SakuraFrp 访问密钥等）。示例见 deploy/env.example。
+# 部署时的真实文件在 ~/tfos-data/env，不在仓库里；下面这些是误拷进仓库时的文件名。
+.env
+.env.*
+!.env.example
+*.env
+!*.env.example
+deploy/env
+env.local
+
+# 渲染后的 launchd 配置可能含访问密钥；模板是 *.plist.tpl，可以提交。
+com.tfos.*.plist
+frpc.ini
+frpc.toml

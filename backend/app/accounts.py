@@ -17,23 +17,29 @@ SESSION_HOURS = 12
 MAX_FAILED = 5
 LOCK_MINUTES = 15
 INITIAL_PASSWORD = '123456'
-ROLE_WHO = {'finance': '企划财务部'}
+ROLE_WHO = {'finance': '企划财务部', 'cost': '费用管理部室', 'admin': '系统管理员'}
 
-# 初始账号：(登录名, 角色, 队号)。专业部室角色已取消：部室只提供规则变化依据，由管理端维护规则。
+# 初始账号：(登录名, 角色, 队号)。
+# 规则入库三级：管理端（普通账户）提交，费用管理部室确认或退回，系统管理员发布。
+# 专业部室角色已取消，不在此列。
 INITIAL_ACCOUNTS = [
     ('fengxuecheng', 'finance', None),
     ('jinliuchao', 'finance', None),
+    ('feiyong', 'cost', None),
+    ('admin', 'admin', None),
     ('70152', 'team', '70152'),
 ]
 PUBLIC_FIELDS = ('user_id', 'username', 'name', 'role', 'who', 'team_id', 'dept', 'scope_label', 'must_change', 'enabled',
                  'last_login', 'created_at', 'is_debug')
 
-# 调试账号：登录后可在演示身份间切换，用于系统调试；正式上线前由系统管理员停用
+# 调试账号：登录后可在演示身份间切换，用于系统调试；正式上线前由管理端停用
 DEBUG_USERNAME = 'test'
 DEBUG_PASSWORD = 'test'
 DEMO_USERS = [   # (user_id, 姓名, 角色, 身份说明, 队伍, 部室, 数据范围)
     ('u_fin', '经营管理员', 'finance', '企划财务部 · 经营管理', None, None, '全部'),
     ('u_team', '统计员', 'team', '70101 钻井队 · 统计员', 't1', None, '70101 钻井队'),
+    ('u_cost', '费用管理员', 'cost', '费用管理部室 · 规则确认', None, '费用管理部室', '全部'),
+    ('u_admin', '系统管理员', 'admin', '系统管理员 · 规则发布', None, None, '全部'),
 ]
 DEMO_IDS = [u[0] for u in DEMO_USERS]
 
@@ -79,6 +85,10 @@ def _profile(conn, role: str, username: str, scope: str | None) -> dict:
         return {'who': f"{team['name']} · {username}", 'team_id': team['team_id'], 'dept': None, 'scope_label': team['name']}
     if role == 'finance':
         return {'who': f'企划财务部 · {username}', 'team_id': None, 'dept': None, 'scope_label': '全部'}
+    if role == 'cost':
+        return {'who': f'费用管理部室 · {username}', 'team_id': None, 'dept': '费用管理部室', 'scope_label': '全部'}
+    if role == 'admin':
+        return {'who': f'系统管理员 · {username}', 'team_id': None, 'dept': None, 'scope_label': '全部'}
     raise AuthError('角色不正确')
 
 
@@ -115,14 +125,6 @@ def production_check() -> str:
     return pwd
 
 
-def _drop_admin_role(conn) -> None:
-    """系统管理员角色已取消，功能并入管理端：清除旧库里的管理员账号与演示身份及其会话。"""
-    ids = [r['user_id'] for r in conn.execute("SELECT user_id FROM app_user WHERE role='admin'")]
-    for uid in ids:
-        conn.execute('DELETE FROM app_session WHERE user_id=? OR acting_user_id=?', (uid, uid))
-        conn.execute('DELETE FROM app_user WHERE user_id=?', (uid,))
-
-
 def _drop_dept_role(conn) -> None:
     """专业部室角色已取消（规则与日报不再经部室审核）：清除旧库里的部室账号、演示身份及其会话；历史留痕在操作日志里不受影响。"""
     ids = [r['user_id'] for r in conn.execute("SELECT user_id FROM app_user WHERE role='dept'")]
@@ -134,7 +136,6 @@ def _drop_dept_role(conn) -> None:
 def ensure_initial_accounts(conn) -> None:
     """建立初始账号、演示身份和调试账号（已存在的不动）。"""
     prod = is_production()
-    _drop_admin_role(conn)
     _drop_dept_role(conn)
     initial = production_check() if prod else INITIAL_PASSWORD
     for username, role, scope in INITIAL_ACCOUNTS:
@@ -249,10 +250,12 @@ def set_enabled(conn, user_id: str, enabled: bool, operator_id: str) -> None:
         raise AuthError('不能停用自己的账号')
     if not enabled:
         target = conn.execute('SELECT role FROM app_user WHERE user_id=?', (user_id,)).fetchone()
-        others = conn.execute("SELECT COUNT(*) n FROM app_user WHERE role='finance' AND enabled=1 AND username IS NOT NULL "
-                              "AND is_debug=0 AND user_id!=?", (user_id,)).fetchone()['n']
-        if target and target['role'] == 'finance' and not others:
-            raise AuthError('至少保留一个启用的管理端账号')
+        guard = {'finance': '管理端', 'cost': '费用管理部室', 'admin': '系统管理员'}
+        if target and target['role'] in guard:
+            others = conn.execute('SELECT COUNT(*) n FROM app_user WHERE role=? AND enabled=1 AND username IS NOT NULL '
+                                  'AND is_debug=0 AND user_id!=?', (target['role'], user_id)).fetchone()['n']
+            if not others:
+                raise AuthError(f"至少保留一个启用的{guard[target['role']]}账号")
     conn.execute('UPDATE app_user SET enabled=? WHERE user_id=?', (1 if enabled else 0, user_id))
     if not enabled:
         conn.execute('DELETE FROM app_session WHERE user_id=?', (user_id,))

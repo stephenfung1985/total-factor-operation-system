@@ -199,7 +199,7 @@ export interface RuleDetail {
   versions: { rule_id: number; version: number; status: string; unit_price: number; valid_from: string; valid_to: string | null }[];
   logs: { action: string; operator: string; operated_at: string; comment: string | null }[];
   hits: { count: number; amount: number };
-  can_edit: boolean; can_confirm: boolean; can_publish: boolean; can_reject: boolean; can_new_version: boolean; can_rollback: boolean;
+  can_edit: boolean; can_submit: boolean; can_confirm: boolean; can_publish: boolean; can_reject: boolean; can_new_version: boolean; can_rollback: boolean;
   change_basis: string | null; owner_dept: string | null;
   options: { dimensions: string[]; operators: string[] };
   backtest?: { result: string; message: string };

@@ -1,6 +1,6 @@
 """AI 规则解析（第一期）：依据文件 → 文本 → AI 拆条款、提规则草稿 → 系统校验 → “待确认”规则。
 
-只产出草稿：AI 不能写已发布规则，确认、回算、影响预览、发布仍走 rules 的现有流程。
+只产出待确认草稿：AI 不能写已发布规则。草稿由上传人（普通账户）提交，费用管理部室确认或退回，系统管理员发布。
 校验分两级：
   不采纳（不生成草稿，列出原因）：科目不在科目树、单价不是数字、引用的原文在文件里找不到（标不出出处的不采纳）、
                                   计价方式或触发事实不在系统字典里；写不成公式的条款列为“需人工计价”。
@@ -355,7 +355,7 @@ def task_row(conn, t) -> dict:
                                  "AND l.object_id=CAST(r.rule_id AS TEXT) WHERE r.ai_task_id=? AND l.action='修改'",
                                  (d['task_id'],)).fetchone()['n'],
         'rejected': conn.execute("SELECT COUNT(DISTINCT l.object_id) n FROM approval_log l JOIN economic_rule r ON l.object_type='规则' "
-                                 "AND l.object_id=CAST(r.rule_id AS TEXT) WHERE r.ai_task_id=? AND l.action='驳回'",
+                                 "AND l.object_id=CAST(r.rule_id AS TEXT) WHERE r.ai_task_id=? AND l.action IN ('驳回', '退回')",
                                  (d['task_id'],)).fetchone()['n'],
     }
     return d
@@ -412,11 +412,11 @@ def parse(conn, doc_id: int, user: dict) -> dict:
             rid = conn.execute(
                 'INSERT INTO economic_rule (rule_code, version, name, item_code, clause_id, fact_type, pricing_method, base_item_code, '
                 'calc_order, unit_price, unit, calc_params, combine_mode, granularity, priority, valid_from, status, origin, '
-                "ai_confidence, field_levels, ai_task_id) VALUES (?,1,?,?,?,?,?,?,?,?,?,?,?,?,0,?, '待确认', 'AI提取', ?,?,?)",
+                "ai_confidence, field_levels, ai_task_id, submitted_by, submitted_at) VALUES (?,1,?,?,?,?,?,?,?,?,?,?,?,?,0,?, '待确认', 'AI提取', ?,?,?,?,?)",
                 (f'RL-AI{task_id}-{n:02d}', clean['name'], clean['item_code'], clause_id, clean['fact_type'], clean['pricing_method'],
                  clean['base_item_code'], order, clean['unit_price'], clean['unit'], jdump(clean['params']), clean['combine_mode'],
                  clean['granularity'], clean['valid_from'] or doc['valid_from'] or date.today().isoformat(),
-                 clean['confidence'], jdump(clean['levels']), task_id)).lastrowid
+                 clean['confidence'], jdump(clean['levels']), task_id, user['who'], now())).lastrowid
             for c in clean['conditions']:
                 conn.execute('INSERT INTO rule_condition (rule_id, dimension, operator, value) VALUES (?,?,?,?)',
                              (rid, c['dimension'], c['operator'], c['value']))

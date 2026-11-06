@@ -131,7 +131,8 @@ def test_parse_creates_checked_drafts(client, monkeypatch):
     assert task['status'] == '完成' and task['model'] == 'fake-model' and task['draft_count'] == 1
     assert task['adoption'] == {'pending': 1, 'published': 0, 'modified': 0, 'rejected': 0}
     # 草稿走现有流程：确认 → 回算 → 待发布；AI 不能越过人工确认
-    c = client.post(f"/api/rules/{d['rule_id']}/confirm", headers=FIN).json()
+    assert client.post(f"/api/rules/{d['rule_id']}/confirm", headers=FIN).status_code == 403   # 普通账户不能确认自己提交的草稿
+    c = client.post(f"/api/rules/{d['rule_id']}/confirm", headers={'X-User-Id': 'u_cost'}).json()
     assert c['rule']['status'] in ('待发布', '待确认')
     docs = client.get('/api/ai/docs', headers=FIN).json()
     assert docs[0]['parse_status'] == '已解析' and docs[0]['last_task']['draft_count'] == 1

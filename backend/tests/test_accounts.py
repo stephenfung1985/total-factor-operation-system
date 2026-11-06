@@ -24,6 +24,7 @@ def bearer(token):
 
 @pytest.mark.parametrize('username,role,scope', [
     ('fengxuecheng', 'finance', '全部'), ('jinliuchao', 'finance', '全部'),
+    ('feiyong', 'cost', '全部'), ('admin', 'admin', '全部'),
     ('70152', 'team', '70152 钻井队')])
 def test_initial_accounts(client, username, role, scope):
     r = login(client, username).json()
@@ -95,7 +96,8 @@ def test_management_manages_accounts(client):
     assert client.get('/api/admin/users', headers=team).status_code == 403
     assert client.get('/api/admin/users', headers=fin).status_code == 200
     users = {u['username']: u for u in client.get('/api/admin/users', headers=adm).json()['users']}
-    assert {'fengxuecheng', 'jinliuchao', '70152'} <= set(users) and 'admin' not in users and 'gcjsb' not in users
+    assert {'fengxuecheng', 'jinliuchao', 'feiyong', 'admin', '70152'} <= set(users) and 'gcjsb' not in users
+    assert users['feiyong']['role'] == 'cost' and users['admin']['role'] == 'admin'
     assert all('password_hash' not in u for u in users.values())
     u = client.post('/api/admin/users', json={'username': 'dz70188', 'role': 'team', 'scope': '70188', 'password': 'Init8888'},
                     headers=adm).json()
@@ -130,13 +132,14 @@ def test_debug_account_switches_demo_identities(client):
     h = bearer(r['token'])
     me = r['user']
     assert me['debug'] and me['user_id'] == 'u_fin' and me['must_change'] == 0 and me['login_username'] == 'test'
-    assert [i['user_id'] for i in me['identities']] == ['u_fin', 'u_team']
+    assert [i['user_id'] for i in me['identities']] == ['u_fin', 'u_team', 'u_cost', 'u_admin']
     assert '[调试 test]' in me['who']
     # 切到填报端：数据范围是 70101 队
     me = client.post('/api/auth/switch', json={'user_id': 'u_team'}, headers=h).json()
     assert me['role'] == 'team' and me['team_id'] == 't1'
     assert [w['well_id'] for w in client.get('/api/reports/wells', headers=h).json()] == ['W001']
-    assert client.post('/api/auth/switch', json={'user_id': 'u_admin'}, headers=h).status_code == 400   # 只能切演示身份
+    assert client.post('/api/auth/switch', json={'user_id': 'u_admin'}, headers=h).json()['role'] == 'admin'
+    assert client.post('/api/auth/switch', json={'user_id': 'nobody'}, headers=h).status_code == 400   # 只能切演示身份
     assert client.post('/api/auth/switch', json={'user_id': 'jinliuchao'}, headers=h).status_code == 400
     # 普通账号不能切换
     fin = bearer(login(client, 'fengxuecheng').json()['token'])

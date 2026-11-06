@@ -506,14 +506,14 @@ class NewVersion(BaseModel):
 
 @app.get('/api/rules')
 def rule_list(user=User):
-    auth.require(user, 'finance')
+    auth.require(user, *auth.RULE_ACTORS)
     with transaction() as c:
         return rules.list_rules(c, user)
 
 
 @app.get('/api/rules/{rid:int}')
 def rule_detail(rid: int, user=User):
-    auth.require(user, 'finance')
+    auth.require(user, *auth.RULE_ACTORS)
     with transaction() as c:
         return rules.detail(c, user, rid)
 
@@ -524,21 +524,29 @@ class PublishBody(BaseModel):
 
 @app.put('/api/rules/{rid:int}')
 def rule_update(rid: int, body: RuleEdit, user=User):
-    auth.require(user, 'finance')
+    auth.require(user, *auth.RULE_ACTORS)
     with transaction() as c:
         return rules.update(c, user, rid, body.model_dump(exclude_none=True))
 
 
+@app.post('/api/rules/{rid:int}/submit')
+def rule_submit(rid: int, user=User):
+    """普通账户提交草稿，进入费用管理部室确认。"""
+    auth.require(user, *auth.RULE_ACTORS)
+    with transaction() as c:
+        return rules.submit(c, user, rid)
+
+
 @app.post('/api/rules/{rid:int}/confirm')
 def rule_confirm(rid: int, user=User):
-    auth.require(user, 'finance')
+    auth.require(user, *auth.RULE_ACTORS)
     with transaction() as c:
         return rules.confirm(c, user, rid)
 
 
 @app.post('/api/rules/{rid:int}/reject')
 def rule_reject(rid: int, body: Comment, user=User):
-    auth.require(user, 'finance')
+    auth.require(user, *auth.RULE_ACTORS)
     with transaction() as c:
         return rules.reject(c, user, rid, body.comment)
 
@@ -546,14 +554,14 @@ def rule_reject(rid: int, body: Comment, user=User):
 @app.post('/api/rules/{rid:int}/impact')
 def rule_impact(rid: int, user=User):
     """发布前影响预览：按发布试算一遍，返回将新增 / 冲销的事项与各井金额变化，然后整体回滚，不落库。"""
-    auth.require(user, 'finance')
+    auth.require(user, *auth.RULE_ACTORS)
     with transaction() as c:
         return rules.impact(c, user, rid)
 
 
 @app.post('/api/rules/{rid:int}/publish')
 def rule_publish(rid: int, body: PublishBody, user=User):
-    auth.require(user, 'finance')
+    auth.require(user, *auth.RULE_ACTORS)
     with transaction() as c:
         return rules.publish(c, user, rid, body.change_basis)
 
@@ -561,14 +569,14 @@ def rule_publish(rid: int, body: PublishBody, user=User):
 @app.post('/api/rules/{rid:int}/rollback')
 def rule_rollback(rid: int, body: Comment, user=User):
     """发布后发现有误：本版本废止、上一版本恢复生效（没有上一版本则停用该规则），受影响月份冲销重算。"""
-    auth.require(user, 'finance')
+    auth.require(user, *auth.RULE_ACTORS)
     with transaction() as c:
         return rules.rollback(c, user, rid, body.comment)
 
 
 @app.post('/api/rules/{rid:int}/new-version')
 def rule_new_version(rid: int, body: NewVersion, user=User):
-    auth.require(user, 'finance')
+    auth.require(user, *auth.RULE_ACTORS)
     with transaction() as c:
         return rules.new_version(c, user, rid, body.valid_from)
 
@@ -1043,7 +1051,7 @@ def permissions(user=User):
     with transaction() as c:
         users = rows(c.execute('SELECT user_id, name, role, who, scope_label FROM app_user WHERE username IS NOT NULL AND enabled=1'))
     return {'roles': [{'id': k, 'name': v} for k, v in auth.ROLE_NAMES.items()],
-            'matrix': [{'name': n, 'cells': {'team': p[0], 'finance': p[1]}} for n, p in auth.PERMS],
+            'matrix': [{'name': n, 'cells': dict(zip(auth.ROLE_ORDER, p))} for n, p in auth.PERMS],
             'users': users}
 
 

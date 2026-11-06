@@ -8,7 +8,7 @@ const STEPS = ['草稿', '待确认', '回算中', '待发布', '已发布'];
 type Filter = 'todo' | 'published' | 'all';
 const TODO = ['草稿', '待确认', '回算中', '待发布'];
 
-export default function Rules(_: PageProps) {
+export default function Rules({ me }: PageProps) {
   const toast = useToast();
   const [filter, setFilter] = useState<Filter>('todo');
   const [publishing, setPublishing] = useState(false);
@@ -45,10 +45,16 @@ export default function Rules(_: PageProps) {
     }
   };
   const id = d?.rule.rule_id;
+  const submit = () => act(() => api.post(`/api/rules/${id}/submit`), () => '已提交，等待费用管理部室确认');
   const confirm = () => act(() => api.post(`/api/rules/${id}/confirm`), (r) => `回算${r.backtest?.result}：${r.backtest?.message}`);
   const reject = () => {
-    const c = window.prompt('驳回意见');
-    if (c !== null) act(() => api.post(`/api/rules/${id}/reject`, { comment: c }), () => '已驳回，退回草稿');
+    const c = window.prompt('退回原因（提交人可见）');
+    if (c === null) return;
+    if (!c.trim()) {
+      toast('退回必须填写原因', true);
+      return;
+    }
+    act(() => api.post(`/api/rules/${id}/reject`, { comment: c.trim() }), () => '已退回，提交人可修改后重新提交');
   };
   const publish = (basis: string) => act(() => api.post(`/api/rules/${id}/publish`, { change_basis: basis }), (r) => {
     setPublishing(false);
@@ -63,8 +69,8 @@ export default function Rules(_: PageProps) {
   const cur = d ? STEPS.indexOf(d.rule.status) : -1;
   return (
     <>
-      <PageHead title="规则库" sub="按专业部室提供的变化依据维护：确认（冲突检查 + 回算）→ 影响预览 → 登记依据发布；发布后有误可一键回滚"
-        right={<button type="button" className="btn primary sm" onClick={() => setImporting(true)}>导入依据文件 · AI 解析</button>} />
+      <PageHead title="规则库" sub="三级入库：普通账户提交 → 费用管理部室确认或退回（冲突检查 + 回算）→ 系统管理员登记依据并发布；发布后有误由系统管理员回滚"
+        right={me.role === 'finance' ? <button type="button" className="btn primary sm" onClick={() => setImporting(true)}>导入依据文件 · AI 解析</button> : undefined} />
       <AiImport open={importing} onClose={() => setImporting(false)} onDone={() => { list.reload(); setFilter('todo'); }} onPick={(rid) => { setFilter('todo'); setSel(rid); }} />
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', alignItems: 'center' }}>
         <div className="steps">
@@ -142,8 +148,9 @@ export default function Rules(_: PageProps) {
                     </div>
                   )}
                   <div className="btn-row" style={{ paddingTop: 14 }}>
-                    {d.can_reject && <button type="button" className="btn danger" disabled={busy} onClick={reject}>退回草稿</button>}
+                    {d.can_reject && <button type="button" className="btn danger" disabled={busy} onClick={reject}>退回</button>}
                     {d.can_edit && <button type="button" className="btn" disabled={busy} onClick={() => setEdit(true)}>修改</button>}
+                    {d.can_submit && <button type="button" className="btn primary" disabled={busy} onClick={submit}>提交</button>}
                     {d.can_confirm && <button type="button" className="btn primary" disabled={busy} onClick={confirm}>确认，进入回算</button>}
                     {d.can_publish && <button type="button" className="btn primary" disabled={busy} onClick={() => setPublishing(true)}>影响预览并发布</button>}
                     {d.can_new_version && <button type="button" className="btn" disabled={busy} onClick={newVersion}>调价 · 新建版本</button>}

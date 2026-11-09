@@ -95,7 +95,8 @@ def test_permissions_page_is_management_only(client):
     nav = client.get('/api/me', headers=H('u_fin')).json()['nav']
     assert {'perm', 'review', 'rules'} <= {i['id'] for g in nav for i in g['items']}
     m = client.get('/api/admin/permissions', headers=H('u_fin')).json()
-    assert [r['id'] for r in m['roles']] == ['finance', 'team'] and set(m['matrix'][0]['cells']) == {'team', 'finance'}
+    assert [r['id'] for r in m['roles']] == ['finance', 'team', 'cost', 'admin']
+    assert set(m['matrix'][0]['cells']) == {'team', 'finance', 'cost', 'admin'}
 
 
 # ---------- 成本日报 → 提交即生效 → 规则引擎 ----------
@@ -144,14 +145,16 @@ def test_rule_confirm_backtest_publish(client):
     lst = client.get('/api/rules', headers=H('u_fin')).json()
     draft = next(r for r in lst if r['rule_code'] == 'RL-C2-3-04')
     assert draft['status'] == '待确认'
-    # 规则由管理端维护，基层队无权
+    # 已提交的规则由费用管理部室确认；基层队和普通账户都不能确认
     assert client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=H('u_team')).status_code == 403
-    d = client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=H('u_fin')).json()
+    assert client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=H('u_fin')).status_code == 403
+    d = client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=H('u_cost')).json()
     assert d['backtest']['result'] == '豁免' and d['rule']['status'] == '待发布'
-    # 发布必须登记部室提供的变化依据
-    assert client.post(f"/api/rules/{draft['rule_id']}/publish", json={}, headers=H('u_fin')).status_code == 422
+    # 发布必须由系统管理员登记变化依据
+    assert client.post(f"/api/rules/{draft['rule_id']}/publish", json={}, headers=H('u_cost')).status_code == 403
+    assert client.post(f"/api/rules/{draft['rule_id']}/publish", json={}, headers=H('u_admin')).status_code == 422
     d = client.post(f"/api/rules/{draft['rule_id']}/publish", json={'change_basis': '工程技术部 2026-12 号 定向服务价格通知'},
-                    headers=H('u_fin')).json()
+                    headers=H('u_admin')).json()
     assert d['rule']['status'] == '已发布' and '定向服务价格通知' in d['change_basis']
     assert any('变化依据' in (x['comment'] or '') for x in d['logs'])
     # 发布后日报出现“定向服务”行，且外包服务无签证单为阻断
@@ -172,12 +175,14 @@ def test_new_version_supersedes_and_recalculates(client):
     mud = next(r for r in lst if r['rule_code'] == 'RL-C2-1-02-01')
     nv = client.post(f"/api/rules/{mud['rule_id']}/new-version", json={'valid_from': '2026-08-01'}, headers=H('u_fin')).json()
     nid = nv['rule']['rule_id']
-    assert nv['rule']['version'] == 2
+    assert nv['rule']['version'] == 2 and nv['rule']['status'] == '草稿'
     client.put(f'/api/rules/{nid}', json={'unit_price': 500}, headers=H('u_fin'))
-    d = client.post(f'/api/rules/{nid}/confirm', headers=H('u_fin')).json()
+    assert client.post(f'/api/rules/{nid}/confirm', headers=H('u_cost')).status_code == 409   # 草稿未经提交不能确认
+    client.post(f'/api/rules/{nid}/submit', headers=H('u_fin'))
+    d = client.post(f'/api/rules/{nid}/confirm', headers=H('u_cost')).json()
     assert d['backtest']['result'] == '不通过' and d['rule']['status'] == '待确认'
     # 偏差超阈值不能发布
-    assert client.post(f'/api/rules/{nid}/publish', json={'change_basis': '调价通知'}, headers=H('u_fin')).status_code == 409
+    assert client.post(f'/api/rules/{nid}/publish', json={'change_basis': '调价通知'}, headers=H('u_admin')).status_code == 409
 
 
 def test_events_are_append_only(tmp_path, client):

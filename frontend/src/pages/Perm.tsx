@@ -8,16 +8,16 @@ interface Perms {
   matrix: { name: string; cells: Record<string, string> }[];
   users: { user_id: string; role: string; who: string; scope_label: string }[];
 }
-const ORDER = ['finance', 'team'];
+const ORDER = ['finance', 'team', 'cost', 'admin'];
 const CLS: Record<string, string> = { 编辑: 'edit', 审核: 'review', 查看: 'view' };
 
 export default function Perm({ me }: PageProps) {
   const { data, error } = useLoad(() => api.get<Perms>('/api/admin/permissions'), []);
   const name = (id: string) => data?.roles.find((r) => r.id === id)?.name ?? id;
-  const tpl = '1.6fr repeat(3, minmax(0, 1fr))';
+  const tpl = '1.6fr repeat(4, minmax(0, 1fr))';
   return (
     <>
-      <PageHead title="角色与权限" sub="账号由管理端分配；功能权限按角色分配，数据按行控制：填报端只看本队，管理端看全部" />
+      <PageHead title="角色与权限" sub="账号由管理端分配。规则入库分三级：普通账户提交，费用管理部室确认或退回，系统管理员发布。填报端只看本队" />
       <Accounts meId={me.user_id} />
       {error && <div className="notice">{error}</div>}
       {data && (
@@ -38,7 +38,7 @@ export default function Perm({ me }: PageProps) {
           <section className="card list">
             <div className="card-head"><h2>功能权限矩阵</h2><div className="hint">编辑 · 审核 · 查看 · 无</div></div>
             <div className="scroll-x">
-              <div className="nowrap" style={{ minWidth: 760 }}>
+              <div className="nowrap" style={{ minWidth: 980 }}>
                 <div className="grid-row grid-head" style={{ gridTemplateColumns: tpl }}><span>功能</span>{ORDER.map((id) => <span key={id}>{name(id)}</span>)}</div>
                 {data.matrix.map((m) => (
                   <div key={m.name} className="grid-row" style={{ gridTemplateColumns: tpl, minHeight: 50, fontSize: 14, borderBottom: '1px solid var(--sep2)' }}>
@@ -53,6 +53,7 @@ export default function Perm({ me }: PageProps) {
             <h3>硬约束</h3>
             <div style={{ fontSize: 14, lineHeight: '22px' }}>任何角色都不能直接修改经济事项，金额只由规则引擎写入；数据库触发器同样禁止改写和删除事项。</div>
             <div style={{ fontSize: 14, lineHeight: '22px' }}>AI 只生成草稿，不能写入已发布规则表；已发布规则的价格与条件不能修改，只能新建版本。</div>
+            <div style={{ fontSize: 14, lineHeight: '22px' }}>费用规则必须按三级入库：普通账户提交，费用管理部室确认或退回，系统管理员发布。接口按角色拒绝越权，不能由同一角色走完全程。</div>
             <div style={{ fontSize: 14, lineHeight: '22px' }}>账号与权限由管理端统一管理。</div>
             <div style={{ fontSize: 14, lineHeight: '22px' }}>密码加盐散列存储；初始密码首次登录须修改；连续输错 5 次锁定 15 分钟；登录 12 小时后需重新登录。</div>
           </section>

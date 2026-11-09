@@ -96,16 +96,69 @@ NEW_COLUMNS = [
     ('material', 'enabled', 'INTEGER NOT NULL DEFAULT 1'),   # 主数据维护：物资停用
     ('daily_report', 'ai_task_ids', "TEXT NOT NULL DEFAULT '[]'"),       # 填报 AI 解析任务，提交时落字段留痕
     ('well_info_report', 'ai_task_ids', "TEXT NOT NULL DEFAULT '[]'"),
+    ('economic_rule', 'submitted_by', 'TEXT'),    # 普通账户提交人；本列首次补上时，库里已有规则视为已发布
+    ('economic_rule', 'submitted_at', 'TEXT'),
 ]
 
 
 def _add_columns(conn) -> None:
+    added_submit = False
     for table, col, ddl in NEW_COLUMNS:
         have = {r['name'] for r in conn.execute(f'PRAGMA table_info({table})')}
         if col not in have:
             conn.execute(f'ALTER TABLE {table} ADD COLUMN {col} {ddl}')
+            if table == 'economic_rule' and col == 'submitted_by':
+                added_submit = True
+    _widen_user_role(conn)
     conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS ix_user_username ON app_user (username)')
+    if added_submit:
+        _publish_legacy_rules(conn)
     _widen_pool_basis(conn)
+
+
+def _widen_user_role(conn) -> None:
+    """旧库的 app_user.role 只允许 finance / team / dept。补上费用管理部室和系统管理员，原有账号原样保留。"""
+    row = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='app_user'").fetchone()
+    if not row or not row['sql'] or 'cost' in row['sql']:
+        return
+    info = list(conn.execute('PRAGMA table_info(app_user)'))
+    cols = [c['name'] for c in info]
+    defs = []
+    for c in info:
+        if c['name'] == 'role':
+            defs.append("role TEXT NOT NULL CHECK (role IN ('finance', 'team', 'dept', 'cost', 'admin'))")
+            continue
+        part = f"{c['name']} {c['type'] or 'TEXT'}"
+        if c['pk']:
+            part += ' PRIMARY KEY'
+        elif c['notnull']:
+            part += ' NOT NULL'
+        if c['dflt_value'] is not None:
+            part += f" DEFAULT {c['dflt_value']}"
+        defs.append(part)
+    conn.commit()
+    conn.execute('PRAGMA foreign_keys=OFF')
+    try:
+        conn.execute('ALTER TABLE app_user RENAME TO app_user_old')
+        conn.execute('CREATE TABLE app_user (' + ', '.join(defs) + ')')
+        collist = ', '.join(cols)
+        conn.execute(f'INSERT INTO app_user ({collist}) SELECT {collist} FROM app_user_old')
+        conn.execute('DROP TABLE app_user_old')
+    finally:
+        conn.execute('PRAGMA foreign_keys=ON')
+
+
+def _publish_legacy_rules(conn) -> None:
+    """升级前已经入库的规则不再重走三级流程：草稿和待审一律视为已发布。已被替代、已废止保持原状。"""
+    rows = conn.execute(
+        "SELECT rule_id, status FROM economic_rule WHERE status NOT IN ('已发布', '已被替代', '已废止')").fetchall()
+    ts = now()
+    for r in rows:
+        conn.execute(
+            "UPDATE economic_rule SET status='已发布', published_at=COALESCE(published_at, ?), "
+            'confirmed_at=COALESCE(confirmed_at, ?), confirmed_by=COALESCE(confirmed_by, ?) WHERE rule_id=?',
+            (ts, ts, '系统迁移', r['rule_id']))
+        log(conn, '规则', r['rule_id'], '迁移', '系统', f"升级前状态为{r['status']}，视为已发布")
 
 
 def _widen_pool_basis(conn) -> None:

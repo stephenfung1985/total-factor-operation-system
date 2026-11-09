@@ -1,12 +1,11 @@
-"""规则维护：草稿 → 待确认 → 回算中 → 待发布 → 已发布 → 已被替代 / 已废止；任一步驳回退回草稿。
+"""规则维护：草稿 → 待确认 → 回算中 → 待发布 → 已发布 → 已被替代 / 已废止。
 
-专业部室不再审核规则：部室只提供变化依据（合同、补充协议、制度、通知），由管理端录入、确认并发布。
-没有了第二道人工审核，靠下面几道系统关口兜底：
-  确认时自动检查冲突并用历史井回算，超阈值退回待确认；
-  发布前可做影响预览（按发布试算后整体回滚，不落库），看清各井金额变化再发；
-  发布必须登记变化依据，写入规则与操作日志，可追溯；
-  发布后发现有误可一键回滚：本版本废止、上一版本恢复生效，受影响月份冲销重算。
-已发布规则只增不改：调价时复制为新版本草稿，发布后旧版本失效日由新版本推导。
+费用规则入库分三级，后端按角色拒绝越权，不能由同一人走完全程：
+  普通账户（管理端）起草、修改草稿并提交；
+  费用管理部室确认或退回（确认时冲突检查 + 历史井回算，超阈值留在待确认）；
+  系统管理员做影响预览、登记依据后发布；发布后有误由系统管理员回滚。
+任一步退回都回到草稿，由普通账户修改后重新提交。
+已发布规则只增不改：调价时由普通账户复制为新版本草稿，再走三级流程；旧版本失效日由新版本推导。
 """
 from datetime import date, timedelta
 
@@ -16,7 +15,7 @@ from . import engine
 from .db import jdump, jload, log, money, now
 
 STEPS = ['草稿', '待确认', '回算中', '待发布', '已发布']
-EDITABLE = ('草稿', '待确认')
+EDITABLE = ('草稿',)   # 提交后锁定，费用管理部室退回后才能再改
 DIMENSIONS = ['井号', '市场', '区块', '甲方', '井别', '井型', '井深', '开次', '队伍', '钻机型号']
 OPERATORS = ['等于', '属于', '大于', '小于']
 
@@ -30,11 +29,19 @@ def _row(conn, rule_id: int) -> dict:
 
 
 def _visible(user: dict, r: dict) -> bool:
+    return user['role'] in ('finance', 'cost', 'admin')
+
+
+def _submitter(user: dict) -> bool:
     return user['role'] == 'finance'
 
 
-def _can_edit(user: dict, r: dict) -> bool:
-    return user['role'] == 'finance'
+def _reviewer(user: dict) -> bool:
+    return user['role'] == 'cost'
+
+
+def _publisher(user: dict) -> bool:
+    return user['role'] == 'admin'
 
 
 def list_rules(conn, user: dict) -> list[dict]:
@@ -94,29 +101,44 @@ def detail(conn, user: dict, rule_id: int) -> dict:
         'fields': [{'label': a, 'value': b, 'level': levels.get(a, '高')} for a, b in fields],
         'clause': clause, 'tests': tests, 'versions': versions, 'logs': logs,
         'hits': {'count': hits['n'], 'amount': money(hits['a'])},
-        'can_edit': _can_edit(user, r) and r['status'] in EDITABLE,
-        'can_confirm': _can_edit(user, r) and r['status'] in EDITABLE,
-        'can_publish': _can_edit(user, r) and r['status'] == '待发布',
-        'can_reject': _can_edit(user, r) and r['status'] in ('待确认', '回算中', '待发布'),
-        'can_new_version': _can_edit(user, r) and r['status'] == '已发布',
-        'can_rollback': _can_edit(user, r) and r['status'] == '已发布',
+        'can_edit': _submitter(user) and r['status'] in EDITABLE,
+        'can_submit': _submitter(user) and r['status'] == '草稿',
+        'can_confirm': _reviewer(user) and r['status'] == '待确认',
+        'can_publish': _publisher(user) and r['status'] == '待发布',
+        'can_reject': _reviewer(user) and r['status'] in ('待确认', '回算中', '待发布'),
+        'can_new_version': _submitter(user) and r['status'] == '已发布',
+        'can_rollback': _publisher(user) and r['status'] == '已发布',
         'change_basis': r.get('change_basis'),
         'owner_dept': r['owner_dept'],
         'options': {'dimensions': DIMENSIONS, 'operators': OPERATORS},
     }
 
 
-def _need_edit(conn, user, rule_id) -> dict:
+def _need(conn, user, rule_id, allowed: bool, message: str) -> dict:
     r = _row(conn, rule_id)
-    if not _can_edit(user, r):
-        raise HTTPException(403, '规则由管理端维护，当前角色只读')
+    if not _visible(user, r):
+        raise HTTPException(404, '规则不存在或不在数据范围内')
+    if not allowed:
+        raise HTTPException(403, message)
     return r
 
 
+def _need_submitter(conn, user, rule_id) -> dict:
+    return _need(conn, user, rule_id, _submitter(user), '只有普通账户可以提交或修改规则')
+
+
+def _need_reviewer(conn, user, rule_id) -> dict:
+    return _need(conn, user, rule_id, _reviewer(user), '只有费用管理部室可以确认或退回规则')
+
+
+def _need_publisher(conn, user, rule_id) -> dict:
+    return _need(conn, user, rule_id, _publisher(user), '只有系统管理员可以发布、预览或回滚规则')
+
+
 def update(conn, user: dict, rule_id: int, body: dict) -> dict:
-    r = _need_edit(conn, user, rule_id)
+    r = _need_submitter(conn, user, rule_id)
     if r['status'] not in EDITABLE:
-        raise HTTPException(409, '只有草稿和待确认的规则可以修改；已发布规则请新建版本')
+        raise HTTPException(409, '只有草稿可以修改；已提交的规则须由费用管理部室退回，已发布规则请新建版本')
     params = jload(r['calc_params'])
     if 'factor_rules' in body:
         params['factor_rules'] = body['factor_rules']
@@ -151,11 +173,22 @@ def _conflicts(conn, r: dict) -> list[str]:
     return msgs
 
 
+def submit(conn, user: dict, rule_id: int) -> dict:
+    """普通账户把草稿提交给费用管理部室。提交后价格和条件锁定，退回后才能再改。"""
+    r = _need_submitter(conn, user, rule_id)
+    if r['status'] != '草稿':
+        raise HTTPException(409, f"当前状态“{r['status']}”不能提交")
+    conn.execute("UPDATE economic_rule SET status='待确认', submitted_by=?, submitted_at=? WHERE rule_id=?",
+                 (user['who'], now(), rule_id))
+    log(conn, '规则', rule_id, '提交', user['who'], '提交费用管理部室确认')
+    return detail(conn, user, rule_id)
+
+
 def confirm(conn, user: dict, rule_id: int) -> dict:
-    """人工确认 → 自动检查 → 回算；达标或豁免进入待发布，超阈值退回待确认。"""
-    r = _need_edit(conn, user, rule_id)
-    if r['status'] not in EDITABLE:
-        raise HTTPException(409, f"当前状态“{r['status']}”不能确认")
+    """费用管理部室确认 → 自动检查 → 回算；达标或豁免进入待发布，超阈值留在待确认。"""
+    r = _need_reviewer(conn, user, rule_id)
+    if r['status'] != '待确认':
+        raise HTTPException(409, f"当前状态“{r['status']}”不能确认，须由普通账户先提交")
     conflicts = _conflicts(conn, r)
     if conflicts:
         raise HTTPException(409, '；'.join(conflicts))
@@ -172,11 +205,15 @@ def confirm(conn, user: dict, rule_id: int) -> dict:
 
 
 def reject(conn, user: dict, rule_id: int, comment: str | None) -> dict:
-    r = _need_edit(conn, user, rule_id)
+    """费用管理部室退回：回到草稿，普通账户按原因修改后重新提交。"""
+    r = _need_reviewer(conn, user, rule_id)
     if r['status'] not in ('待确认', '回算中', '待发布'):
-        raise HTTPException(409, f"当前状态“{r['status']}”不能驳回")
+        raise HTTPException(409, f"当前状态“{r['status']}”不能退回")
+    comment = (comment or '').strip()
+    if not comment:
+        raise HTTPException(422, '退回必须填写原因')
     conn.execute("UPDATE economic_rule SET status='草稿' WHERE rule_id=?", (rule_id,))
-    log(conn, '规则', rule_id, '驳回', user['who'], comment)
+    log(conn, '规则', rule_id, '退回', user['who'], comment)
     return detail(conn, user, rule_id)
 
 
@@ -199,17 +236,17 @@ def _publish(conn, user: dict, r: dict, change_basis: str) -> dict | None:
 
 
 def _ready(conn, user: dict, rule_id: int) -> dict:
-    r = _need_edit(conn, user, rule_id)
+    r = _need_publisher(conn, user, rule_id)
     if r['status'] != '待发布':
-        raise HTTPException(409, '只有回算达标（或豁免）的规则可以发布')
+        raise HTTPException(409, '只有费用管理部室确认且回算达标（或豁免）的规则可以发布')
     return r
 
 
 def publish(conn, user: dict, rule_id: int, change_basis: str) -> dict:
+    r = _ready(conn, user, rule_id)
     change_basis = (change_basis or '').strip()
     if len(change_basis) < 4:
         raise HTTPException(422, '请登记变化依据：部室提供的文件、通知或会议纪要（文号与名称）')
-    r = _ready(conn, user, rule_id)
     batch = _publish(conn, user, r, change_basis)
     out = detail(conn, user, rule_id)
     out['batch'] = batch
@@ -237,12 +274,12 @@ def impact(conn, user: dict, rule_id: int) -> dict:
 
 def rollback(conn, user: dict, rule_id: int, reason: str | None) -> dict:
     """发布后发现有误时的补救：本版本废止；有上一版本则恢复它生效（失效日清空），没有则规则停用；受影响月份冲销重算。"""
+    r = _need_publisher(conn, user, rule_id)
+    if r['status'] != '已发布':
+        raise HTTPException(409, '只有已发布的规则可以回滚')
     reason = (reason or '').strip()
     if not reason:
         raise HTTPException(422, '请填写回滚原因')
-    r = _need_edit(conn, user, rule_id)
-    if r['status'] != '已发布':
-        raise HTTPException(409, '只有已发布的规则可以回滚')
     conn.execute("UPDATE economic_rule SET status='已废止' WHERE rule_id=?", (rule_id,))
     prev = conn.execute('SELECT * FROM economic_rule WHERE rule_id=?', (r['supersedes_rule_id'],)).fetchone() \
         if r['supersedes_rule_id'] else None
@@ -261,7 +298,7 @@ def rollback(conn, user: dict, rule_id: int, reason: str | None) -> dict:
 
 
 def new_version(conn, user: dict, rule_id: int, valid_from: str | None) -> dict:
-    r = _need_edit(conn, user, rule_id)
+    r = _need_submitter(conn, user, rule_id)
     if r['status'] != '已发布':
         raise HTTPException(409, '只有已发布的规则可以新建版本')
     pending = conn.execute("SELECT rule_id FROM economic_rule WHERE rule_code=? AND status IN ('草稿','待确认','回算中','待发布')",

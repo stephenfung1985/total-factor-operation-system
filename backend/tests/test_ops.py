@@ -16,7 +16,7 @@ def H(user):
     return {'X-User-Id': user}
 
 
-FIN, TEAM = H('u_fin'), H('u_team')
+FIN, TEAM, COST, ADMIN = H('u_fin'), H('u_team'), H('u_cost'), H('u_admin')
 
 
 def body(depth_end=4874, date='2026-10-10'):
@@ -103,7 +103,8 @@ def _mud_v2(client, price):
     mud = next(r for r in client.get('/api/rules', headers=FIN).json() if r['rule_code'] == 'RL-C2-1-02-01')
     nid = client.post(f"/api/rules/{mud['rule_id']}/new-version", json={'valid_from': '2026-08-01'}, headers=FIN).json()['rule']['rule_id']
     client.put(f'/api/rules/{nid}', json={'unit_price': price}, headers=FIN)
-    assert client.post(f'/api/rules/{nid}/confirm', headers=FIN).json()['rule']['status'] == '待发布'
+    client.post(f'/api/rules/{nid}/submit', headers=FIN)
+    assert client.post(f'/api/rules/{nid}/confirm', headers=COST).json()['rule']['status'] == '待发布'
     return mud['rule_id'], nid
 
 
@@ -120,28 +121,28 @@ def test_impact_preview_publish_and_rollback(client):
     old, nid = _mud_v2(client, 420)                     # 415.35 → 420，回算偏差 1.1%，达标
     cost0 = client.get('/api/wells/W001/result?period=2026-08', headers=FIN).json()['kpi']['total_cost']
     snap = _counts()
-    imp = client.post(f'/api/rules/{nid}/impact', headers=FIN).json()
+    imp = client.post(f'/api/rules/{nid}/impact', headers=ADMIN).json()
     assert _counts() == snap                            # 预览整体回滚，不落库
     assert imp['reversed'] > 0 and imp['well_count'] >= 1 and imp['amount_change'] != 0
-    d = client.post(f'/api/rules/{nid}/publish', json={'change_basis': '工程技术部 泥浆服务调价通知 2026-08'}, headers=FIN).json()
+    d = client.post(f'/api/rules/{nid}/publish', json={'change_basis': '工程技术部 泥浆服务调价通知 2026-08'}, headers=ADMIN).json()
     assert d['rule']['status'] == '已发布' and d['batch']['amount_change'] == imp['amount_change']   # 预览与实际一致
     cost1 = client.get('/api/wells/W001/result?period=2026-08', headers=FIN).json()['kpi']['total_cost']
     assert cost1 != cost0
     # 发布后发现有误：回滚，v2 废止、v1 恢复，金额回到原值
-    assert client.post(f'/api/rules/{nid}/rollback', json={'comment': ''}, headers=FIN).status_code == 422
-    r = client.post(f'/api/rules/{nid}/rollback', json={'comment': '调价通知尚未生效'}, headers=FIN).json()
+    assert client.post(f'/api/rules/{nid}/rollback', json={'comment': ''}, headers=ADMIN).status_code == 422
+    r = client.post(f'/api/rules/{nid}/rollback', json={'comment': '调价通知尚未生效'}, headers=ADMIN).json()
     assert r['restored'] == 1 and r['rule']['rule_id'] == old and r['rule']['status'] == '已发布' and r['rule']['valid_to'] is None
     assert _counts()[1] == ['已发布', '已废止']
     cost2 = client.get('/api/wells/W001/result?period=2026-08', headers=FIN).json()['kpi']['total_cost']
     assert cost2 == pytest.approx(cost0, abs=1)
-    assert client.post(f'/api/rules/{nid}/rollback', json={'comment': '再回滚'}, headers=FIN).status_code == 409
+    assert client.post(f'/api/rules/{nid}/rollback', json={'comment': '再回滚'}, headers=ADMIN).status_code == 409
 
 
 def test_rollback_without_previous_version_disables_rule(client):
     draft = next(r for r in client.get('/api/rules', headers=FIN).json() if r['rule_code'] == 'RL-C2-3-04')
-    client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=FIN)
-    client.post(f"/api/rules/{draft['rule_id']}/publish", json={'change_basis': '定向服务合同 2026-001'}, headers=FIN)
-    r = client.post(f"/api/rules/{draft['rule_id']}/rollback", json={'comment': '合同未签'}, headers=FIN).json()
+    client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=COST)
+    client.post(f"/api/rules/{draft['rule_id']}/publish", json={'change_basis': '定向服务合同 2026-001'}, headers=ADMIN)
+    r = client.post(f"/api/rules/{draft['rule_id']}/rollback", json={'comment': '合同未签'}, headers=ADMIN).json()
     assert r['restored'] is None and r['rule']['status'] == '已废止'
     rep = client.get('/api/reports/current?well_id=W001&date=2026-10-10', headers=TEAM).json()
     assert not next(x for x in rep['line_defs'] if x['key'] == 'C2-3-04')['show']     # 停用后日报不再列这一项

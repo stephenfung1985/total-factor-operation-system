@@ -52,11 +52,29 @@ deploy/install.sh        # 再运行一次：建 venv、构建前端、注册开
 1. 注册 <https://www.natfrp.com> 并完成实名认证（国内服务商的要求）。
 2. 在「隧道列表」新建隧道：类型选 **HTTPS**（或 HTTP），本地地址 `127.0.0.1`，本地端口 `8000`，节点选离你们最近的。创建后会得到一个访问地址（形如 `xxxx.natfrp.cloud`，具体以后台显示为准）。
 3. 在「软件下载」里下载 **frpc（macOS arm64）**，放到 `~/tfos-data/frpc`，`chmod +x ~/tfos-data/frpc`。
-4. 在后台找到你的**访问密钥**和**隧道 ID**，执行：
+4. 在后台复制**访问密钥**和**隧道 ID**。不要把真实值写进仓库、本文档或提交说明。写到本机私有配置 `~/tfos-data/env`（`deploy/install.sh` 会按 `deploy/env.example` 生成，权限 600；这个文件在家目录，不在仓库里），或只放在当前 shell 的环境变量里。示例里的对应项是：
+
    ```bash
-   deploy/install.sh frpc "0cldtdie1jqdr27cjbt6psa5weciz4sx:29519245"
+   # SAKURAFRP_TOKEN=<YOUR_SAKURAFRP_TOKEN>
+   # SAKURAFRP_TUNNEL_ID=<YOUR_TUNNEL_ID>
    ```
-   frpc 会作为开机自启服务运行（配置文件权限 600，密钥不会进仓库）。日志：`~/tfos-data/logs/frpc.log`。
+
+   在本机 `~/tfos-data/env` 里去掉行首 `#` 并填上真实值，再从该文件读取后执行（密钥只进入本机进程参数，不会进仓库）：
+
+   ```bash
+   set -a && . ~/tfos-data/env && set +a
+   deploy/install.sh frpc "${SAKURAFRP_TOKEN}:${SAKURAFRP_TUNNEL_ID}"
+   ```
+
+   也可以只在当前终端导出，关掉终端后即消失，同样不要把真实值写回任何会进 git 的文件：
+
+   ```bash
+   export SAKURAFRP_TOKEN='<YOUR_SAKURAFRP_TOKEN>'
+   export SAKURAFRP_TUNNEL_ID='<YOUR_TUNNEL_ID>'
+   deploy/install.sh frpc "${SAKURAFRP_TOKEN}:${SAKURAFRP_TUNNEL_ID}"
+   ```
+
+   frpc 会作为开机自启服务运行（本机 LaunchAgent 配置权限 600，密钥只留在本机）。日志：`~/tfos-data/logs/frpc.log`。
 5. 把第 2 步的地址发给外地同事。
 
 穿透服务商的套餐、流量、HTTPS 证书和访问控制选项以其后台为准，我无法替你核实；cpolar、花生壳的流程类似，把第 4 步换成它们的客户端即可。
@@ -67,6 +85,7 @@ deploy/install.sh        # 再运行一次：建 venv、构建前端、注册开
 - [ ] 账号管理里只保留真实在用的账号；离职人员及时停用
 - [ ] **不要**在路由器上同时做端口映射，外部入口只留穿透这一条
 - [ ] 穿透后台如有访问控制（来源限制 / 访问密码），建议开启
+- [ ] SakuraFrp 访问密钥和隧道 ID 只写在本机 `~/tfos-data/env` 或环境变量里；仓库和文档中只保留 `<YOUR_SAKURAFRP_TOKEN>` 这类占位符
 - [ ] 应用自带：连续输错 5 次锁定该账号 15 分钟，会话 12 小时过期。注意这也意味着有人可以故意输错来锁别人的账号，发生时由管理员在账号管理里重置
 - [ ] 穿透之后，应用看到的来源 IP 是穿透节点的 IP，无法按用户 IP 限速，要靠账号锁定和服务商的控制
 

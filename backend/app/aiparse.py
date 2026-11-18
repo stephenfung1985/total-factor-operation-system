@@ -1,10 +1,12 @@
-"""AI 规则解析（第一期）：依据文件 → 文本 → AI 拆条款、提规则草稿 → 系统校验 → “待确认”规则。
+"""AI 规则解析（第一期）：依据文件 → 文本 → AI 拆条款、提规则草稿 → 系统校验 → 草稿。
 
-只产出待确认草稿：AI 不能写已发布规则。草稿由上传人（普通账户）提交，费用管理部室确认或退回，系统管理员发布。
+只产出草稿，不填提交人，也不能写已发布规则。普通账户对照原文（尤其是低置信度字段）核对、修改后提交，
+费用管理部室确认或退回，系统管理员发布。AI 不算钱。
 校验分两级：
   不采纳（不生成草稿，列出原因）：科目不在科目树、单价不是数字、引用的原文在文件里找不到（标不出出处的不采纳）、
-                                  计价方式或触发事实不在系统字典里；写不成公式的条款列为“需人工计价”。
-  标为低置信度（生成草稿，确认时逐字核对）：单位、条件维度或取值、报量项目、组合方式、计算粒度不合规的字段。
+                                  计价方式或触发事实不在系统字典里。
+  需人工计价：写不成公式的条款写入条款表，挂在原依据文件上，由普通账户补成草稿，不另建无依据的规则。
+  标为低置信度（生成草稿，提交前逐字核对）：单位、条件维度或取值、报量项目、组合方式、计算粒度不合规的字段。
 每次调用写一条 ai_task：文件指纹、模型与提示词版本、原始输出、生成 / 不采纳 / 人工计价的数量；采纳情况从规则状态与修改记录统计。
 """
 import hashlib
@@ -235,6 +237,26 @@ def find_span(text: str, ev: str) -> tuple[int, int] | None:
     return (m.start(), m.end()) if m else None
 
 
+def _insert_clause(conn, doc_id: int, full: str, clause_no: str, page: str, quote: str) -> tuple[int, str]:
+    """把条款原文挂到依据文件上。能在全文里定位就记下前后文；定位不到也保留摘录，供人工补规则。"""
+    quote = (quote or '').strip()
+    span = find_span(full, quote) if quote else None
+    page_hint = str(page or '').strip()
+    if span:
+        a, b = span
+        page_no = _page_at(full, a) or (f'p.{page_hint}' if page_hint else '')
+        pre = full[max(0, a - 80):a].split('\n')[-1]
+        hit, post = full[a:b], full[b:b + 80].split('\n')[0]
+    else:
+        hit = quote[:2000] or '（未摘录原文）'
+        pre, post = '', ''
+        page_no = f'p.{page_hint}' if page_hint.isdigit() else page_hint
+    clause_id = conn.execute(
+        'INSERT INTO clause (doc_id, clause_no, page_no, text_pre, text_hit, text_post) VALUES (?,?,?,?,?,?)',
+        (doc_id, clause_no, page_no, pre, hit, post)).lastrowid
+    return clause_id, hit
+
+
 def _page_at(text: str, pos: int) -> str:
     marks = [m for m in re.finditer(r'【第 (\d+) 页】', text) if m.start() <= pos]
     return f'p.{marks[-1].group(1)}' if marks else ''
@@ -401,30 +423,30 @@ def parse(conn, doc_id: int, user: dict) -> dict:
             if not clean:
                 skipped.append({'clause_no': clause_no, 'name': str(r.get('name') or ''), 'reason': why})
                 continue
-            a, b = clean['span']
-            page = _page_at(text, a) or (f"p.{cl.get('page')}" if str(cl.get('page') or '').strip() else '')
-            pre = text[max(0, a - 80):a].split('\n')[-1]
-            post = text[b:b + 80].split('\n')[0]
-            clause_id = conn.execute('INSERT INTO clause (doc_id, clause_no, page_no, text_pre, text_hit, text_post) VALUES (?,?,?,?,?,?)',
-                                     (doc_id, clause_no, page, pre, text[a:b], post)).lastrowid
             n += 1
             order = 3 if clean['pricing_method'] == '比例' else 1 if clean['direction'] == '收入' else 2
+            clause_id, _hit = _insert_clause(conn, doc_id, text, clause_no, str(cl.get('page') or ''), str(r.get('evidence') or ''))
             rid = conn.execute(
                 'INSERT INTO economic_rule (rule_code, version, name, item_code, clause_id, fact_type, pricing_method, base_item_code, '
                 'calc_order, unit_price, unit, calc_params, combine_mode, granularity, priority, valid_from, status, origin, '
-                "ai_confidence, field_levels, ai_task_id, submitted_by, submitted_at) VALUES (?,1,?,?,?,?,?,?,?,?,?,?,?,?,0,?, '待确认', 'AI提取', ?,?,?,?,?)",
+                "ai_confidence, field_levels, ai_task_id) VALUES (?,1,?,?,?,?,?,?,?,?,?,?,?,?,0,?, '草稿', 'AI提取', ?,?,?)",
                 (f'RL-AI{task_id}-{n:02d}', clean['name'], clean['item_code'], clause_id, clean['fact_type'], clean['pricing_method'],
                  clean['base_item_code'], order, clean['unit_price'], clean['unit'], jdump(clean['params']), clean['combine_mode'],
                  clean['granularity'], clean['valid_from'] or doc['valid_from'] or date.today().isoformat(),
-                 clean['confidence'], jdump(clean['levels']), task_id, user['who'], now())).lastrowid
+                 clean['confidence'], jdump(clean['levels']), task_id)).lastrowid
             for c in clean['conditions']:
                 conn.execute('INSERT INTO rule_condition (rule_id, dimension, operator, value) VALUES (?,?,?,?)',
                              (rid, c['dimension'], c['operator'], c['value']))
             log(conn, '规则', rid, 'AI 提取', 'AI 解析', f"任务 #{task_id} · {doc['doc_name']} {clause_no} · 置信度 {clean['confidence']:.2f}")
             created.append({'rule_id': rid, 'rule_code': f'RL-AI{task_id}-{n:02d}', 'name': clean['name'], 'item_code': clean['item_code'],
                             'confidence': clean['confidence'], 'low_fields': [k for k, x in clean['levels'].items() if x == '低']})
-    manual = [{'clause_no': str(m.get('clause_no') or ''), 'text': str(m.get('text') or '')[:300], 'reason': str(m.get('reason') or '')}
-              for m in out.get('manual') or []]
+    manual = []
+    for m in out.get('manual') or []:
+        clause_no = str(m.get('clause_no') or '').strip() or '未编号'
+        quote = str(m.get('text') or '').strip()
+        clause_id, hit = _insert_clause(conn, doc_id, text, clause_no, str(m.get('page') or ''), quote)
+        manual.append({'clause_id': clause_id, 'doc_id': doc_id, 'clause_no': clause_no,
+                       'text': hit[:300], 'reason': str(m.get('reason') or '')})
     conn.execute("UPDATE ai_task SET status='完成', output=?, draft_count=?, skipped=?, manual=?, finished_at=? WHERE task_id=?",
                  (raw[:200000], len(created), jdump(skipped), jdump(manual), now(), task_id))
     conn.execute("UPDATE source_doc SET parse_status='已解析' WHERE doc_id=?", (doc_id,))

@@ -144,7 +144,9 @@ def test_report_flow_generates_events_and_correction_reverses(client):
 def test_rule_confirm_backtest_publish(client):
     lst = client.get('/api/rules', headers=H('u_fin')).json()
     draft = next(r for r in lst if r['rule_code'] == 'RL-C2-3-04')
-    assert draft['status'] == '待确认'
+    assert draft['status'] == '草稿'
+    assert client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=H('u_cost')).status_code == 409  # 草稿未经提交不能确认
+    client.post(f"/api/rules/{draft['rule_id']}/submit", headers=H('u_fin'))
     # 已提交的规则由费用管理部室确认；基层队和普通账户都不能确认
     assert client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=H('u_team')).status_code == 403
     assert client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=H('u_fin')).status_code == 403

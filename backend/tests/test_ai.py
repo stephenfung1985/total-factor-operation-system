@@ -123,19 +123,106 @@ def test_parse_creates_checked_drafts(client, monkeypatch):
     d = out['created'][0]
     assert '适用条件' in d['low_fields']                                              # 区块取值不在基础信息里：标低
     rule = client.get(f"/api/rules/{d['rule_id']}", headers=FIN).json()
-    assert rule['rule']['status'] == '待确认' and rule['rule']['origin'] == 'AI提取' and rule['rule']['unit_price'] == 38000
+    assert rule['rule']['status'] == '草稿' and rule['rule']['origin'] == 'AI提取' and rule['rule']['unit_price'] == 38000
+    assert rule['can_edit'] and rule['can_submit'] and not rule['can_confirm']
     assert rule['rule']['ai_confidence'] < 0.6 and rule['clause']['hit'] == '定向井服务按服务天数计价，单价 38,000 元/天'
     assert rule['clause']['no'] == '第五条' and rule['rule']['valid_from'] == '2026-11-01'
     assert {c['dimension'] for c in rule['conditions']} == {'市场', '区块'}
+    from app.db import connect
+    db = connect()
+    row = db.execute('SELECT status, submitted_by, submitted_at FROM economic_rule WHERE rule_id=?', (d['rule_id'],)).fetchone()
+    assert row['status'] == '草稿' and row['submitted_by'] is None and row['submitted_at'] is None
+    db.close()
     task = client.get('/api/ai/tasks', headers=FIN).json()[0]
     assert task['status'] == '完成' and task['model'] == 'fake-model' and task['draft_count'] == 1
     assert task['adoption'] == {'pending': 1, 'published': 0, 'modified': 0, 'rejected': 0}
-    # 草稿走现有流程：确认 → 回算 → 待发布；AI 不能越过人工确认
-    assert client.post(f"/api/rules/{d['rule_id']}/confirm", headers=FIN).status_code == 403   # 普通账户不能确认自己提交的草稿
+    # 草稿先由普通账户核对修改再提交；费用管理部室在提交前不能确认，AI 不能写成已发布
+    assert client.post(f"/api/rules/{d['rule_id']}/confirm", headers=FIN).status_code == 403
+    blocked = client.post(f"/api/rules/{d['rule_id']}/confirm", headers={'X-User-Id': 'u_cost'})
+    assert blocked.status_code == 409 and '提交' in blocked.json()['detail']
+    edited = client.put(f"/api/rules/{d['rule_id']}", json={
+        'unit_price': 37000, 'name': '定向井服务日费（已核对）', 'item_code': 'C2-1-04',
+        'conditions': [{'dimension': '市场', 'operator': '等于', 'value': '西北'}],
+    }, headers=FIN).json()
+    assert edited['rule']['status'] == '草稿' and edited['rule']['unit_price'] == 37000
+    assert edited['rule']['name'] == '定向井服务日费（已核对）' and edited['rule']['item_code'] == 'C2-1-04'
+    assert {c['dimension'] for c in edited['conditions']} == {'市场'}   # 低置信度的科目、适用条件可在草稿上改掉
+    submitted = client.post(f"/api/rules/{d['rule_id']}/submit", headers=FIN).json()
+    assert submitted['rule']['status'] == '待确认' and not submitted['can_edit']
+    assert client.put(f"/api/rules/{d['rule_id']}", json={'unit_price': 1}, headers=FIN).status_code == 409
     c = client.post(f"/api/rules/{d['rule_id']}/confirm", headers={'X-User-Id': 'u_cost'}).json()
     assert c['rule']['status'] in ('待发布', '待确认')
     docs = client.get('/api/ai/docs', headers=FIN).json()
     assert docs[0]['parse_status'] == '已解析' and docs[0]['last_task']['draft_count'] == 1
+
+
+def _manual_body(doc_id, **over):
+    body = {'doc_id': doc_id, 'clause_no': '第五条', 'clause_text': '定向井服务按服务天数计价，单价 38,000 元/天',
+            'name': '定向井服务（手工）', 'item_code': 'C2-3-04', 'fact_type': '外包服务', 'pricing_method': '单价',
+            'unit_price': 39000, 'unit': '天', 'combine_mode': '互斥', 'granularity': '逐日', 'valid_from': '2026-11-01'}
+    body.update(over)
+    return body
+
+
+def test_manual_create_is_draft_without_ai(client):
+    """AI 关闭时，普通账户仍可凭已上传依据新建草稿；部室在提交前不能确认。"""
+    assert client.get('/api/ai/status', headers=FIN).json()['enabled'] is False
+    doc = upload(client).json()
+    body = _manual_body(doc['doc_id'])
+    assert client.post('/api/rules', json=body, headers={'X-User-Id': 'u_cost'}).status_code == 403
+    assert client.post('/api/rules', json=body, headers={'X-User-Id': 'u_admin'}).status_code == 403
+    assert client.post('/api/rules', json=body, headers=TEAM).status_code == 403
+    assert client.post('/api/rules', json={**body, 'doc_id': None}, headers=FIN).status_code == 422
+    assert client.post('/api/rules', json={**body, 'clause_text': '文件里根本没有这一句'}, headers=FIN).status_code == 422
+    made = client.post('/api/rules', json=body, headers=FIN)
+    assert made.status_code == 200, made.text
+    d = made.json()
+    assert d['rule']['status'] == '草稿' and d['rule']['origin'] == '人工录入' and d['can_submit'] and d['can_edit']
+    assert not d['can_confirm'] and not d['can_publish']
+    assert d['clause']['doc'] == doc['doc_name'] and '38,000' in d['clause']['hit'] and d['clause']['no'] == '第五条'
+    from app.db import connect
+    db = connect()
+    row = db.execute('SELECT status, submitted_by FROM economic_rule WHERE rule_id=?', (d['rule']['rule_id'],)).fetchone()
+    assert row['status'] == '草稿' and row['submitted_by'] is None
+    db.close()
+    rid = d['rule']['rule_id']
+    assert client.post(f'/api/rules/{rid}/confirm', headers={'X-User-Id': 'u_cost'}).status_code == 409
+    submitted = client.post(f'/api/rules/{rid}/submit', headers=FIN).json()
+    assert submitted['rule']['status'] == '待确认'
+    assert client.post(f'/api/rules/{rid}/confirm', headers=FIN).status_code == 403
+    confirmed = client.post(f'/api/rules/{rid}/confirm', headers={'X-User-Id': 'u_cost'}).json()
+    assert confirmed['rule']['status'] in ('待发布', '待确认')
+
+
+def test_manual_pricing_clause_links_source(client, monkeypatch):
+    """需人工计价的条款复用已上传的依据文件，补成的草稿能追溯到同一原文。"""
+    from app import ai
+    monkeypatch.setattr(ai, 'call_model', lambda m: json.dumps(FAKE, ensure_ascii=False))
+    monkeypatch.setenv('TFOS_AI_BASE_URL', 'http://fake/v1')
+    monkeypatch.setenv('TFOS_AI_MODEL', 'fake-model')
+    doc = upload(client).json()
+    out = client.post(f"/api/ai/docs/{doc['doc_id']}/parse", headers=FIN).json()
+    manual = out['manual'][0]
+    assert manual['clause_id'] and manual['doc_id'] == doc['doc_id'] and '据实' in manual['text']
+    monkeypatch.delenv('TFOS_AI_BASE_URL', raising=False)
+    monkeypatch.delenv('TFOS_AI_MODEL', raising=False)
+    opts = client.get('/api/rules/options', headers=FIN).json()
+    listed = next(c for d in opts['docs'] if d['doc_id'] == doc['doc_id'] for c in d['clauses'] if c['clause_id'] == manual['clause_id'])
+    assert listed['manual'] and listed['rule_count'] == 0
+    made = client.post('/api/rules', json={
+        'clause_id': manual['clause_id'], 'name': '复杂情况处理', 'item_code': 'C2-3-04', 'fact_type': '外包服务',
+        'pricing_method': '单价', 'unit_price': 1000, 'unit': '井次', 'valid_from': '2026-11-01',
+    }, headers=FIN)
+    assert made.status_code == 200, made.text
+    d = made.json()
+    ai_rule = client.get(f"/api/rules/{out['created'][0]['rule_id']}", headers=FIN).json()
+    assert d['rule']['status'] == '草稿' and d['rule']['origin'] == '人工录入'
+    assert d['clause']['no'] == '第六条' and '据实结算' in d['clause']['hit']
+    assert d['clause']['doc'] == ai_rule['clause']['doc'] and d['clause']['hash'] == ai_rule['clause']['hash']
+    assert any(x['action'] == '手工新建' and '需人工计价' in (x['comment'] or '') for x in d['logs'])
+    again = client.get('/api/rules/options', headers=FIN).json()
+    listed = next(c for d0 in again['docs'] if d0['doc_id'] == doc['doc_id'] for c in d0['clauses'] if c['clause_id'] == manual['clause_id'])
+    assert listed['rule_count'] == 1
 
 
 def test_bad_model_output_fails_gracefully(client, monkeypatch):

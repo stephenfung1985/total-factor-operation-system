@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, type Condition, type RuleDetail, type RuleImpact, type RuleRow } from '../api';
 import type { PageProps } from '../App';
-import { fmt, Icon, Modal, PageHead, Seg, useLoad, useToast, yuan } from '../ui';
+import { fmt, Icon, Modal, PageHead, Seg, today, useLoad, useToast, yuan } from '../ui';
 import AiImport from './AiImport';
 
 const STEPS = ['草稿', '待确认', '回算中', '待发布', '已发布'];
@@ -14,6 +14,8 @@ export default function Rules({ me }: PageProps) {
   const [publishing, setPublishing] = useState(false);
   const [rolling, setRolling] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState<ManualSeed | null>(null);
   const list = useLoad(() => api.get<RuleRow[]>('/api/rules'), []);
   const shown = useMemo(() => (list.data || []).filter((r) =>
     filter === 'all' ? true : filter === 'todo' ? TODO.includes(r.status) : r.status === '已发布'), [list.data, filter]);
@@ -23,8 +25,15 @@ export default function Rules({ me }: PageProps) {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (shown.length && (sel === null || !shown.some((r) => r.rule_id === sel))) setSel(shown[0].rule_id);
-  }, [shown, sel]);
+    if (!shown.length) return;
+    if (sel === null) {
+      setSel(shown[0].rule_id);
+      return;
+    }
+    if (shown.some((r) => r.rule_id === sel)) return;
+    // 刚新建的规则还没回到列表里时先留着，避免被旧列表弹回；已经在库里但不在当前筛选中则改选可见的第一条
+    if ((list.data || []).some((r) => r.rule_id === sel)) setSel(shown[0].rule_id);
+  }, [shown, sel, list.data]);
   useEffect(() => {
     setEdit(false);
     if (sel !== null) api.get<RuleDetail>(`/api/rules/${sel}`).then(setD).catch((e: Error) => toast(e.message, true));
@@ -69,9 +78,18 @@ export default function Rules({ me }: PageProps) {
   const cur = d ? STEPS.indexOf(d.rule.status) : -1;
   return (
     <>
-      <PageHead title="规则库" sub="三级入库：普通账户提交 → 费用管理部室确认或退回（冲突检查 + 回算）→ 系统管理员登记依据并发布；发布后有误由系统管理员回滚"
-        right={me.role === 'finance' ? <button type="button" className="btn primary sm" onClick={() => setImporting(true)}>导入依据文件 · AI 解析</button> : undefined} />
-      <AiImport open={importing} onClose={() => setImporting(false)} onDone={() => { list.reload(); setFilter('todo'); }} onPick={(rid) => { setFilter('todo'); setSel(rid); }} />
+      <PageHead title="规则库" sub="三级入库：普通账户起草或修改草稿并提交 → 费用管理部室确认或退回（冲突检查 + 回算）→ 系统管理员登记依据并发布；发布后有误由系统管理员回滚"
+        right={me.role === 'finance' ? (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" className="btn sm" onClick={() => { setCreating(null); setCreateOpen(true); }}>手工新建</button>
+            <button type="button" className="btn primary sm" onClick={() => setImporting(true)}>导入依据文件 · AI 解析</button>
+          </div>
+        ) : undefined} />
+      <AiImport open={importing} onClose={() => setImporting(false)} onDone={() => { list.reload(); setFilter('todo'); }} onPick={(rid) => { setFilter('todo'); setSel(rid); }}
+        onManual={(m) => { setImporting(false); setCreating(m); setCreateOpen(true); }} />
+      <ManualRule open={createOpen} seed={creating} onClose={() => setCreateOpen(false)} onCreated={(r) => {
+        setCreateOpen(false); setFilter('todo'); setSel(r.rule.rule_id); setD(r); list.reload(); toast('已存为草稿，请对照原文核对后提交');
+      }} />
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', alignItems: 'center' }}>
         <div className="steps">
           {STEPS.map((s, i) => (
@@ -146,6 +164,9 @@ export default function Rules({ me }: PageProps) {
                         </div>
                       ))}
                     </div>
+                  )}
+                  {d.rule.status === '草稿' && !d.can_submit && (
+                    <div className="hint" style={{ whiteSpace: 'normal', paddingTop: 8 }}>草稿待普通账户核对并提交后，费用管理部室才能确认。</div>
                   )}
                   <div className="btn-row" style={{ paddingTop: 14 }}>
                     {d.can_reject && <button type="button" className="btn danger" disabled={busy} onClick={reject}>退回</button>}
@@ -246,9 +267,15 @@ function RollbackModal({ open, d, busy, onClose, onRollback }: { open: boolean; 
 
 function RuleEditor({ d, onCancel, onSaved }: { d: RuleDetail; onCancel: () => void; onSaved: (r: RuleDetail) => void }) {
   const toast = useToast();
-  const ratio = d.rule.pricing_method === '比例';
-  const lump = d.rule.pricing_method === '包干' && d.rule.fact_type === '进尺';   // 单井总价 / 总包：按设计井深折算米价
-  const [price, setPrice] = useState(String(ratio ? d.rule.unit_price * 100 : d.rule.unit_price));
+  const [name, setName] = useState(d.rule.name);
+  const [item, setItem] = useState(d.rule.item_code);
+  const [method, setMethod] = useState(d.rule.pricing_method);
+  const [fact, setFact] = useState(d.rule.fact_type || '');
+  const [base, setBase] = useState(d.rule.base_item_code || '');
+  const [unit, setUnit] = useState(d.rule.unit);
+  const ratio = method === '比例';
+  const lump = method === '包干' && fact === '进尺';   // 单井总价 / 总包：按设计井深折算米价
+  const [price, setPrice] = useState(String(d.rule.pricing_method === '比例' ? d.rule.unit_price * 100 : d.rule.unit_price));
   const [conds, setConds] = useState<Condition[]>(d.conditions);
   const [combine, setCombine] = useState(d.rule.combine_mode);
   const [gran, setGran] = useState(d.rule.granularity);
@@ -258,6 +285,7 @@ function RuleEditor({ d, onCancel, onSaved }: { d: RuleDetail; onCancel: () => v
     try {
       const p = parseFloat(price);
       onSaved(await api.put<RuleDetail>(`/api/rules/${d.rule.rule_id}`, {
+        name, item_code: item, pricing_method: method, fact_type: ratio ? null : fact, base_item_code: ratio ? base : null, unit,
         unit_price: ratio ? p / 100 : p, conditions: conds, combine_mode: combine, granularity: gran, valid_from: from, factor_rules: factors,
       }));
     } catch (e) {
@@ -265,13 +293,43 @@ function RuleEditor({ d, onCancel, onSaved }: { d: RuleDetail; onCancel: () => v
     }
   };
   const { dimensions, operators } = d.options;
+  const grans = d.options.granularity.includes(gran) ? d.options.granularity : [gran, ...d.options.granularity];
+  const facts = d.options.facts.includes(fact) || !fact ? d.options.facts : [fact, ...d.options.facts];
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-        <label className="field">{ratio ? '比例（%）' : lump ? '合同总价（元）' : `单价（元/${d.rule.unit}）`}<input className="input" type="number" value={price} onChange={(e) => setPrice(e.target.value)} /></label>
+        <label className="field" style={{ gridColumn: '1 / -1' }}>规则名称<input className="input" value={name} onChange={(e) => setName(e.target.value)} /></label>
+        <label className="field">科目
+          <select className="input" value={item} onChange={(e) => setItem(e.target.value)}>
+            {d.options.items.map((i) => <option key={i.item_code} value={i.item_code}>{i.item_code} {i.item_name}</option>)}
+          </select>
+        </label>
+        <label className="field">计价方式
+          <select className="input" value={method} onChange={(e) => setMethod(e.target.value)}>
+            {d.options.pricing.map((p) => <option key={p}>{p}</option>)}
+          </select>
+        </label>
+        {ratio ? (
+          <label className="field">基数科目
+            <select className="input" value={base} onChange={(e) => setBase(e.target.value)}>
+              <option value="">请选择</option>
+              {d.options.items.map((i) => <option key={i.item_code} value={i.item_code}>{i.item_code} {i.item_name}</option>)}
+            </select>
+          </label>
+        ) : (
+          <label className="field">触发事实
+            <select className="input" value={fact} onChange={(e) => setFact(e.target.value)}>
+              {facts.map((f) => <option key={f}>{f}</option>)}
+            </select>
+          </label>
+        )}
+        <label className="field">计价单位<input className="input" value={unit} onChange={(e) => setUnit(e.target.value)} /></label>
+        <label className="field">{ratio ? '比例（%）' : lump ? '合同总价（元）' : `单价（元/${unit || '—'}）`}<input className="input" type="number" value={price} onChange={(e) => setPrice(e.target.value)} /></label>
         <label className="field">生效日期<input className="input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
-        <label className="field">组合方式<select className="input" value={combine} onChange={(e) => setCombine(e.target.value)}><option>互斥</option><option>叠加</option></select></label>
-        <label className="field">计算粒度<select className="input" value={gran} onChange={(e) => setGran(e.target.value)}>{['逐日', '按井', '按阶段', '按期间'].map((g) => <option key={g}>{g}</option>)}</select></label>
+        <label className="field">组合方式
+          <select className="input" value={combine} onChange={(e) => setCombine(e.target.value)}>{d.options.combine.map((o) => <option key={o}>{o}</option>)}</select>
+        </label>
+        <label className="field">计算粒度<select className="input" value={gran} onChange={(e) => setGran(e.target.value)}>{grans.map((g) => <option key={g}>{g}</option>)}</select></label>
       </div>
       <div className="sec">
         <div className="sec-label">适用条件（匹配单井基础信息）</div>
@@ -305,5 +363,247 @@ function RuleEditor({ d, onCancel, onSaved }: { d: RuleDetail; onCancel: () => v
         <button type="button" className="btn primary" onClick={save}>保存修改</button>
       </div>
     </div>
+  );
+}
+
+interface ManualSeed {
+  doc_id: number; clause_id: number; clause_no: string; text: string; reason: string; doc_name: string;
+}
+interface ManualClause { clause_id: number; clause_no: string; page: string; text: string; manual: boolean; rule_count: number }
+interface ManualOptions {
+  items: RuleDetail['options']['items']; facts: string[]; pricing: string[]; combine: string[]; granularity: string[];
+  dimensions: string[]; operators: string[]; doc_types: string[];
+  docs: { doc_id: number; doc_type: string; doc_no: string | null; doc_name: string; valid_from: string | null; clauses: ManualClause[] }[];
+}
+
+/** 普通账户手工新建草稿。必须挂到已上传依据的条款上；需人工计价的条款从解析结果带入，不另建无依据的规则。 */
+function ManualRule({ open, seed, onClose, onCreated }: {
+  open: boolean; seed: ManualSeed | null; onClose: () => void; onCreated: (r: RuleDetail) => void;
+}) {
+  const toast = useToast();
+  const opt = useLoad(() => (open ? api.get<ManualOptions>('/api/rules/options') : Promise.resolve(null)), [open]);
+  const [docId, setDocId] = useState<number | null>(null);
+  const [clauseId, setClauseId] = useState<number | ''>('');
+  const [clauseNo, setClauseNo] = useState('');
+  const [page, setPage] = useState('');
+  const [excerpt, setExcerpt] = useState('');
+  const [name, setName] = useState('');
+  const [item, setItem] = useState('');
+  const [method, setMethod] = useState('单价');
+  const [fact, setFact] = useState('');
+  const [base, setBase] = useState('');
+  const [price, setPrice] = useState('');
+  const [unit, setUnit] = useState('');
+  const [from, setFrom] = useState(today());
+  const [combine, setCombine] = useState('互斥');
+  const [gran, setGran] = useState('逐日');
+  const [busy, setBusy] = useState(false);
+  const [upType, setUpType] = useState('');
+  const [upName, setUpName] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setDocId(seed?.doc_id ?? null);
+    setClauseId(seed?.clause_id ?? '');
+    setClauseNo('');
+    setPage('');
+    setExcerpt('');
+    setName('');
+    setMethod('单价');
+    setFact('');
+    setBase('');
+    setPrice('');
+    setUnit('');
+    setFrom(today());
+    setCombine('互斥');
+    setGran('逐日');
+    setUpType('');
+    setUpName('');
+    setFile(null);
+  }, [open, seed]);
+
+  const o = opt.data;
+  const doc = o?.docs.find((d) => d.doc_id === docId) || null;
+  const clause = doc?.clauses.find((c) => c.clause_id === clauseId) || null;
+  const fresh = !seed && clauseId === '';
+  const ratio = method === '比例';
+
+  const upload = async () => {
+    if (!file || !upType) return;
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('doc_type', upType);
+      fd.append('doc_name', upName);
+      const saved = await api.post<{ doc_id: number }>('/api/ai/docs', fd);
+      opt.reload();
+      setDocId(saved.doc_id);
+      setClauseId('');
+      setFile(null);
+      toast('依据已上传，请从文件中摘录条款原文');
+    } catch (e) {
+      toast((e as Error).message, true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const save = async () => {
+    if (!o) return;
+    const p = parseFloat(price);
+    if (!name.trim() || !item || Number.isNaN(p) || !from) {
+      toast('请填写规则名称、科目、单价和生效日期', true);
+      return;
+    }
+    if (ratio ? !base : !fact) {
+      toast(ratio ? '请选择基数科目' : '请选择触发事实', true);
+      return;
+    }
+    if (!ratio && !unit.trim()) {
+      toast('请填写计价单位', true);
+      return;
+    }
+    if (!seed && clauseId === '' && !docId) {
+      toast('请选择依据文件。规则必须能追溯到原文', true);
+      return;
+    }
+    const body: Record<string, unknown> = {
+      name: name.trim(), item_code: item, pricing_method: method, fact_type: ratio ? null : fact,
+      base_item_code: ratio ? base : null, unit: unit.trim(), unit_price: ratio ? p / 100 : p,
+      combine_mode: combine, granularity: gran, valid_from: from,
+    };
+    if (seed || clauseId !== '') body.clause_id = seed ? seed.clause_id : clauseId;
+    else {
+      body.doc_id = docId;
+      body.clause_no = clauseNo.trim();
+      body.page_no = page.trim();
+      body.clause_text = excerpt.trim();
+    }
+    setBusy(true);
+    try {
+      onCreated(await api.post<RuleDetail>('/api/rules', body));
+    } catch (e) {
+      toast((e as Error).message, true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title={seed ? '需人工计价 · 建成草稿' : '手工新建规则'} wide>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="hint" style={{ whiteSpace: 'normal' }}>
+          {seed
+            ? '这条条款写不成公式。草稿沿用已上传的依据文件和原文，补上计价方式后保存；核对无误再提交。不调用 AI。'
+            : '保存为草稿，不调用 AI。请先选定依据文件，再选用已有条款，或从文件中原样摘录一句，保证以后每笔金额都能对上原文。'}
+        </div>
+        {!o && !opt.error && <div className="loading">加载依据…</div>}
+        {opt.error && <div className="notice">{opt.error}</div>}
+        {o && (
+          <>
+            {seed ? (
+              <div>
+                <div className="sec-label">{seed.doc_name} · {seed.clause_no}</div>
+                <p className="quote">{seed.text}</p>
+                {seed.reason && <div className="msg">AI 未生成公式：{seed.reason}</div>}
+              </div>
+            ) : (
+              <>
+                <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                  <label className="field">依据文件 *
+                    <select className="input" value={docId ?? ''} onChange={(e) => { setDocId(e.target.value ? Number(e.target.value) : null); setClauseId(''); }}>
+                      <option value="">请选择</option>
+                      {o.docs.map((d) => <option key={d.doc_id} value={d.doc_id}>{d.doc_name} · {d.doc_type}</option>)}
+                    </select>
+                  </label>
+                  <label className="field">条款
+                    <select className="input" value={clauseId} onChange={(e) => setClauseId(e.target.value ? Number(e.target.value) : '')} disabled={!doc}>
+                      <option value="">摘录新条款</option>
+                      {doc?.clauses.map((c) => (
+                        <option key={c.clause_id} value={c.clause_id}>
+                          {c.clause_no}{c.manual ? ' · 需人工计价' : ''}{c.rule_count ? ` · 已有 ${c.rule_count} 条规则` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                {clause && <p className="quote">{clause.text}</p>}
+                {fresh && (
+                  <div className="form-grid" style={{ gridTemplateColumns: '140px 120px 1fr' }}>
+                    <label className="field">条款号 *<input className="input" value={clauseNo} onChange={(e) => setClauseNo(e.target.value)} placeholder="如 第六条" /></label>
+                    <label className="field">页码<input className="input" value={page} onChange={(e) => setPage(e.target.value)} /></label>
+                    <label className="field" style={{ gridColumn: '1 / -1' }}>条款原文 *（从依据文件原样复制）
+                      <textarea className="input" style={{ height: 88, padding: '10px 12px', resize: 'vertical' }} value={excerpt} onChange={(e) => setExcerpt(e.target.value)} />
+                    </label>
+                  </div>
+                )}
+                <details>
+                  <summary className="small muted" style={{ cursor: 'pointer' }}>上传新的依据文件（不需要 AI）</summary>
+                  <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', marginTop: 8 }}>
+                    <div className="field"><span>文件 *</span>
+                      <button type="button" className="btn" onClick={() => fileRef.current?.click()}>{file ? file.name : '选择文件'}</button>
+                      <input ref={fileRef} type="file" accept=".pdf,.doc,.docx,.txt,.md" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) { setFile(f); setUpName((n) => n || f.name.replace(/\.[^.]+$/, '')); } e.target.value = ''; }} />
+                    </div>
+                    <label className="field">文件类型 *
+                      <select className="input" value={upType} onChange={(e) => setUpType(e.target.value)}>
+                        <option value="">请选择</option>
+                        {o.doc_types.map((t) => <option key={t}>{t}</option>)}
+                      </select>
+                    </label>
+                    <label className="field">文件名称<input className="input" value={upName} onChange={(e) => setUpName(e.target.value)} /></label>
+                  </div>
+                  <div className="btn-row" style={{ marginTop: 8 }}>
+                    <button type="button" className="btn" disabled={busy || !file || !upType} onClick={upload}>{busy ? '上传中…' : '上传依据'}</button>
+                  </div>
+                </details>
+              </>
+            )}
+            <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+              <label className="field" style={{ gridColumn: '1 / -1' }}>规则名称 *<input className="input" value={name} onChange={(e) => setName(e.target.value)} /></label>
+              <label className="field">科目 *
+                <select className="input" value={item} onChange={(e) => setItem(e.target.value)}>
+                  <option value="">请选择</option>
+                  {o.items.map((i) => <option key={i.item_code} value={i.item_code}>{i.item_code} {i.item_name}</option>)}
+                </select>
+              </label>
+              <label className="field">计价方式
+                <select className="input" value={method} onChange={(e) => setMethod(e.target.value)}>{o.pricing.map((p) => <option key={p}>{p}</option>)}</select>
+              </label>
+              {ratio ? (
+                <label className="field">基数科目 *
+                  <select className="input" value={base} onChange={(e) => setBase(e.target.value)}>
+                    <option value="">请选择</option>
+                    {o.items.map((i) => <option key={i.item_code} value={i.item_code}>{i.item_code} {i.item_name}</option>)}
+                  </select>
+                </label>
+              ) : (
+                <label className="field">触发事实 *
+                  <select className="input" value={fact} onChange={(e) => setFact(e.target.value)}>
+                    <option value="">请选择</option>
+                    {o.facts.map((f) => <option key={f}>{f}</option>)}
+                  </select>
+                </label>
+              )}
+              <label className="field">计价单位 *<input className="input" value={unit} onChange={(e) => setUnit(e.target.value)} placeholder={ratio ? '元' : '如 天、米'} /></label>
+              <label className="field">{ratio ? '比例（%）*' : '单价（元）*'}<input className="input" type="number" value={price} onChange={(e) => setPrice(e.target.value)} /></label>
+              <label className="field">生效日期 *<input className="input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
+              <label className="field">组合方式
+                <select className="input" value={combine} onChange={(e) => setCombine(e.target.value)}>{o.combine.map((x) => <option key={x}>{x}</option>)}</select>
+              </label>
+              <label className="field">计算粒度
+                <select className="input" value={gran} onChange={(e) => setGran(e.target.value)}>{o.granularity.map((g) => <option key={g}>{g}</option>)}</select>
+              </label>
+            </div>
+            <div className="btn-row">
+              <button type="button" className="btn" onClick={onClose}>取消</button>
+              <button type="button" className="btn primary" disabled={busy || !o} onClick={save}>保存为草稿</button>
+            </div>
+          </>
+        )}
+      </div>
+    </Modal>
   );
 }

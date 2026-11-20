@@ -189,7 +189,8 @@ export interface RuleDetail {
   rule: {
     rule_id: number; rule_code: string; version: number; name: string; item_code: string; item_name: string; status: string;
     origin: string; ai_confidence: number | null; unit_price: number; unit: string; combine_mode: string; granularity: string;
-    valid_from: string; valid_to: string | null; pricing_method: string; fact_type: string | null; owner_dept: string; priority: number;
+    valid_from: string; valid_to: string | null; pricing_method: string; fact_type: string | null; base_item_code: string | null;
+    owner_dept: string; priority: number;
   };
   params: { factor_rules?: FactorRule[]; line?: string; material?: string; note?: string };
   conditions: Condition[];
@@ -201,7 +202,11 @@ export interface RuleDetail {
   hits: { count: number; amount: number };
   can_edit: boolean; can_submit: boolean; can_confirm: boolean; can_publish: boolean; can_reject: boolean; can_new_version: boolean; can_rollback: boolean;
   change_basis: string | null; owner_dept: string | null;
-  options: { dimensions: string[]; operators: string[] };
+  options: {
+    dimensions: string[]; operators: string[];
+    items: { item_code: string; item_name: string; direction: string }[];
+    facts: string[]; pricing: string[]; combine: string[]; granularity: string[];
+  };
   backtest?: { result: string; message: string };
   batch?: { created: number; reversed: number; amount_change: number } | null;
   restored?: number | null;

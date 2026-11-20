@@ -498,10 +498,53 @@ class RuleEdit(BaseModel):
     valid_from: str | None = None
     conditions: list[dict] | None = None
     factor_rules: list[dict] | None = None
+    name: str | None = None
+    item_code: str | None = None
+    pricing_method: str | None = None
+    fact_type: str | None = None
+    base_item_code: str | None = None
+    unit: str | None = None
 
 
 class NewVersion(BaseModel):
     valid_from: str | None = None
+
+
+class RuleCreate(BaseModel):
+    """手工新建草稿。clause_id 用于已有条款（含需人工计价）；否则用 doc_id + 条款号 + 原文摘录。"""
+    name: str = ''
+    item_code: str = ''
+    pricing_method: str = ''
+    fact_type: str | None = None
+    base_item_code: str | None = None
+    unit_price: float | None = None
+    unit: str = ''
+    combine_mode: str | None = None
+    granularity: str | None = None
+    valid_from: str | None = None
+    conditions: list[dict] | None = None
+    factor_rules: list[dict] | None = None
+    clause_id: int | None = None
+    doc_id: int | None = None
+    clause_no: str | None = None
+    clause_text: str | None = None
+    page_no: str | None = None
+
+
+@app.get('/api/rules/options')
+def rule_options(user=User):
+    """手工新建草稿所需的科目、字典和已上传依据（含需人工计价条款）。"""
+    auth.require(user, 'finance')
+    with transaction() as c:
+        return rules.form_options(c)
+
+
+@app.post('/api/rules')
+def rule_create(body: RuleCreate, user=User):
+    """普通账户手工新建草稿。不依赖 AI；必须挂到依据文件的条款上。"""
+    auth.require(user, *auth.RULE_ACTORS)
+    with transaction() as c:
+        return rules.create(c, user, body.model_dump(exclude_none=True))
 
 
 @app.get('/api/rules')
@@ -664,7 +707,7 @@ async def ai_upload(file: UploadFile = File(...), doc_type: str = Form(''), doc_
 
 @app.post('/api/ai/docs/{doc_id:int}/parse')
 def ai_parse(doc_id: int, user=User):
-    """AI 解析成规则草稿（待确认）。失败也留任务记录：先提交事务，再返回 502。"""
+    """AI 解析成规则草稿（状态为草稿，不代提交）。失败也留任务记录：先提交事务，再返回 502。"""
     auth.require(user, 'finance')
     with transaction() as c:
         out = aiparse.parse(c, doc_id, user)

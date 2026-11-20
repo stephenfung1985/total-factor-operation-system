@@ -5,7 +5,8 @@ import { fmt, Modal, useLoad, useToast } from '../ui';
 interface AiStatus { enabled: boolean; model: string | null; endpoint: string | null; prompt_version: string; doc_types: string[]; max_chars: number }
 interface Task {
   task_id: number; status: string; model: string | null; created_at: string; draft_count: number; error: string | null; truncated: number;
-  skipped: { clause_no: string; name: string; reason: string }[]; manual: { clause_no: string; text: string; reason: string }[];
+  skipped: { clause_no: string; name: string; reason: string }[];
+  manual: { clause_id?: number; doc_id?: number; clause_no: string; text: string; reason: string }[];
   adoption: { pending: number; published: number; modified: number; rejected: number };
 }
 interface Doc {
@@ -23,10 +24,14 @@ const EMPTY_META = { doc_type: '', doc_name: '', doc_no: '', counterparty: '', v
 const RUN_LABEL: Record<Run['state'], string> = { wait: '排队中', run: 'AI 解析中…', ok: '完成', fail: '失败', stop: '已停止' };
 
 /**
- * 导入依据文件，交给 AI 拆条款、提规则草稿；草稿进入“待确认”，仍由管理端逐条对照原文确认、回算、发布。
+ * 导入依据文件，交给 AI 拆条款、提规则草稿。草稿停在「草稿」，由普通账户对照原文核对后提交，
+ * 再经费用管理部室确认、系统管理员发布。写不成公式的条款可沿用本文件建成草稿。
  * 支持批量：一次选多份文件上传，或在已上传列表里勾选多份，逐份顺序解析（解析时要占用数据库写锁，不并发）。
  */
-export default function AiImport({ open, onClose, onDone, onPick }: { open: boolean; onClose: () => void; onDone: () => void; onPick: (ruleId: number) => void }) {
+export default function AiImport({ open, onClose, onDone, onPick, onManual }: {
+  open: boolean; onClose: () => void; onDone: () => void; onPick: (ruleId: number) => void;
+  onManual?: (m: { doc_id: number; clause_id: number; clause_no: string; text: string; reason: string; doc_name: string }) => void;
+}) {
   const toast = useToast();
   const st = useLoad(() => (open ? api.get<AiStatus>('/api/ai/status') : Promise.resolve(null)), [open]);
   const docs = useLoad(() => (open ? api.get<Doc[]>('/api/ai/docs') : Promise.resolve(null)), [open]);
@@ -119,7 +124,7 @@ export default function AiImport({ open, onClose, onDone, onPick }: { open: bool
     <Modal open={open} onClose={onClose} title="导入依据文件 · AI 解析" wide>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {s && !s.enabled && <div className="notice">未配置 AI 服务：文件可以先上传存档，解析需在部署机的 ~/tfos-data/env 设置 TFOS_AI_BASE_URL、TFOS_AI_MODEL（可选 TFOS_AI_API_KEY）后重启。</div>}
-        {s?.enabled && <div className="hint" style={{ whiteSpace: 'normal' }}>模型 {s.model} · {s.endpoint} · 提示词 {s.prompt_version}。AI 只生成“待确认”草稿，每条附原文出处；确认、回算、发布仍按现有流程。</div>}
+        {s?.enabled && <div className="hint" style={{ whiteSpace: 'normal' }}>模型 {s.model} · {s.endpoint} · 提示词 {s.prompt_version}。AI 只生成草稿，不代提交；请对照原文核对（黄色为低置信度）后再提交。确认、回算、发布仍按三级流程。</div>}
 
         {!batch.length && (
           <>
@@ -168,7 +173,7 @@ export default function AiImport({ open, onClose, onDone, onPick }: { open: bool
             )}
             {batch.map((d) => (
               <BatchRow key={d.doc_id} doc={d} run={runs[d.doc_id]} maxChars={s?.max_chars} single={batch.length === 1}
-                onPick={(rid) => { onPick(rid); onClose(); }} />
+                onPick={(rid) => { onPick(rid); onClose(); }} onManual={onManual} />
             ))}
             <div className="btn-row">
               {!started && <button type="button" className="btn" disabled={busy !== ''} onClick={reset}>换一批</button>}
@@ -208,7 +213,10 @@ export default function AiImport({ open, onClose, onDone, onPick }: { open: bool
 }
 
 /** 批量中的一份：状态 + 结果（单份时直接展开，多份时折叠）。 */
-function BatchRow({ doc, run, maxChars, single, onPick }: { doc: Doc; run?: Run; maxChars?: number; single: boolean; onPick: (ruleId: number) => void }) {
+function BatchRow({ doc, run, maxChars, single, onPick, onManual }: {
+  doc: Doc; run?: Run; maxChars?: number; single: boolean; onPick: (ruleId: number) => void;
+  onManual?: (m: { doc_id: number; clause_id: number; clause_no: string; text: string; reason: string; doc_name: string }) => void;
+}) {
   const out = run?.out;
   const tone = run?.state === 'ok' ? 'ok' : run?.state === 'fail' ? 'bad' : 'muted';
   const head = (
@@ -222,7 +230,7 @@ function BatchRow({ doc, run, maxChars, single, onPick }: { doc: Doc; run?: Run;
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
       {run?.error && <div className="msg block">{run.error}</div>}
       {out?.truncated && <div className="notice">文件超长，本次只解析了前 {fmt(maxChars, 0)} 字。</div>}
-      {out && out.created.length > 0 && <div className="sec-label">草稿（待确认，点击打开逐条对照原文）</div>}
+      {out && out.created.length > 0 && <div className="sec-label">草稿（点击打开，对照原文核对后提交）</div>}
       {out?.created.map((r) => (
         <button key={r.rule_id} type="button" className="kvline" style={{ gridTemplateColumns: '1fr auto', border: 'none', background: 'none', textAlign: 'left', color: 'var(--text)', cursor: 'pointer', padding: '4px 0' }}
           onClick={() => onPick(r.rule_id)}>
@@ -232,8 +240,18 @@ function BatchRow({ doc, run, maxChars, single, onPick }: { doc: Doc; run?: Run;
       ))}
       {out && out.skipped.length > 0 && <div className="sec-label">不采纳</div>}
       {out?.skipped.map((x, i) => <div key={i} className="msg">· {x.clause_no} {x.name}：{x.reason}</div>)}
-      {out && out.manual.length > 0 && <div className="sec-label">需人工计价（写不成公式）</div>}
-      {out?.manual.map((x, i) => <div key={i} className="msg">· {x.clause_no}：{x.reason}{x.text ? `（${x.text.slice(0, 60)}）` : ''}</div>)}
+      {out && out.manual.length > 0 && <div className="sec-label">需人工计价（写不成公式，可沿用本文件建成草稿）</div>}
+      {out?.manual.map((x, i) => (
+        <div key={i} className="msg" style={{ display: 'flex', gap: 8, alignItems: 'baseline', justifyContent: 'space-between' }}>
+          <span>· {x.clause_no}：{x.reason}{x.text ? `（${x.text.slice(0, 60)}）` : ''}</span>
+          {onManual && x.clause_id && x.doc_id && (
+            <button type="button" className="btn sm" onClick={() => onManual({
+              clause_id: x.clause_id as number, doc_id: x.doc_id as number, clause_no: x.clause_no,
+              text: x.text, reason: x.reason, doc_name: doc.doc_name,
+            })}>建成草稿</button>
+          )}
+        </div>
+      ))}
     </div>
   );
   const card = { boxShadow: 'none', background: 'var(--fill)', padding: '10px 14px' };

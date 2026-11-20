@@ -1,12 +1,15 @@
 """规则维护：草稿 → 待确认 → 回算中 → 待发布 → 已发布 → 已被替代 / 已废止。
 
 费用规则入库分三级，后端按角色拒绝越权，不能由同一人走完全程：
-  普通账户（管理端）起草、修改草稿并提交；
+  普通账户（管理端）起草、修改草稿并提交；AI 只生成草稿，不代为提交；
   费用管理部室确认或退回（确认时冲突检查 + 历史井回算，超阈值留在待确认）；
   系统管理员做影响预览、登记依据后发布；发布后有误由系统管理员回滚。
 任一步退回都回到草稿，由普通账户修改后重新提交。
+普通账户也可手工新建草稿（AI 未配置时同样可以）。新建必须挂到已有依据文件上的条款，
+含 AI 标为「需人工计价」的条款，避免事后金额对不上原文。
 已发布规则只增不改：调价时由普通账户复制为新版本草稿，再走三级流程；旧版本失效日由新版本推导。
 """
+import re
 from datetime import date, timedelta
 
 from fastapi import HTTPException
@@ -18,6 +21,10 @@ STEPS = ['草稿', '待确认', '回算中', '待发布', '已发布']
 EDITABLE = ('草稿',)   # 提交后锁定，费用管理部室退回后才能再改
 DIMENSIONS = ['井号', '市场', '区块', '甲方', '井别', '井型', '井深', '开次', '队伍', '钻机型号']
 OPERATORS = ['等于', '属于', '大于', '小于']
+PRICING = ['单价', '包干', '比例', '定额日费']
+COMBINE = ['互斥', '叠加']
+# 「按井」是已入库规则用过的粒度；「按井累计」是解析字典里的取值。引擎尚未按这两种粒度单独计算。
+GRANULARITY = ['逐日', '按井', '按井累计', '按阶段', '按期间']
 
 
 def _row(conn, rule_id: int) -> dict:
@@ -96,7 +103,7 @@ def detail(conn, user: dict, rule_id: int) -> dict:
     return {
         'rule': {k: r[k] for k in ('rule_id', 'rule_code', 'version', 'name', 'item_code', 'item_name', 'status', 'origin',
                                    'ai_confidence', 'unit_price', 'unit', 'combine_mode', 'granularity', 'valid_from', 'valid_to',
-                                   'pricing_method', 'fact_type', 'owner_dept', 'priority')},
+                                   'pricing_method', 'fact_type', 'base_item_code', 'owner_dept', 'priority')},
         'params': params, 'conditions': conds,
         'fields': [{'label': a, 'value': b, 'level': levels.get(a, '高')} for a, b in fields],
         'clause': clause, 'tests': tests, 'versions': versions, 'logs': logs,
@@ -110,7 +117,7 @@ def detail(conn, user: dict, rule_id: int) -> dict:
         'can_rollback': _publisher(user) and r['status'] == '已发布',
         'change_basis': r.get('change_basis'),
         'owner_dept': r['owner_dept'],
-        'options': {'dimensions': DIMENSIONS, 'operators': OPERATORS},
+        'options': _editor_options(conn),
     }
 
 
@@ -135,28 +142,235 @@ def _need_publisher(conn, user, rule_id) -> dict:
     return _need(conn, user, rule_id, _publisher(user), '只有系统管理员可以发布、预览或回滚规则')
 
 
+def _leaves(conn) -> dict:
+    return {r['item_code']: dict(r) for r in conn.execute(
+        'SELECT item_code, item_name, direction FROM cost_item WHERE is_leaf=1 ORDER BY sort_no')}
+
+
+def _facts(conn) -> set[str]:
+    facts = {r[0] for r in conn.execute(
+        "SELECT DISTINCT fact_type FROM report_line WHERE fact_type IS NOT NULL AND fact_type != ''")}
+    facts.update(['进尺', '日历天', '人员出勤', '工况时间'])
+    return facts
+
+
+def _editor_options(conn) -> dict:
+    leaves = _leaves(conn)
+    return {
+        'items': [{'item_code': c, 'item_name': i['item_name'], 'direction': i['direction']}
+                  for c, i in leaves.items()],
+        'facts': sorted(_facts(conn)),
+        'pricing': PRICING,
+        'combine': COMBINE,
+        'granularity': GRANULARITY,
+        'dimensions': DIMENSIONS,
+        'operators': OPERATORS,
+    }
+
+
+def _apply_fields(conn, current: dict | None, body: dict, *, full: bool) -> dict:
+    """合并并校验规则字段。full=True 用于手工新建（必填）；修改草稿时只校验提交了的字段。"""
+    leaves = _leaves(conn)
+    src = current or {}
+
+    def pick(key, default=None):
+        if key in body and body[key] is not None:
+            return body[key]
+        if key in src and src[key] is not None:
+            return src[key]
+        return default
+
+    name = str(pick('name', '') or '').strip()
+    if full or 'name' in body:
+        if not name:
+            raise HTTPException(422, '请填写规则名称')
+        name = name[:60]
+    elif not name:
+        name = src.get('name')
+    item_code = str(pick('item_code', '') or '').strip()
+    if (full or 'item_code' in body) and item_code not in leaves:
+        raise HTTPException(422, f'科目 {item_code or "（空）"} 不在科目树末级')
+    method = str(pick('pricing_method', '') or '').strip()
+    if (full or 'pricing_method' in body) and method not in PRICING:
+        raise HTTPException(422, '计价方式不正确')
+    if full and 'unit_price' not in body:
+        raise HTTPException(422, '请填写单价')
+    try:
+        price = float(body['unit_price'] if 'unit_price' in body else src.get('unit_price'))
+    except (TypeError, ValueError):
+        raise HTTPException(422, '单价不是数字') from None
+    if price < 0:
+        raise HTTPException(422, '单价不能为负')
+    unit = str(pick('unit', '') or '').strip()
+    base = pick('base_item_code')
+    base = str(base).strip() if base else None
+    fact = pick('fact_type')
+    fact = str(fact).strip() if fact else None
+    if method == '比例':
+        fact = None
+        if (full or 'pricing_method' in body or 'base_item_code' in body) and (not base or base not in leaves):
+            raise HTTPException(422, '比例类规则请选择基数科目')
+        unit = unit or '元'
+    else:
+        base = None
+        if (full or 'fact_type' in body or 'pricing_method' in body) and fact not in _facts(conn):
+            raise HTTPException(422, f'触发事实“{fact or "（空）"}”不在系统字典')
+        if (full or 'unit' in body) and not unit:
+            raise HTTPException(422, '请填写计价单位')
+    combine = str(pick('combine_mode', '互斥') or '互斥')
+    if (full or 'combine_mode' in body) and combine not in COMBINE:
+        raise HTTPException(422, '组合方式不正确')
+    gran = str(pick('granularity', '逐日') or '逐日')
+    if (full or 'granularity' in body) and gran not in GRANULARITY:
+        raise HTTPException(422, '计算粒度不正确')
+    vf = str(pick('valid_from', '') or '').strip()
+    if (full or 'valid_from' in body) and not re.fullmatch(r'\d{4}-\d{2}-\d{2}', vf):
+        raise HTTPException(422, '请填写生效日期（YYYY-MM-DD）')
+    direction = leaves[item_code]['direction'] if item_code in leaves else (src.get('direction') or '成本')
+    order = 3 if method == '比例' else 1 if direction == '收入' else 2
+    return {'name': name, 'item_code': item_code, 'fact_type': fact, 'pricing_method': method,
+            'base_item_code': base, 'calc_order': order, 'unit_price': price, 'unit': unit,
+            'combine_mode': combine, 'granularity': gran, 'valid_from': vf}
+
+
+def _save_conditions(conn, rule_id: int, conditions: list[dict]) -> None:
+    conn.execute('DELETE FROM rule_condition WHERE rule_id=?', (rule_id,))
+    for c in conditions:
+        if c.get('dimension') not in DIMENSIONS or c.get('operator') not in OPERATORS or not str(c.get('value') or '').strip():
+            raise HTTPException(422, f"条件不合法：{c}")
+        conn.execute('INSERT INTO rule_condition (rule_id, dimension, operator, value) VALUES (?,?,?,?)',
+                     (rule_id, c['dimension'], c['operator'], str(c['value']).strip()))
+
+
+def _manual_clause_ids(conn) -> dict[int, int]:
+    """需人工计价条款 → 产生它的解析任务。写不成公式的条款已经挂在原依据文件上。"""
+    found: dict[int, int] = {}
+    for t in conn.execute("SELECT task_id, manual FROM ai_task WHERE manual IS NOT NULL AND manual != '[]'"):
+        for m in jload(t['manual'], []):
+            if m.get('clause_id'):
+                found[int(m['clause_id'])] = t['task_id']
+    return found
+
+
+def _bind_clause(conn, body: dict) -> tuple[int, int | None]:
+    """手工规则必须挂到条款上。返回 (clause_id, 若来自需人工计价则为其解析任务)。"""
+    if body.get('clause_id'):
+        try:
+            clause_id = int(body['clause_id'])
+        except (TypeError, ValueError):
+            raise HTTPException(422, '条款不存在，不能生成没有依据的规则') from None
+        row = conn.execute('SELECT clause_id FROM clause WHERE clause_id=?', (clause_id,)).fetchone()
+        if not row:
+            raise HTTPException(422, '条款不存在，不能生成没有依据的规则')
+        return clause_id, _manual_clause_ids(conn).get(clause_id)
+    if not body.get('doc_id'):
+        raise HTTPException(422, '请选择依据文件并摘录条款。规则必须能追溯到原文，不能单独建立')
+    try:
+        doc_id = int(body['doc_id'])
+    except (TypeError, ValueError):
+        raise HTTPException(422, '依据文件不存在') from None
+    doc = conn.execute('SELECT doc_id, full_text FROM source_doc WHERE doc_id=?', (doc_id,)).fetchone()
+    if not doc:
+        raise HTTPException(422, '依据文件不存在')
+    clause_no = str(body.get('clause_no') or '').strip()
+    text = str(body.get('clause_text') or '').strip()
+    page = str(body.get('page_no') or '').strip()
+    if not clause_no:
+        raise HTTPException(422, '请填写条款号')
+    if len(re.sub(r'\s+', '', text)) < 4:
+        raise HTTPException(422, '请摘录条款原文（至少 4 个字），以便日后追溯')
+    full = doc['full_text'] or ''
+    pre, hit, post, page_no = '', text, '', page
+    if full:
+        from .aiparse import _page_at, find_span
+        span = find_span(full, text)
+        if not span:
+            raise HTTPException(422, '摘录的原文在该依据文件里找不到，请从文件中原样复制')
+        a, b = span
+        page_no = _page_at(full, a) or page_no
+        pre = full[max(0, a - 80):a].split('\n')[-1]
+        hit, post = full[a:b], full[b:b + 80].split('\n')[0]
+    clause_id = conn.execute(
+        'INSERT INTO clause (doc_id, clause_no, page_no, text_pre, text_hit, text_post) VALUES (?,?,?,?,?,?)',
+        (doc_id, clause_no, page_no, pre, hit, post)).lastrowid
+    return clause_id, None
+
+
+def _new_code(conn) -> str:
+    n = conn.execute('SELECT COALESCE(MAX(rule_id), 0) + 1 FROM economic_rule').fetchone()[0]
+    while True:
+        code = f'RL-M{n:04d}'
+        if not conn.execute('SELECT 1 FROM economic_rule WHERE rule_code=?', (code,)).fetchone():
+            return code
+        n += 1
+
+
+def form_options(conn) -> dict:
+    """手工新建用：科目与字典，加上已上传的依据文件及其条款（含需人工计价）。"""
+    from .aiparse import DOC_TYPES
+    opt = _editor_options(conn)
+    manual_ids = _manual_clause_ids(conn)
+    docs = []
+    for d in conn.execute('SELECT doc_id, doc_type, doc_no, doc_name, valid_from FROM source_doc ORDER BY doc_id DESC'):
+        clauses = []
+        for c in conn.execute('SELECT clause_id, clause_no, page_no, text_hit FROM clause WHERE doc_id=? ORDER BY clause_id',
+                              (d['doc_id'],)):
+            used = conn.execute("SELECT COUNT(*) n FROM economic_rule WHERE clause_id=? AND status!='已废止'",
+                                (c['clause_id'],)).fetchone()['n']
+            clauses.append({'clause_id': c['clause_id'], 'clause_no': c['clause_no'], 'page': c['page_no'] or '',
+                            'text': (c['text_hit'] or '')[:300], 'manual': c['clause_id'] in manual_ids, 'rule_count': used})
+        docs.append({**dict(d), 'clauses': clauses})
+    opt['doc_types'] = DOC_TYPES
+    opt['docs'] = docs
+    return opt
+
+
+def create(conn, user: dict, body: dict) -> dict:
+    """普通账户手工新建草稿。不调用 AI，也不写入提交人；费用管理部室在提交前不能确认。"""
+    if not _submitter(user):
+        raise HTTPException(403, '只有普通账户可以新建规则草稿')
+    clause_id, task_id = _bind_clause(conn, body)
+    fields = _apply_fields(conn, None, body, full=True)
+    params = {}
+    if body.get('factor_rules'):
+        params['factor_rules'] = body['factor_rules']
+    code = _new_code(conn)
+    rid = conn.execute(
+        'INSERT INTO economic_rule (rule_code, version, name, item_code, clause_id, fact_type, pricing_method, base_item_code, '
+        'calc_order, unit_price, unit, calc_params, combine_mode, granularity, priority, valid_from, status, origin, '
+        "field_levels, ai_task_id) VALUES (?,1,?,?,?,?,?,?,?,?,?,?,?,?,0,?, '草稿', '人工录入', '{}', ?)",
+        (code, fields['name'], fields['item_code'], clause_id, fields['fact_type'], fields['pricing_method'],
+         fields['base_item_code'], fields['calc_order'], fields['unit_price'], fields['unit'], jdump(params),
+         fields['combine_mode'], fields['granularity'], fields['valid_from'], task_id)).lastrowid
+    if body.get('conditions'):
+        _save_conditions(conn, rid, body['conditions'])
+    clause = conn.execute('SELECT c.clause_no, d.doc_name FROM clause c JOIN source_doc d ON d.doc_id=c.doc_id WHERE c.clause_id=?',
+                          (clause_id,)).fetchone()
+    note = f"{clause['doc_name']} {clause['clause_no']}"
+    if task_id:
+        note += '；由需人工计价条款补成草稿'
+    log(conn, '规则', rid, '手工新建', user['who'], note)
+    return detail(conn, user, rid)
+
+
 def update(conn, user: dict, rule_id: int, body: dict) -> dict:
     r = _need_submitter(conn, user, rule_id)
     if r['status'] not in EDITABLE:
         raise HTTPException(409, '只有草稿可以修改；已提交的规则须由费用管理部室退回，已发布规则请新建版本')
+    fields = _apply_fields(conn, r, body, full=False)
     params = jload(r['calc_params'])
     if 'factor_rules' in body:
         params['factor_rules'] = body['factor_rules']
-    price = float(body.get('unit_price', r['unit_price']))
-    if price < 0:
-        raise HTTPException(422, '单价不能为负')
-    conn.execute('UPDATE economic_rule SET unit_price=?, combine_mode=?, granularity=?, valid_from=?, calc_params=?, '
-                 'field_levels=? WHERE rule_id=?',
-                 (price, body.get('combine_mode', r['combine_mode']), body.get('granularity', r['granularity']),
-                  body.get('valid_from', r['valid_from']), jdump(params),
-                  jdump({k: '高' for k in jload(r['field_levels'])}), rule_id))
+    if body.get('pricing_method') and body['pricing_method'] != r['pricing_method']:
+        params.pop('contract_mode', None)   # 计价方式改过之后，解析时写入的计价模式不再沿用
+    conn.execute(
+        'UPDATE economic_rule SET name=?, item_code=?, fact_type=?, pricing_method=?, base_item_code=?, calc_order=?, '
+        'unit_price=?, unit=?, combine_mode=?, granularity=?, valid_from=?, calc_params=?, field_levels=? WHERE rule_id=?',
+        (fields['name'], fields['item_code'], fields['fact_type'], fields['pricing_method'], fields['base_item_code'],
+         fields['calc_order'], fields['unit_price'], fields['unit'], fields['combine_mode'], fields['granularity'],
+         fields['valid_from'], jdump(params), jdump({k: '高' for k in jload(r['field_levels'])}), rule_id))
     if 'conditions' in body:
-        conn.execute('DELETE FROM rule_condition WHERE rule_id=?', (rule_id,))
-        for c in body['conditions']:
-            if c['dimension'] not in DIMENSIONS or c['operator'] not in OPERATORS or not str(c['value']).strip():
-                raise HTTPException(422, f"条件不合法：{c}")
-            conn.execute('INSERT INTO rule_condition (rule_id, dimension, operator, value) VALUES (?,?,?,?)',
-                         (rule_id, c['dimension'], c['operator'], str(c['value']).strip()))
+        _save_conditions(conn, rule_id, body['conditions'])
     log(conn, '规则', rule_id, '修改', user['who'], '人工修改 AI 草稿，修改前后差异已存为样本' if r['origin'] == 'AI提取' else None)
     return detail(conn, user, rule_id)
 

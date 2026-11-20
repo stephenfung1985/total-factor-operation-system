@@ -140,6 +140,7 @@ def test_impact_preview_publish_and_rollback(client):
 
 def test_rollback_without_previous_version_disables_rule(client):
     draft = next(r for r in client.get('/api/rules', headers=FIN).json() if r['rule_code'] == 'RL-C2-3-04')
+    client.post(f"/api/rules/{draft['rule_id']}/submit", headers=FIN)
     client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=COST)
     client.post(f"/api/rules/{draft['rule_id']}/publish", json={'change_basis': '定向服务合同 2026-001'}, headers=ADMIN)
     r = client.post(f"/api/rules/{draft['rule_id']}/rollback", json={'comment': '合同未签'}, headers=ADMIN).json()

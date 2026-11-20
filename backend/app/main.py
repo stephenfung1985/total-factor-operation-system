@@ -1012,7 +1012,7 @@ class EnableBody(BaseModel):
 
 @app.get('/api/admin/users')
 def admin_users(user=User):
-    auth.require(user, 'finance')
+    auth.require(user, 'finance', 'admin')
     with transaction() as c:
         return {'users': [{**u, 'role_name': auth.ROLE_NAMES[u['role']]} for u in accounts.list_users(c)],
                 'teams': rows(c.execute('SELECT team_no, name FROM team ORDER BY team_no'))}
@@ -1036,6 +1036,17 @@ def admin_reset(user_id: str, body: ResetBody, user=User):
     return {'ok': True}
 
 
+@app.post('/api/admin/users/{user_id}/reveal-password')
+def admin_reveal_password(user_id: str, user=User):
+    """系统管理员查看当前密码。审计只记谁查看了哪个账号，不记密码。"""
+    auth.require(user, 'admin')
+    with transaction() as c:
+        out = accounts.reveal_password(c, user_id)
+        note = '查看当前密码' if out['recoverable'] else '查看当前密码（未能显示）'
+        log(c, '账号', user_id, '查看密码', user['who'], note)
+        return out
+
+
 @app.post('/api/admin/users/{user_id}/enable')
 def admin_enable(user_id: str, body: EnableBody, user=User):
     auth.require(user, 'finance')
@@ -1047,7 +1058,7 @@ def admin_enable(user_id: str, body: EnableBody, user=User):
 
 @app.get('/api/admin/permissions')
 def permissions(user=User):
-    auth.require(user, 'finance')
+    auth.require(user, 'finance', 'admin')
     with transaction() as c:
         users = rows(c.execute('SELECT user_id, name, role, who, scope_label FROM app_user WHERE username IS NOT NULL AND enabled=1'))
     return {'roles': [{'id': k, 'name': v} for k, v in auth.ROLE_NAMES.items()],

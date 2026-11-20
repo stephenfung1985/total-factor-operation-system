@@ -96,7 +96,7 @@ export async function download(url: string, fallbackName: string) {
 export interface NavItem { id: string; label: string }
 export interface NavGroup { label: string; items: NavItem[] }
 export interface Me {
-  user_id: string; username: string; name: string; role: 'finance' | 'team'; who: string;
+  user_id: string; username: string; name: string; role: 'finance' | 'team' | 'cost' | 'admin'; who: string;
   team_id: string | null; dept: string | null; scope_label: string; role_name: string; nav: NavGroup[]; must_change: number;
   debug?: boolean; login_username?: string; identities?: { user_id: string; role: string; role_name: string; who: string }[];
 }
@@ -104,6 +104,9 @@ export interface AccountRow {
   user_id: string; username: string | null; name: string; role: string; role_name: string; who: string; team_id: string | null;
   dept: string | null; scope_label: string; must_change: number; enabled: number; last_login: string | null; created_at: string | null;
   is_debug: number;
+}
+export interface RevealedPassword {
+  user_id: string; username: string; recoverable: boolean; password: string | null; reason: string | null;
 }
 
 export interface Kpi {

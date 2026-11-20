@@ -1,9 +1,9 @@
-import { useState } from 'react';
-import { api, type AccountRow } from '../api';
+import { useEffect, useState } from 'react';
+import { api, type AccountRow, type RevealedPassword } from '../api';
 import { Modal, useLoad, useToast } from '../ui';
 
 interface Admin { users: AccountRow[]; teams: { team_no: string; name: string }[] }
-const COLS = '1fr 1fr 0.9fr 1.4fr 0.8fr 1.1fr 1.6fr';
+const COLS = '1fr 1fr 0.9fr 1.3fr 0.8fr 1fr 1.9fr';
 const ROLES = [
   { id: 'finance', label: '管理端（普通账户，提交规则）' },
   { id: 'cost', label: '费用管理部室' },
@@ -11,12 +11,13 @@ const ROLES = [
   { id: 'team', label: '填报端（钻井队）' },
 ];
 
-/** 账号管理：新建、重置密码、停用 / 启用。密码只设置不显示，重置后用户须在首次登录时修改。 */
-export default function Accounts({ meId }: { meId: string }) {
+/** 账号管理：管理端新建、重置密码、停用 / 启用。系统管理员可查看当前密码，列表本身不带密码。 */
+export default function Accounts({ meId, canManage = true, canReveal = false }: { meId: string; canManage?: boolean; canReveal?: boolean }) {
   const toast = useToast();
   const { data, reload } = useLoad(() => api.get<Admin>('/api/admin/users'), []);
   const [creating, setCreating] = useState(false);
   const [resetting, setResetting] = useState<AccountRow | null>(null);
+  const [revealing, setRevealing] = useState<AccountRow | null>(null);
   const toggle = async (u: AccountRow) => {
     try {
       await api.post(`/api/admin/users/${encodeURIComponent(u.user_id)}/enable`, { enabled: !u.enabled });
@@ -30,11 +31,11 @@ export default function Accounts({ meId }: { meId: string }) {
   return (
     <section className="card list">
       <div className="card-head center">
-        <h2>账号管理<span className="hint" style={{ fontWeight: 400, marginLeft: 8 }}>{users.length} 个账号{users.some((u) => u.is_debug && u.enabled) ? ' · 调试账号 test 正式上线前请停用' : ''}</span></h2>
-        <button type="button" className="btn primary sm" onClick={() => setCreating(true)}>新建账号</button>
+        <h2>账号管理<span className="hint" style={{ fontWeight: 400, marginLeft: 8 }}>{users.length} 个账号{users.some((u) => u.is_debug && u.enabled) ? ' · 调试账号 test 正式上线前请停用' : ''}{canReveal && !canManage ? ' · 可查看当前密码（写入操作日志，不含密码）。新建、重置和停用仍由管理端操作' : ''}</span></h2>
+        {canManage && <button type="button" className="btn primary sm" onClick={() => setCreating(true)}>新建账号</button>}
       </div>
       <div className="scroll-x">
-        <div className="nowrap" style={{ minWidth: 900 }}>
+        <div className="nowrap" style={{ minWidth: 980 }}>
           <div className="grid-row grid-head" style={{ gridTemplateColumns: COLS }}>
             <span>登录名</span><span>姓名</span><span>角色</span><span>数据范围</span><span>状态</span><span>最近登录</span><span>操作</span>
           </div>
@@ -45,15 +46,17 @@ export default function Accounts({ meId }: { meId: string }) {
               <span>{!u.enabled ? <span className="tag bad">已停用</span> : u.must_change ? <span className="tag warn">待改初始密码</span> : <span className="tag good">正常</span>}</span>
               <span className="muted num small">{u.last_login ? u.last_login.slice(0, 16) : '从未登录'}</span>
               <span className="btn-row" style={{ flexWrap: 'nowrap' }}>
-                <button type="button" className="btn sm" onClick={() => setResetting(u)}>重置密码</button>
-                {u.user_id !== meId && <button type="button" className={'btn sm' + (u.enabled ? ' danger' : '')} onClick={() => toggle(u)}>{u.enabled ? '停用' : '启用'}</button>}
+                {canReveal && <button type="button" className="btn sm" onClick={() => setRevealing(u)}>查看当前密码</button>}
+                {canManage && <button type="button" className="btn sm" onClick={() => setResetting(u)}>重置密码</button>}
+                {canManage && u.user_id !== meId && <button type="button" className={'btn sm' + (u.enabled ? ' danger' : '')} onClick={() => toggle(u)}>{u.enabled ? '停用' : '启用'}</button>}
               </span>
             </div>
           ))}
         </div>
       </div>
-      {data && <CreateModal open={creating} admin={data} onClose={() => setCreating(false)} onDone={() => { setCreating(false); reload(); }} />}
-      <ResetModal user={resetting} onClose={() => setResetting(null)} onDone={() => { setResetting(null); reload(); }} />
+      {data && canManage && <CreateModal open={creating} admin={data} onClose={() => setCreating(false)} onDone={() => { setCreating(false); reload(); }} />}
+      {canManage && <ResetModal user={resetting} onClose={() => setResetting(null)} onDone={() => { setResetting(null); reload(); }} />}
+      {canReveal && <RevealModal user={revealing} onClose={() => setRevealing(null)} />}
     </section>
   );
 }
@@ -112,6 +115,60 @@ function ResetModal({ user, onClose, onDone }: { user: AccountRow | null; onClos
       <label className="field">新的初始密码<input className="input" type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} /></label>
       <div className="hint">重置后该账号的登录会话立即失效，下次登录须修改密码；连续输错导致的锁定同时解除。</div>
       <div className="btn-row"><button type="button" className="btn" onClick={onClose}>取消</button><button type="button" className="btn primary" onClick={submit}>重置</button></div>
+    </Modal>
+  );
+}
+
+function RevealModal({ user, onClose }: { user: AccountRow | null; onClose: () => void }) {
+  const toast = useToast();
+  const [state, setState] = useState<RevealedPassword | null>(null);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    if (!user) {
+      setState(null);
+      setErr('');
+      return;
+    }
+    let alive = true;
+    setState(null);
+    setErr('');
+    api.post<RevealedPassword>(`/api/admin/users/${encodeURIComponent(user.user_id)}/reveal-password`)
+      .then((r) => { if (alive) setState(r); })
+      .catch((e: Error) => { if (alive) setErr(e.message); });
+    return () => { alive = false; };
+  }, [user?.user_id]);
+  const copy = async () => {
+    if (!state?.password) return;
+    try {
+      await navigator.clipboard.writeText(state.password);
+      toast('已复制到剪贴板');
+    } catch {
+      toast('复制失败，请手动选择密码', true);
+    }
+  };
+  return (
+    <Modal open={!!user} onClose={onClose} title={`查看当前密码 · ${user?.username ?? ''}`}>
+      {!state && !err && <div className="hint">正在读取…</div>}
+      {err && <div className="notice">{err}</div>}
+      {state?.recoverable && state.password && (
+        <>
+          <label className="field">当前密码
+            <input className="input" readOnly value={state.password} autoComplete="off" spellCheck={false} aria-label="当前密码" />
+          </label>
+          <div className="hint">本次查看已记入操作日志，日志里只有查看人和账号，没有密码本身。</div>
+          <div className="btn-row">
+            <button type="button" className="btn" onClick={onClose}>关闭</button>
+            <button type="button" className="btn primary" onClick={copy}>复制</button>
+          </div>
+        </>
+      )}
+      {state && !state.recoverable && (
+        <>
+          <div className="notice">{state.reason || '无法查看当前密码。'}</div>
+          <div className="hint">不会显示编造的密码。</div>
+          <div className="btn-row"><button type="button" className="btn" onClick={onClose}>关闭</button></div>
+        </>
+      )}
     </Modal>
   );
 }

@@ -30,6 +30,18 @@ fi
 if grep -q '请改成你自己的初始密码' "$DATA_DIR/env"; then
   echo "请先编辑 $DATA_DIR/env 中的 TFOS_INITIAL_PASSWORD。" >&2; exit 1
 fi
+# 查看当前密码的密钥。已有库旁密钥文件则沿用，避免和已经加密的密码对不上。
+if ! grep -q '^TFOS_PASSWORD_KEY=' "$DATA_DIR/env"; then
+  db_path=$(grep -E '^TFOS_DB=' "$DATA_DIR/env" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+  [ -n "$db_path" ] || db_path="$DATA_DIR/tfos.db"
+  if [ -f "${db_path}.password_key" ]; then
+    printf '\nTFOS_PASSWORD_KEY=%s\n' "$(tr -d '\r\n' < "${db_path}.password_key")" >> "$DATA_DIR/env"
+  else
+    command -v openssl >/dev/null || { echo "需要 openssl 来生成 TFOS_PASSWORD_KEY" >&2; exit 1; }
+    printf '\nTFOS_PASSWORD_KEY=%s\n' "$(openssl rand -hex 32)" >> "$DATA_DIR/env"
+  fi
+  chmod 600 "$DATA_DIR/env"
+fi
 
 # 已有库先备份再更新
 if [ -f "$DATA_DIR/tfos.db" ]; then "$ROOT/deploy/backup.sh"; fi

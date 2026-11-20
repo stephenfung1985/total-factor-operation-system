@@ -34,6 +34,7 @@ NAV = {
     ],
     'admin': [
         {'label': '规则', 'items': [{'id': 'rules', 'label': '规则库'}]},
+        {'label': '系统', 'items': [{'id': 'perm', 'label': '角色与权限'}]},
     ],
 }
 
@@ -61,7 +62,8 @@ PERMS = [
     ('对标分析', ['', '查看', '', '']),
     ('费用导出（按时间、市场、区块、队伍）', ['', '导出', '', '']),
     ('单井经营结果模板导入', ['', '编辑', '', '']),
-    ('角色与权限', ['', '编辑', '', '']),
+    ('角色与权限', ['', '编辑', '', '查看']),
+    ('查看账号当前密码', ['', '', '', '查看']),
 ]
 
 
@@ -76,7 +78,7 @@ def current_user(authorization: str | None = Header(default=None), x_user_id: st
         if os.environ.get('TFOS_DEMO_AUTH') == '1' and x_user_id:
             r = conn.execute('SELECT * FROM app_user WHERE user_id=?', (x_user_id,)).fetchone()
             if r:
-                return dict(r)
+                return accounts.without_secrets(dict(r))
         raise HTTPException(401, '请先登录')
     finally:
         conn.close()

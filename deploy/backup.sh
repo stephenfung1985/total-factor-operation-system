@@ -9,5 +9,15 @@ mkdir -p "$DEST"
 OUT="$DEST/tfos-$(date +%Y%m%d-%H%M%S).db"
 sqlite3 "$TFOS_DB" ".backup '$OUT'"
 sqlite3 "$OUT" "PRAGMA integrity_check;" | grep -qx ok || { echo "备份校验失败：$OUT" >&2; exit 1; }
-ls -1t "$DEST"/tfos-*.db | tail -n +31 | xargs -I{} rm -f {}
+# 密码加密密钥和库分开存放。备份时一并拷走，否则恢复后只能登录、不能查看已加密的密码。
+if [ -n "${TFOS_PASSWORD_KEY:-}" ]; then
+  printf '%s\n' "$TFOS_PASSWORD_KEY" > "$OUT.password_key"
+  chmod 600 "$OUT.password_key"
+elif [ -f "${TFOS_DB}.password_key" ]; then
+  cp "${TFOS_DB}.password_key" "$OUT.password_key"
+  chmod 600 "$OUT.password_key"
+fi
+ls -1t "$DEST"/tfos-*.db | tail -n +31 | while IFS= read -r old; do
+  rm -f "$old" "${old}.password_key"
+done
 echo "备份完成：$OUT"

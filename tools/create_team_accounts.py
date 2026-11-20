@@ -1,5 +1,7 @@
 """为所有钻井队建立基层队账号：账号名取队号中的数字位，初始密码同账号，首次登录须改密。
 
+若数据库目录下有 env，且其中有 TFOS_PASSWORD_KEY，会用它加密初始密码，与线上服务保持一致。
+
 用法：python3 tools/create_team_accounts.py 数据库路径            只演练：列出将建立 / 跳过的账号
       python3 tools/create_team_accounts.py 数据库路径 --apply    先备份，再在一个事务里建号
 
@@ -7,6 +9,7 @@
 已存在的账号不动，可重复运行。
 """
 import argparse
+import os
 import re
 import shutil
 import sqlite3
@@ -17,6 +20,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'backend'))
 from app import accounts  # noqa: E402
 
 DEMO_TEAMS = ('t1', 't2', 't3', 't4')
+
+
+def _use_server_password_key(db: str) -> None:
+    """未设置密钥时，沿用数据库旁边 env 里的 TFOS_PASSWORD_KEY，避免新账号的加密口令对不上服务。"""
+    if os.environ.get('TFOS_PASSWORD_KEY', '').strip():
+        return
+    envf = Path(db).resolve().parent / 'env'
+    if not envf.is_file():
+        return
+    for line in envf.read_text(encoding='utf-8').splitlines():
+        line = line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        key, value = line.split('=', 1)
+        if key.strip() == 'TFOS_PASSWORD_KEY' and value.strip():
+            os.environ['TFOS_PASSWORD_KEY'] = value.strip().strip('"').strip("'")
+            return
 
 
 def main():
@@ -49,6 +69,7 @@ def main():
         print('（演练，未改库；加 --apply 执行）')
         return
     shutil.copy(args.db, args.db + '.bak-before-team-accounts')
+    _use_server_password_key(args.db)
     with conn:
         for name, team_no in plan:
             accounts.create_user(conn, name, 'team', team_no, name)

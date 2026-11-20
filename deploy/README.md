@@ -21,6 +21,8 @@
 
 初始密码只在**建立账号时**生效，且各账号首次登录仍强制修改。**建议部署后立刻自己先登录 admin 改密码**，再把其他账号的初始密码通知给本人，避免初始密码长期有效。
 
+系统管理员可以在「角色与权限」查看当前密码。密码仍用加盐散列登录，另外用 `TFOS_PASSWORD_KEY` 加密保存一份（`install.sh` 会写入 `env`，权限 600）。管理端、费用管理部室和填报端看不到这个按钮，接口也会拒绝。查看会记入操作日志，日志里没有密码。升级前已经散列、且之后没有再登录或重置的密码无法恢复，页面会说明，不会显示一个编出来的密码。密钥丢失不影响登录；已加密的密码要等用户再次登录或被重置后才能查看。数据库备份会带上密钥文件（`tfos-时间.db.password_key`），恢复时写回 `env`。
+
 **空库**：对外服务模式下，全新库不写示例数据，只保留成本项目树、物资和计量单位。井、队伍、规则、日报都要由实际使用者录入：井和队伍随基础信息填报和账号建立自动生成，规则由专业部室维护。因此上线初期「经营总览」等页面是空的，属正常现象。已经用非对外服务模式建过的库不会被清理，要换成空库请删除 `~/tfos-data/tfos.db` 后重新启动（先备份）。
 
 ## 二、Mac mini 系统设置（手工，一次性）
@@ -64,6 +66,7 @@ deploy/install.sh        # 再运行一次：建 venv、构建前端、注册开
 ## 五、对外暴露后的安全清单
 
 - [ ] admin 已改成强密码，初始密码已通知到本人并确认都改过
+- [ ] `env` 里的 `TFOS_PASSWORD_KEY` 只留在服务器和备份里，不要发到聊天或代码仓库
 - [ ] 账号管理里只保留真实在用的账号；离职人员及时停用
 - [ ] **不要**在路由器上同时做端口映射，外部入口只留穿透这一条
 - [ ] 穿透后台如有访问控制（来源限制 / 访问密码），建议开启
@@ -76,7 +79,7 @@ deploy/install.sh        # 再运行一次：建 venv、构建前端、注册开
 | --- | --- |
 | 备份 | 每天 02:30 自动执行，保留最近 30 份在 `~/tfos-data/backups`。**请把备份目录指到外接硬盘或网盘同步目录**（在 `~/tfos-data/env` 里加 `TFOS_BACKUP_DIR=/Volumes/xxx/tfos-backups`，改后重新运行 `deploy/install.sh`）。Mac mini 只有一块盘，盘坏了数据就没了 |
 | 手动备份 | `deploy/backup.sh` |
-| 恢复 | `deploy/restore.sh ~/tfos-data/backups/tfos-xxxx.db`（先停服务，旧库保留为 `.before-restore.*`） |
+| 恢复 | `deploy/restore.sh ~/tfos-data/backups/tfos-xxxx.db`（先停服务，旧库保留为 `.before-restore.*`）。旁边若有同名 `.password_key`，会写回 `env`，查看密码才对得上 |
 | 更新版本 | `deploy/update.sh`：拉取 main，先在线上数据的副本上跑测试和启动检查，通过才部署（内部调用 install.sh，会自动备份、重建前端并重启）；失败则线上不动。`deploy/update.sh --check` 只演练不部署 |
 | 重启服务 | `launchctl kickstart -k gui/$(id -u)/com.tfos.server` |
 | 停止服务 | `launchctl bootout gui/$(id -u)/com.tfos.server` |

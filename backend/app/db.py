@@ -73,6 +73,7 @@ NEW_COLUMNS = [
     ('daily_report', 'line_notes', "TEXT NOT NULL DEFAULT '{}'"),
     ('app_user', 'username', 'TEXT'),
     ('app_user', 'password_hash', 'TEXT'),
+    ('app_user', 'password_enc', 'TEXT'),   # 当前密码的加密副本，仅管理员查看接口解密；不进用户列表
     ('app_user', 'must_change', 'INTEGER NOT NULL DEFAULT 0'),
     ('app_user', 'enabled', 'INTEGER NOT NULL DEFAULT 1'),
     ('app_user', 'failed_count', 'INTEGER NOT NULL DEFAULT 0'),

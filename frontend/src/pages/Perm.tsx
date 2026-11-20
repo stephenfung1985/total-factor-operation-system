@@ -18,7 +18,7 @@ export default function Perm({ me }: PageProps) {
   return (
     <>
       <PageHead title="角色与权限" sub="账号由管理端分配。规则入库分三级：普通账户提交，费用管理部室确认或退回，系统管理员发布。填报端只看本队" />
-      <Accounts meId={me.user_id} />
+      <Accounts meId={me.user_id} canManage={me.role === 'finance'} canReveal={me.role === 'admin'} />
       {error && <div className="notice">{error}</div>}
       {data && (
         <>
@@ -55,7 +55,7 @@ export default function Perm({ me }: PageProps) {
             <div style={{ fontSize: 14, lineHeight: '22px' }}>AI 只生成草稿，不能写入已发布规则表；已发布规则的价格与条件不能修改，只能新建版本。</div>
             <div style={{ fontSize: 14, lineHeight: '22px' }}>费用规则必须按三级入库：普通账户提交，费用管理部室确认或退回，系统管理员发布。接口按角色拒绝越权，不能由同一角色走完全程。</div>
             <div style={{ fontSize: 14, lineHeight: '22px' }}>账号与权限由管理端统一管理。</div>
-            <div style={{ fontSize: 14, lineHeight: '22px' }}>密码加盐散列存储；初始密码首次登录须修改；连续输错 5 次锁定 15 分钟；登录 12 小时后需重新登录。</div>
+            <div style={{ fontSize: 14, lineHeight: '22px' }}>密码登录校验使用加盐散列，并加密保存当前密码。仅系统管理员可查看；升级前已散列且之后未再登录或重置的密码无法恢复。连续输错 5 次锁定 15 分钟；登录 12 小时后需重新登录。</div>
           </section>
         </>
       )}

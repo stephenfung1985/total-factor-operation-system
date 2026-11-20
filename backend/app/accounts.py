@@ -1,16 +1,23 @@
 """账号、密码与登录会话。
 
-密码以 PBKDF2-SHA256 加盐存储，不保存明文；初始密码登录后必须修改。
+登录校验仍用 PBKDF2-SHA256 加盐散列。另用服务器密钥加密保存一份当前密码，
+供系统管理员在「角色与权限」查看。密钥优先取环境变量 TFOS_PASSWORD_KEY，
+否则写在数据库文件旁的「<库文件名>.password_key」。
+升级前已经散列、且之后没有登录、修改或重置的密码无法恢复，查看时如实说明，不编造。
+明文密码不写入日志。初始密码登录后必须修改。
 连续输错 5 次锁定 15 分钟。会话令牌随机生成，12 小时有效，退出即失效。
 """
+import base64
 import hashlib
 import hmac
 import os
 import re
 import secrets
+import sqlite3
 from datetime import datetime, timedelta
+from pathlib import Path
 
-from .db import now
+from .db import db_path, now
 
 ITERATIONS = 200_000
 SESSION_HOURS = 12
@@ -65,6 +72,152 @@ def verify_password(password: str, stored: str | None) -> bool:
         return False
 
 
+# 加密口令格式：enc1$ + urlsafe-base64(16 字节随机数 ‖ 32 字节 MAC ‖ 密文)
+_KEY_CACHE: dict[str, bytes] = {}
+UNRECOVERABLE_REASON = (
+    '该账号的密码在支持查看之前已经单向散列，之后没有登录、修改或重置，无法恢复当前密码。'
+    '请让用户登录一次，或由管理端重置密码后再查看。'
+)
+UNDECRYPTABLE_REASON = (
+    '已保存的密码无法用当前服务器密钥解开。请确认密钥未更换；用户下次成功登录后即可再次查看，或由管理端重置密码。'
+)
+
+
+def without_secrets(user: dict) -> dict:
+    """会话里的账号对象不带密码散列和加密口令，避免被接口原样返回。"""
+    return {k: v for k, v in user.items() if k not in ('password_hash', 'password_enc')}
+
+
+def _ensure_password_column(conn) -> None:
+    names = set()
+    for r in conn.execute('PRAGMA table_info(app_user)'):
+        names.add(r['name'] if isinstance(r, sqlite3.Row) else r[1])
+    if 'password_enc' not in names:
+        conn.execute('ALTER TABLE app_user ADD COLUMN password_enc TEXT')
+
+
+def _conn_db_path(conn) -> Path | None:
+    row = conn.execute('PRAGMA database_list').fetchone()
+    if not row:
+        return None
+    file = row['file'] if isinstance(row, sqlite3.Row) else row[2]
+    return Path(file) if file else None
+
+
+def _key_material(conn=None) -> tuple[str, bytes, bool]:
+    """返回 (缓存键, 密钥材料, 是否按口令慢推导)。环境变量优先于库旁密钥文件。"""
+    env = os.environ.get('TFOS_PASSWORD_KEY', '').strip()
+    if env:
+        return 'env:' + hashlib.sha256(env.encode()).hexdigest(), env.encode(), True
+    path = _conn_db_path(conn) if conn is not None else None
+    if path is None:
+        path = db_path()
+    key_path = Path(str(path) + '.password_key')
+    material = _read_or_create_key_file(key_path)
+    return 'file:' + str(key_path.resolve()) + ':' + hashlib.sha256(material).hexdigest()[:16], material, False
+
+
+def _read_or_create_key_file(path: Path) -> bytes:
+    if path.exists():
+        material = path.read_text(encoding='ascii').strip().encode()
+        if len(material) < 32:
+            raise RuntimeError(f'密码密钥文件不可用：{path}')
+        return material
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fresh = secrets.token_hex(32).encode()
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        material = path.read_text(encoding='ascii').strip().encode()
+        if len(material) < 32:
+            raise RuntimeError(f'密码密钥文件不可用：{path}')
+        return material
+    try:
+        os.write(fd, fresh + b'\n')
+    finally:
+        os.close(fd)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    return fresh
+
+
+def _password_key(conn=None) -> bytes:
+    cache_id, material, slow = _key_material(conn)
+    key = _KEY_CACHE.get(cache_id)
+    if key is None:
+        if slow:
+            key = hashlib.pbkdf2_hmac('sha256', material, b'tfos-password-at-rest-v1', 200_000)
+        else:
+            key = hashlib.sha256(b'tfos-password-at-rest-v1' + material).digest()
+        _KEY_CACHE[cache_id] = key
+    return key
+
+
+def _xor_keystream(key: bytes, nonce: bytes, data: bytes) -> bytes:
+    out = bytearray(len(data))
+    offset = 0
+    counter = 0
+    while offset < len(data):
+        block = hmac.new(key, b'stream1' + nonce + counter.to_bytes(4, 'big'), hashlib.sha256).digest()
+        take = min(len(block), len(data) - offset)
+        for i in range(take):
+            out[offset + i] = data[offset + i] ^ block[i]
+        offset += take
+        counter += 1
+    return bytes(out)
+
+
+def encrypt_password(password: str, conn=None) -> str:
+    """加密当前密码。返回值不含明文。"""
+    key = _password_key(conn)
+    nonce = secrets.token_bytes(16)
+    ct = _xor_keystream(key, nonce, password.encode('utf-8'))
+    mac = hmac.new(key, b'enc1' + nonce + ct, hashlib.sha256).digest()
+    return 'enc1$' + base64.urlsafe_b64encode(nonce + mac + ct).decode('ascii')
+
+
+def decrypt_password(stored: str, conn=None) -> str:
+    if not stored or not stored.startswith('enc1$'):
+        raise ValueError('unsupported')
+    try:
+        raw = base64.urlsafe_b64decode(stored[5:])
+    except Exception as exc:
+        raise ValueError('bad-encoding') from exc
+    if len(raw) < 48:
+        raise ValueError('truncated')
+    nonce, mac, ct = raw[:16], raw[16:48], raw[48:]
+    key = _password_key(conn)
+    expect = hmac.new(key, b'enc1' + nonce + ct, hashlib.sha256).digest()
+    if not hmac.compare_digest(mac, expect):
+        raise ValueError('mac')
+    return _xor_keystream(key, nonce, ct).decode('utf-8')
+
+
+def _seal(password: str, conn) -> tuple[str, str]:
+    """同时生成登录散列和可恢复的加密口令。"""
+    _ensure_password_column(conn)
+    return hash_password(password), encrypt_password(password, conn)
+
+
+def _remember_password(conn, user_id: str, password: str) -> None:
+    """登录已核对明文后，补上加密口令。已有且能解开成同一密码时不重写。失败不抛出，以免挡住登录。"""
+    try:
+        _ensure_password_column(conn)
+        row = conn.execute('SELECT password_enc FROM app_user WHERE user_id=?', (user_id,)).fetchone()
+        existing = (row['password_enc'] if row else None) or ''
+        if existing.startswith('enc1$'):
+            try:
+                if decrypt_password(existing, conn) == password:
+                    return
+            except (ValueError, RuntimeError):
+                pass
+        conn.execute('UPDATE app_user SET password_enc=? WHERE user_id=?', (encrypt_password(password, conn), user_id))
+    except (OSError, RuntimeError, ValueError, sqlite3.Error):
+        return
+
+
 def check_strength(password: str) -> None:
     if len(password) < 8 or not re.search(r'[A-Za-z]', password) or not re.search(r'\d', password):
         raise AuthError('新密码至少 8 位，须同时包含字母和数字')
@@ -102,11 +255,12 @@ def create_user(conn, username: str, role: str, scope: str | None, password: str
     if not password:
         raise AuthError('请设置初始密码')
     p = _profile(conn, role, username, (scope or '').strip() or None)
+    hashed, sealed = _seal(password, conn)
     conn.execute(
-        'INSERT INTO app_user (user_id, name, role, who, team_id, dept, scope_label, username, password_hash, must_change, '
-        'enabled, failed_count, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,1,0,?)',
+        'INSERT INTO app_user (user_id, name, role, who, team_id, dept, scope_label, username, password_hash, password_enc, must_change, '
+        'enabled, failed_count, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,0,?)',
         (username, (name or '').strip() or username, role, p['who'], p['team_id'], p['dept'], p['scope_label'], username,
-         hash_password(password), 1 if must_change else 0, now()))
+         hashed, sealed, 1 if must_change else 0, now()))
     return public(dict(conn.execute('SELECT * FROM app_user WHERE user_id=?', (username,)).fetchone()))
 
 
@@ -151,10 +305,11 @@ def ensure_initial_accounts(conn) -> None:
         conn.execute('UPDATE app_user SET enabled=0 WHERE is_debug=1')
         conn.execute('DELETE FROM app_session WHERE user_id IN (SELECT user_id FROM app_user WHERE is_debug=1)')
     elif not conn.execute('SELECT 1 FROM app_user WHERE username=?', (DEBUG_USERNAME,)).fetchone():
+        hashed, sealed = _seal(DEBUG_PASSWORD, conn)
         conn.execute(
-            'INSERT INTO app_user (user_id, name, role, who, scope_label, username, password_hash, must_change, enabled, failed_count, '
-            "created_at, is_debug) VALUES (?, '调试账号', 'finance', '调试账号', '可切换演示身份', ?, ?, 0, 1, 0, ?, 1)",
-            (DEBUG_USERNAME, DEBUG_USERNAME, hash_password(DEBUG_PASSWORD), now()))
+            'INSERT INTO app_user (user_id, name, role, who, scope_label, username, password_hash, password_enc, must_change, enabled, failed_count, '
+            "created_at, is_debug) VALUES (?, '调试账号', 'finance', '调试账号', '可切换演示身份', ?, ?, ?, 0, 1, 0, ?, 1)",
+            (DEBUG_USERNAME, DEBUG_USERNAME, hashed, sealed, now()))
 
 
 def login(conn, username: str, password: str) -> tuple[str, dict]:
@@ -172,6 +327,7 @@ def login(conn, username: str, password: str) -> tuple[str, dict]:
         conn.commit()   # 失败计数必须保存，不随本次请求的异常回滚
         raise AuthError(f'登录名或密码错误；连续输错 {MAX_FAILED} 次将锁定 {LOCK_MINUTES} 分钟' if not locked
                         else f'密码错误次数过多，账号锁定 {LOCK_MINUTES} 分钟')
+    _remember_password(conn, u['user_id'], password or '')
     token = secrets.token_urlsafe(32)
     u = dict(u)
     expires = (datetime.now() + timedelta(hours=SESSION_HOURS)).strftime('%Y-%m-%d %H:%M:%S')
@@ -192,13 +348,13 @@ def user_by_token(conn, token: str) -> dict | None:
                      'AND s.expires_at>? AND u.enabled=1', (_token_hash(token), now())).fetchone()
     if not r:
         return None
-    login_user = dict(r)
+    login_user = without_secrets(dict(r))
     if not login_user.get('is_debug'):
         return login_user
     acting = conn.execute('SELECT * FROM app_user WHERE user_id=?', (login_user['acting_user_id'] or DEMO_IDS[0],)).fetchone()
     if not acting:
         return None
-    u = dict(acting)
+    u = without_secrets(dict(acting))
     u.update(who=f"{u['who']} [调试 {login_user['username']}]", login_user_id=login_user['user_id'],
              login_username=login_user['username'], debug=True)
     return u
@@ -232,14 +388,16 @@ def change_password(conn, user_id: str, old: str, new: str) -> None:
     if old == new:
         raise AuthError('新密码不能与原密码相同')
     check_strength(new or '')
-    conn.execute('UPDATE app_user SET password_hash=?, must_change=0 WHERE user_id=?', (hash_password(new), user_id))
+    hashed, sealed = _seal(new, conn)
+    conn.execute('UPDATE app_user SET password_hash=?, password_enc=?, must_change=0 WHERE user_id=?', (hashed, sealed, user_id))
 
 
 def reset_password(conn, user_id: str, password: str) -> None:
     if not password:
         raise AuthError('请输入新的初始密码')
-    n = conn.execute('UPDATE app_user SET password_hash=?, must_change=1, failed_count=0, locked_until=NULL WHERE user_id=? '
-                     'AND username IS NOT NULL', (hash_password(password), user_id)).rowcount
+    hashed, sealed = _seal(password, conn)
+    n = conn.execute('UPDATE app_user SET password_hash=?, password_enc=?, must_change=1, failed_count=0, locked_until=NULL WHERE user_id=? '
+                     'AND username IS NOT NULL', (hashed, sealed, user_id)).rowcount
     if not n:
         raise AuthError('账号不存在')
     conn.execute('DELETE FROM app_session WHERE user_id=?', (user_id,))
@@ -263,3 +421,20 @@ def set_enabled(conn, user_id: str, enabled: bool, operator_id: str) -> None:
 
 def list_users(conn) -> list[dict]:
     return [public(dict(r)) for r in conn.execute('SELECT * FROM app_user ORDER BY username IS NULL, role, username')]
+
+
+def reveal_password(conn, user_id: str) -> dict:
+    """返回当前密码。库里只有旧散列、或密钥对不上时，password 为 None，不编造。"""
+    _ensure_password_column(conn)
+    u = conn.execute('SELECT user_id, username, password_enc FROM app_user WHERE user_id=?', (user_id,)).fetchone()
+    if not u or not u['username']:
+        raise AuthError('账号不存在')
+    base = {'user_id': u['user_id'], 'username': u['username'], 'recoverable': False, 'password': None, 'reason': None}
+    enc = u['password_enc'] or ''
+    if not enc.startswith('enc1$'):
+        return {**base, 'reason': UNRECOVERABLE_REASON}
+    try:
+        password = decrypt_password(enc, conn)
+    except (ValueError, RuntimeError):
+        return {**base, 'reason': UNDECRYPTABLE_REASON}
+    return {**base, 'recoverable': True, 'password': password}

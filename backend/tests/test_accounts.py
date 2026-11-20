@@ -31,7 +31,7 @@ def test_initial_accounts(client, username, role, scope):
     u = r['user']
     assert u['role'] == role and u['scope_label'] == scope and u['must_change'] == 1
     me = client.get('/api/me', headers=bearer(r['token'])).json()
-    assert me['username'] == username and 'password_hash' not in me
+    assert me['username'] == username and {'password', 'password_hash', 'password_enc'}.isdisjoint(me)
 
 
 def test_team_70152_scope(client):
@@ -98,7 +98,7 @@ def test_management_manages_accounts(client):
     users = {u['username']: u for u in client.get('/api/admin/users', headers=adm).json()['users']}
     assert {'fengxuecheng', 'jinliuchao', 'feiyong', 'admin', '70152'} <= set(users) and 'gcjsb' not in users
     assert users['feiyong']['role'] == 'cost' and users['admin']['role'] == 'admin'
-    assert all('password_hash' not in u for u in users.values())
+    assert all({'password', 'password_hash', 'password_enc'}.isdisjoint(u) for u in users.values())
     u = client.post('/api/admin/users', json={'username': 'dz70188', 'role': 'team', 'scope': '70188', 'password': 'Init8888'},
                     headers=adm).json()
     assert u['scope_label'] == '70188 钻井队'
@@ -118,11 +118,151 @@ def test_management_manages_accounts(client):
 
 
 def test_passwords_are_hashed(client):
+    from app.accounts import DEBUG_PASSWORD, decrypt_password
     from app.db import connect
     conn = connect()
-    stored = [r[0] for r in conn.execute('SELECT password_hash FROM app_user WHERE username IS NOT NULL')]
+    rows = list(conn.execute('SELECT username, password_hash, password_enc FROM app_user WHERE username IS NOT NULL'))
+    try:
+        assert rows
+        for r in rows:
+            expect = DEBUG_PASSWORD if r['username'] == 'test' else INIT
+            assert r['password_hash'].startswith('pbkdf2_sha256$') and expect not in r['password_hash']
+            assert r['password_enc'].startswith('enc1$') and expect not in r['password_enc']
+            assert decrypt_password(r['password_enc'], conn) == expect
+    finally:
+        conn.close()
+
+
+def _logs(conn):
+    return [dict(r) for r in conn.execute('SELECT object_type, object_id, action, operator, comment FROM approval_log')]
+
+
+def test_admin_reveals_current_password_without_leaking_it(client):
+    """系统管理员能看到当前密码；其他角色不行；列表、详情和审计日志都不含明文。"""
+    adm = bearer(login(client, 'admin').json()['token'])
+    fin = bearer(login(client, 'fengxuecheng').json()['token'])
+    cost = bearer(login(client, 'feiyong').json()['token'])
+    team = bearer(login(client, '70152').json()['token'])
+
+    nav = client.get('/api/me', headers=adm).json()['nav']
+    assert 'perm' in {i['id'] for g in nav for i in g['items']}
+    matrix = client.get('/api/admin/permissions', headers=adm).json()['matrix']
+    row = next(m for m in matrix if m['name'] == '查看账号当前密码')
+    assert row['cells'] == {'team': '', 'finance': '', 'cost': '', 'admin': '查看'}
+
+    seen = client.post('/api/admin/users/70152/reveal-password', headers=adm)
+    assert seen.status_code == 200
+    assert seen.json()['recoverable'] is True and seen.json()['password'] == INIT
+    assert {'password_hash', 'password_enc'}.isdisjoint(seen.json())
+
+    assert client.post('/api/auth/password', json={'old_password': INIT, 'new_password': 'OnlyAdmin1'}, headers=team).status_code == 200
+    assert login(client, '70152').status_code == 400
+    changed = client.post('/api/admin/users/70152/reveal-password', headers=adm).json()
+    assert changed['recoverable'] is True and changed['password'] == 'OnlyAdmin1'
+    assert login(client, '70152', 'OnlyAdmin1').status_code == 200
+
+    assert client.post('/api/admin/users/70152/reset', json={'password': 'ResetOnly2'}, headers=fin).status_code == 200
+    assert client.post('/api/admin/users/70152/reset', json={'password': 'Nope9999'}, headers=adm).status_code == 403
+    reset = client.post('/api/admin/users/70152/reveal-password', headers=adm).json()
+    assert reset['password'] == 'ResetOnly2'
+    relog = login(client, '70152', 'ResetOnly2').json()
+    assert relog['user']['must_change'] == 1
+    assert login(client, '70152', 'OnlyAdmin1').status_code == 400
+
+    created = client.post('/api/admin/users', json={'username': 'viewer1', 'role': 'finance', 'password': 'BrandNew1'}, headers=fin)
+    assert created.status_code == 200 and 'BrandNew1' not in created.text
+    assert client.post(f"/api/admin/users/{created.json()['user_id']}/reveal-password", headers=adm).json()['password'] == 'BrandNew1'
+
+    secrets = ('OnlyAdmin1', 'ResetOnly2', 'BrandNew1', 'Nope9999')
+    for headers in (adm, fin, cost, bearer(relog['token'])):
+        for path in ('/api/admin/users', '/api/admin/permissions', '/api/me'):
+            res = client.get(path, headers=headers)
+            if res.status_code == 200:
+                assert 'enc1$' not in res.text and 'pbkdf2_sha256$' not in res.text
+                for secret in secrets:
+                    assert secret not in res.text
+                body = res.json()
+                rows = body['users'] if isinstance(body, dict) and 'users' in body else [body]
+                for item in rows:
+                    if isinstance(item, dict):
+                        assert {'password', 'password_hash', 'password_enc'}.isdisjoint(item)
+            else:
+                assert res.status_code == 403
+                for secret in secrets:
+                    assert secret not in res.text
+
+    for headers in (fin, cost, bearer(relog['token'])):
+        denied = client.post('/api/admin/users/viewer1/reveal-password', headers=headers)
+        assert denied.status_code == 403
+        for secret in secrets:
+            assert secret not in denied.text
+    assert client.post('/api/admin/users/viewer1/reveal-password').status_code == 401
+    for uid, status in (('u_fin', 403), ('u_cost', 403), ('u_team', 403), ('u_admin', 200)):
+        res = client.post('/api/admin/users/viewer1/reveal-password', headers={'X-User-Id': uid})
+        assert res.status_code == status
+        if status != 200:
+            assert 'BrandNew1' not in res.text
+
+    dbg = bearer(login(client, 'test', 'test').json()['token'])
+    assert client.post('/api/admin/users/viewer1/reveal-password', headers=dbg).status_code == 403
+    assert client.post('/api/auth/switch', json={'user_id': 'u_admin'}, headers=dbg).status_code == 200
+    switched = client.post('/api/admin/users/viewer1/reveal-password', headers=dbg)
+    assert switched.status_code == 200 and switched.json()['password'] == 'BrandNew1'
+    assert client.post('/api/auth/switch', json={'user_id': 'u_cost'}, headers=dbg).status_code == 200
+    assert client.post('/api/admin/users/viewer1/reveal-password', headers=dbg).status_code == 403
+
+    from app.db import connect
+    conn = connect()
+    try:
+        logs = [r for r in _logs(conn) if r['action'] == '查看密码']
+        assert logs and all(r['comment'] in ('查看当前密码', '查看当前密码（未能显示）') for r in logs)
+        blob = ' '.join(' '.join(str(v) for v in r.values() if v) for r in _logs(conn))
+        for secret in secrets:
+            assert secret not in blob
+        stored = conn.execute("SELECT password_enc FROM app_user WHERE username='viewer1'").fetchone()[0]
+        assert stored.startswith('enc1$') and 'BrandNew1' not in stored
+    finally:
+        conn.close()
+
+
+def test_legacy_hash_is_not_invented(client):
+    """升级前只剩散列的密码不能被编造出来；本人再次登录或改密后，管理员才能看到。"""
+    from app.accounts import hash_password
+    from app.db import connect
+    conn = connect()
+    conn.execute('UPDATE app_user SET password_hash=?, password_enc=NULL WHERE username=?', (hash_password('LegacyPwd1'), 'fengxuecheng'))
+    conn.execute("UPDATE app_user SET password_enc='enc1$not-a-real-ciphertext' WHERE username=?", ('jinliuchao',))
+    conn.commit()
     conn.close()
-    assert stored and all(h.startswith('pbkdf2_sha256$') and INIT not in h for h in stored)
+
+    adm = bearer(login(client, 'admin').json()['token'])
+    missing = client.post('/api/admin/users/fengxuecheng/reveal-password', headers=adm)
+    assert missing.status_code == 200
+    assert missing.json()['recoverable'] is False and missing.json()['password'] is None
+    assert 'LegacyPwd1' not in missing.text and '无法恢复' in missing.json()['reason']
+    assert login(client, 'fengxuecheng', 'LegacyPwd1').status_code == 200
+    assert client.post('/api/admin/users/fengxuecheng/reveal-password', headers=adm).json()['password'] == 'LegacyPwd1'
+
+    broken = client.post('/api/admin/users/jinliuchao/reveal-password', headers=adm)
+    assert broken.json()['recoverable'] is False and broken.json()['password'] is None
+    assert '密钥' in broken.json()['reason'] and INIT not in broken.text
+    assert login(client, 'jinliuchao').status_code == 200
+    assert client.post('/api/admin/users/jinliuchao/reveal-password', headers=adm).json()['password'] == INIT
+
+    fin = bearer(login(client, 'fengxuecheng', 'LegacyPwd1').json()['token'])
+    for path in ('/api/me', '/api/admin/users', '/api/admin/permissions'):
+        assert 'LegacyPwd1' not in client.get(path, headers=fin).text
+        assert 'LegacyPwd1' not in client.get(path, headers=adm).text
+    assert 'LegacyPwd1' not in client.post('/api/admin/users/fengxuecheng/reveal-password', headers=fin).text
+
+    conn = connect()
+    try:
+        blob = ' '.join(' '.join('' if v is None else str(v) for v in r) for r in conn.execute('SELECT * FROM approval_log'))
+        assert 'LegacyPwd1' not in blob
+        enc = conn.execute("SELECT password_enc FROM app_user WHERE username='fengxuecheng'").fetchone()[0]
+        assert enc.startswith('enc1$') and 'LegacyPwd1' not in enc
+    finally:
+        conn.close()
 
 
 # ---------- 调试账号 ----------

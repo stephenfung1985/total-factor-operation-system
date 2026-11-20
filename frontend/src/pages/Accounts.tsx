@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react';
 import { api, type AccountRow, type RevealedPassword } from '../api';
 import { Modal, useLoad, useToast } from '../ui';
 
-interface Admin { users: AccountRow[]; teams: { team_no: string; name: string }[] }
+interface Admin { users: AccountRow[]; teams: { team_no: string; name: string }[]; depts: string[] }
 const COLS = '1fr 1fr 0.9fr 1.3fr 0.8fr 1fr 1.9fr';
 const ROLES = [
   { id: 'finance', label: '管理端（普通账户，提交规则）' },
-  { id: 'cost', label: '费用管理部室' },
+  { id: 'dept', label: '归口部室（本部室规则确认，提交变化依据）' },
   { id: 'admin', label: '系统管理员' },
   { id: 'team', label: '填报端（钻井队）' },
 ];
@@ -88,6 +88,14 @@ function CreateModal({ open, admin, onClose, onDone }: { open: boolean; admin: A
           <label className="field">队号（不存在则新建队伍）
             <input className="input" list="dl-teams" value={f.scope} onChange={(e) => setF({ ...f, scope: e.target.value })} />
             <datalist id="dl-teams">{admin.teams.map((t) => <option key={t.team_no} value={t.team_no}>{t.name}</option>)}</datalist>
+          </label>
+        )}
+        {f.role === 'dept' && (
+          <label className="field">归口部室
+            <select className="input" value={f.scope} onChange={(e) => setF({ ...f, scope: e.target.value })}>
+              <option value="">请选择</option>
+              {admin.depts.map((d) => <option key={d} value={d}>{d === '技术' ? '工程（技术）' : d === '人事' ? '人力（人事）' : d}</option>)}
+            </select>
           </label>
         )}
         <label className="field">初始密码<input className="input" type="password" autoComplete="new-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></label>

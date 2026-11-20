@@ -8,29 +8,31 @@ interface Perms {
   matrix: { name: string; cells: Record<string, string> }[];
   users: { user_id: string; role: string; who: string; scope_label: string }[];
 }
-const ORDER = ['finance', 'team', 'cost', 'admin'];
-const CLS: Record<string, string> = { 编辑: 'edit', 审核: 'review', 查看: 'view' };
+const ORDER = ['finance', 'team', 'cost', 'admin', 'dept'];
+const CLS: Record<string, string> = { 编辑: 'edit', 审核: 'review', 查看: 'view', 导出: 'view' };
 
 export default function Perm({ me }: PageProps) {
   const { data, error } = useLoad(() => api.get<Perms>('/api/admin/permissions'), []);
   const name = (id: string) => data?.roles.find((r) => r.id === id)?.name ?? id;
-  const tpl = '1.6fr repeat(4, minmax(0, 1fr))';
+  const tpl = '1.6fr repeat(5, minmax(0, 1fr))';
   return (
     <>
-      <PageHead title="角色与权限" sub="账号由管理端分配。规则入库分三级：普通账户提交，费用管理部室确认或退回，系统管理员发布。填报端只看本队" />
+      <PageHead title="角色与权限" sub="账号由管理端分配。规则入库分三级：普通账户提交，归口部室确认或退回本部室规则，系统管理员发布。填报端只看本队。系统管理员可查看当前密码" />
       <Accounts meId={me.user_id} canManage={me.role === 'finance'} canReveal={me.role === 'admin'} />
       {error && <div className="notice">{error}</div>}
       {data && (
         <>
           <div className="kpis" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
             {ORDER.map((id) => {
-              const u = data.users.find((x) => x.role === id);
+              const scoped = data.users.filter((x) => x.role === id);
+              const u = scoped[0];
+              const scope = id === 'dept' ? '各归口部室只看本部室' : u?.scope_label;
               return (
                 <div key={id} className="kpi" style={{ gap: 6, padding: '18px 20px' }}>
                   <div style={{ fontSize: 15, fontWeight: 600 }}>{name(id)}</div>
                   <div className="hint">行级数据范围</div>
-                  <div style={{ fontSize: 14 }}>{u?.scope_label}</div>
-                  <div className="small muted">{u?.who}</div>
+                  <div style={{ fontSize: 14 }}>{scope}</div>
+                  <div className="small muted">{id === 'dept' ? `${scoped.length} 个部室账号` : u?.who}</div>
                 </div>
               );
             })}
@@ -38,7 +40,7 @@ export default function Perm({ me }: PageProps) {
           <section className="card list">
             <div className="card-head"><h2>功能权限矩阵</h2><div className="hint">编辑 · 审核 · 查看 · 无</div></div>
             <div className="scroll-x">
-              <div className="nowrap" style={{ minWidth: 980 }}>
+              <div className="nowrap" style={{ minWidth: 1100 }}>
                 <div className="grid-row grid-head" style={{ gridTemplateColumns: tpl }}><span>功能</span>{ORDER.map((id) => <span key={id}>{name(id)}</span>)}</div>
                 {data.matrix.map((m) => (
                   <div key={m.name} className="grid-row" style={{ gridTemplateColumns: tpl, minHeight: 50, fontSize: 14, borderBottom: '1px solid var(--sep2)' }}>
@@ -52,8 +54,8 @@ export default function Perm({ me }: PageProps) {
           <section className="card pad" style={{ gap: 8 }}>
             <h3>硬约束</h3>
             <div style={{ fontSize: 14, lineHeight: '22px' }}>任何角色都不能直接修改经济事项，金额只由规则引擎写入；数据库触发器同样禁止改写和删除事项。</div>
-            <div style={{ fontSize: 14, lineHeight: '22px' }}>AI 只生成草稿，不能写入已发布规则表；已发布规则的价格与条件不能修改，只能新建版本。</div>
-            <div style={{ fontSize: 14, lineHeight: '22px' }}>费用规则必须按三级入库：普通账户提交，费用管理部室确认或退回，系统管理员发布。接口按角色拒绝越权，不能由同一角色走完全程。</div>
+            <div style={{ fontSize: 14, lineHeight: '22px' }}>AI 只生成待确认草稿，不能写入已发布规则；已发布规则的价格与条件不能修改，只能新建版本。归口部室账号不能调用 AI 写规则。</div>
+            <div style={{ fontSize: 14, lineHeight: '22px' }}>费用规则必须按三级入库：普通账户提交，归口部室确认或退回本部室规则，系统管理员发布。接口按角色拒绝越权，不能由同一角色走完全程。归口部室不能发布，也不能重算金额。</div>
             <div style={{ fontSize: 14, lineHeight: '22px' }}>账号与权限由管理端统一管理。</div>
             <div style={{ fontSize: 14, lineHeight: '22px' }}>密码登录校验使用加盐散列，并加密保存当前密码。仅系统管理员可查看；升级前已散列且之后未再登录或重置的密码无法恢复。连续输错 5 次锁定 15 分钟；登录 12 小时后需重新登录。</div>
           </section>

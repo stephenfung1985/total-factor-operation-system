@@ -24,8 +24,7 @@ def bearer(token):
 
 @pytest.mark.parametrize('username,role,scope', [
     ('fengxuecheng', 'finance', '全部'), ('jinliuchao', 'finance', '全部'),
-    ('feiyong', 'cost', '全部'), ('admin', 'admin', '全部'),
-    ('70152', 'team', '70152 钻井队')])
+    ('admin', 'admin', '全部'), ('70152', 'team', '70152 钻井队')])
 def test_initial_accounts(client, username, role, scope):
     r = login(client, username).json()
     u = r['user']
@@ -41,22 +40,17 @@ def test_team_70152_scope(client):
     assert client.get('/api/reports/wells', headers=bearer(tok)).json() == []      # 新队伍，暂无井
 
 
-def test_dept_role_removed(client):
-    """专业部室角色已取消：没有部室初始账号，不能新建部室账号，旧库里的部室账号启动时清除。"""
+def test_dept_scope_uses_short_label(client):
+    """归口账号按短标记建立。全称不能当作范围，费用管理部室角色不能再新建。"""
     assert login(client, 'gcjsb').status_code == 400
+    assert login(client, 'feiyong').status_code == 400
     adm = bearer(login(client, 'jinliuchao').json()['token'])
-    r = client.post('/api/admin/users', json={'username': 'aqhbb', 'role': 'dept', 'scope': '安全', 'password': 'Init8888'}, headers=adm)
-    assert r.status_code == 400
-    from app.db import connect, init_db
-    c = connect()
-    c.execute("INSERT INTO app_user (user_id, name, role, who, dept, scope_label, username) VALUES "
-              "('old_dept', '旧部室', 'dept', '工程技术部', '技术', '归口', 'old_dept')")
-    c.commit()
-    c.close()
-    init_db()
-    c = connect()
-    assert not c.execute("SELECT 1 FROM app_user WHERE role='dept'").fetchone()
-    c.close()
+    assert client.post('/api/admin/users', json={'username': 'anquan2', 'role': 'dept', 'scope': '安全', 'password': 'Init8888'},
+                       headers=adm).status_code == 200
+    assert client.post('/api/admin/users', json={'username': 'aqhbb', 'role': 'dept', 'scope': '安全环保部', 'password': 'Init8888'},
+                       headers=adm).status_code == 400
+    assert client.post('/api/admin/users', json={'username': 'cost2', 'role': 'cost', 'password': 'Init8888'},
+                       headers=adm).status_code == 400
 
 
 def test_login_required_and_demo_header_off(client, monkeypatch):
@@ -96,8 +90,9 @@ def test_management_manages_accounts(client):
     assert client.get('/api/admin/users', headers=team).status_code == 403
     assert client.get('/api/admin/users', headers=fin).status_code == 200
     users = {u['username']: u for u in client.get('/api/admin/users', headers=adm).json()['users']}
-    assert {'fengxuecheng', 'jinliuchao', 'feiyong', 'admin', '70152'} <= set(users) and 'gcjsb' not in users
-    assert users['feiyong']['role'] == 'cost' and users['admin']['role'] == 'admin'
+    assert {'fengxuecheng', 'jinliuchao', 'admin', '70152', 'caiwu', 'gongcheng'} <= set(users)
+    assert 'feiyong' not in users and 'gcjsb' not in users
+    assert users['caiwu']['role'] == 'dept' and users['admin']['role'] == 'admin'
     assert all({'password', 'password_hash', 'password_enc'}.isdisjoint(u) for u in users.values())
     u = client.post('/api/admin/users', json={'username': 'dz70188', 'role': 'team', 'scope': '70188', 'password': 'Init8888'},
                     headers=adm).json()
@@ -141,14 +136,14 @@ def test_admin_reveals_current_password_without_leaking_it(client):
     """系统管理员能看到当前密码；其他角色不行；列表、详情和审计日志都不含明文。"""
     adm = bearer(login(client, 'admin').json()['token'])
     fin = bearer(login(client, 'fengxuecheng').json()['token'])
-    cost = bearer(login(client, 'feiyong').json()['token'])
+    cost = bearer(login(client, 'gongcheng').json()['token'])
     team = bearer(login(client, '70152').json()['token'])
 
     nav = client.get('/api/me', headers=adm).json()['nav']
     assert 'perm' in {i['id'] for g in nav for i in g['items']}
     matrix = client.get('/api/admin/permissions', headers=adm).json()['matrix']
     row = next(m for m in matrix if m['name'] == '查看账号当前密码')
-    assert row['cells'] == {'team': '', 'finance': '', 'cost': '', 'admin': '查看'}
+    assert row['cells'] == {'team': '', 'finance': '', 'cost': '', 'admin': '查看', 'dept': ''}
 
     seen = client.post('/api/admin/users/70152/reveal-password', headers=adm)
     assert seen.status_code == 200

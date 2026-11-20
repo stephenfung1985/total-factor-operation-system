@@ -280,6 +280,10 @@ def _check_item(conn, user: dict, well_id: str, code: str) -> dict:
     it = conn.execute('SELECT * FROM cost_item WHERE item_code=?', (code,)).fetchone()
     if not it or not it['is_leaf']:
         raise HTTPException(404, '费用项目不存在或不在数据范围内')
+    if user['role'] == 'dept':
+        from .depts import covers
+        if not covers(user.get('dept'), it['owner_dept'], it['item_name']):
+            raise HTTPException(404, '费用项目不存在或不在数据范围内')
     return dict(it)
 
 

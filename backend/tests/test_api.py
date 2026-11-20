@@ -95,8 +95,8 @@ def test_permissions_page_is_management_only(client):
     nav = client.get('/api/me', headers=H('u_fin')).json()['nav']
     assert {'perm', 'review', 'rules'} <= {i['id'] for g in nav for i in g['items']}
     m = client.get('/api/admin/permissions', headers=H('u_fin')).json()
-    assert [r['id'] for r in m['roles']] == ['finance', 'team', 'cost', 'admin']
-    assert set(m['matrix'][0]['cells']) == {'team', 'finance', 'cost', 'admin'}
+    assert [r['id'] for r in m['roles']] == ['finance', 'team', 'cost', 'admin', 'dept']
+    assert set(m['matrix'][0]['cells']) == {'team', 'finance', 'cost', 'admin', 'dept'}
 
 
 # ---------- 成本日报 → 提交即生效 → 规则引擎 ----------
@@ -145,15 +145,16 @@ def test_rule_confirm_backtest_publish(client):
     lst = client.get('/api/rules', headers=H('u_fin')).json()
     draft = next(r for r in lst if r['rule_code'] == 'RL-C2-3-04')
     assert draft['status'] == '草稿'
-    assert client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=H('u_cost')).status_code == 409  # 草稿未经提交不能确认
+    assert client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=H('gongcheng')).status_code == 409  # 草稿未经提交不能确认
     client.post(f"/api/rules/{draft['rule_id']}/submit", headers=H('u_fin'))
-    # 已提交的规则由费用管理部室确认；基层队和普通账户都不能确认
+    # 已提交的规则由归口部室确认；基层队、普通账户和别的部室都不能确认
     assert client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=H('u_team')).status_code == 403
     assert client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=H('u_fin')).status_code == 403
-    d = client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=H('u_cost')).json()
+    assert client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=H('shichang')).status_code == 403
+    d = client.post(f"/api/rules/{draft['rule_id']}/confirm", headers=H('gongcheng')).json()
     assert d['backtest']['result'] == '豁免' and d['rule']['status'] == '待发布'
     # 发布必须由系统管理员登记变化依据
-    assert client.post(f"/api/rules/{draft['rule_id']}/publish", json={}, headers=H('u_cost')).status_code == 403
+    assert client.post(f"/api/rules/{draft['rule_id']}/publish", json={}, headers=H('gongcheng')).status_code == 403
     assert client.post(f"/api/rules/{draft['rule_id']}/publish", json={}, headers=H('u_admin')).status_code == 422
     d = client.post(f"/api/rules/{draft['rule_id']}/publish", json={'change_basis': '工程技术部 2026-12 号 定向服务价格通知'},
                     headers=H('u_admin')).json()
@@ -179,9 +180,9 @@ def test_new_version_supersedes_and_recalculates(client):
     nid = nv['rule']['rule_id']
     assert nv['rule']['version'] == 2 and nv['rule']['status'] == '草稿'
     client.put(f'/api/rules/{nid}', json={'unit_price': 500}, headers=H('u_fin'))
-    assert client.post(f'/api/rules/{nid}/confirm', headers=H('u_cost')).status_code == 409   # 草稿未经提交不能确认
+    assert client.post(f'/api/rules/{nid}/confirm', headers=H('gongcheng')).status_code == 409   # 草稿未经提交不能确认
     client.post(f'/api/rules/{nid}/submit', headers=H('u_fin'))
-    d = client.post(f'/api/rules/{nid}/confirm', headers=H('u_cost')).json()
+    d = client.post(f'/api/rules/{nid}/confirm', headers=H('gongcheng')).json()
     assert d['backtest']['result'] == '不通过' and d['rule']['status'] == '待确认'
     # 偏差超阈值不能发布
     assert client.post(f'/api/rules/{nid}/publish', json={'change_basis': '调价通知'}, headers=H('u_admin')).status_code == 409

@@ -16,7 +16,7 @@ def H(user):
     return {'X-User-Id': user}
 
 
-FIN, TEAM, COST, ADMIN = H('u_fin'), H('u_team'), H('u_cost'), H('u_admin')
+FIN, TEAM, COST, ADMIN = H('u_fin'), H('u_team'), H('gongcheng'), H('u_admin')
 
 
 def body(depth_end=4874, date='2026-10-10'):

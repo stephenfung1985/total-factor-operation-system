@@ -2,12 +2,13 @@
 
 费用规则入库分三级，后端按角色拒绝越权，不能由同一人走完全程：
   普通账户（管理端）起草、修改草稿并提交；AI 只生成草稿，不代为提交；
-  费用管理部室确认或退回（确认时冲突检查 + 历史井回算，超阈值留在待确认）；
+  归口部室确认或退回本部室规则（确认时冲突检查 + 历史井回算，超阈值留在待确认）；
   系统管理员做影响预览、登记依据后发布；发布后有误由系统管理员回滚。
 任一步退回都回到草稿，由普通账户修改后重新提交。
 普通账户也可手工新建草稿（AI 未配置时同样可以）。新建必须挂到已有依据文件上的条款，
 含 AI 标为「需人工计价」的条款，避免事后金额对不上原文。
 已发布规则只增不改：调价时由普通账户复制为新版本草稿，再走三级流程；旧版本失效日由新版本推导。
+归口部室不能提交、发布，也不能确认其他部室的规则。
 """
 import re
 from datetime import date, timedelta
@@ -36,15 +37,26 @@ def _row(conn, rule_id: int) -> dict:
 
 
 def _visible(user: dict, r: dict) -> bool:
-    return user['role'] in ('finance', 'cost', 'admin')
+    if user['role'] in ('finance', 'cost', 'admin'):
+        return True
+    if user['role'] == 'dept':
+        from .depts import covers
+        return covers(user.get('dept'), r.get('owner_dept'), r.get('item_name'))
+    return False
 
 
 def _submitter(user: dict) -> bool:
     return user['role'] == 'finance'
 
 
-def _reviewer(user: dict) -> bool:
-    return user['role'] == 'cost'
+def _reviewer(user: dict, r: dict | None = None) -> bool:
+    """归口部室确认本部室规则。不传规则时只看角色，传了再核对归口。"""
+    if user['role'] != 'dept':
+        return False
+    if r is None:
+        return True
+    from .depts import covers
+    return covers(user.get('dept'), r.get('owner_dept'), r.get('item_name'))
 
 
 def _publisher(user: dict) -> bool:
@@ -110,9 +122,9 @@ def detail(conn, user: dict, rule_id: int) -> dict:
         'hits': {'count': hits['n'], 'amount': money(hits['a'])},
         'can_edit': _submitter(user) and r['status'] in EDITABLE,
         'can_submit': _submitter(user) and r['status'] == '草稿',
-        'can_confirm': _reviewer(user) and r['status'] == '待确认',
+        'can_confirm': _reviewer(user, r) and r['status'] == '待确认',
         'can_publish': _publisher(user) and r['status'] == '待发布',
-        'can_reject': _reviewer(user) and r['status'] in ('待确认', '回算中', '待发布'),
+        'can_reject': _reviewer(user, r) and r['status'] in ('待确认', '回算中', '待发布'),
         'can_new_version': _submitter(user) and r['status'] == '已发布',
         'can_rollback': _publisher(user) and r['status'] == '已发布',
         'change_basis': r.get('change_basis'),
@@ -135,7 +147,13 @@ def _need_submitter(conn, user, rule_id) -> dict:
 
 
 def _need_reviewer(conn, user, rule_id) -> dict:
-    return _need(conn, user, rule_id, _reviewer(user), '只有费用管理部室可以确认或退回规则')
+    """越出本部室也是 403，不把别人的规则说成不存在。"""
+    r = _row(conn, rule_id)
+    if not _reviewer(user, r):
+        if user['role'] == 'dept':
+            raise HTTPException(403, '只能确认或退回本部室的规则')
+        raise HTTPException(403, '只有归口部室可以确认或退回本部室规则')
+    return r
 
 
 def _need_publisher(conn, user, rule_id) -> dict:
@@ -388,18 +406,18 @@ def _conflicts(conn, r: dict) -> list[str]:
 
 
 def submit(conn, user: dict, rule_id: int) -> dict:
-    """普通账户把草稿提交给费用管理部室。提交后价格和条件锁定，退回后才能再改。"""
+    """普通账户把草稿提交给归口部室。提交后价格和条件锁定，退回后才能再改。"""
     r = _need_submitter(conn, user, rule_id)
     if r['status'] != '草稿':
         raise HTTPException(409, f"当前状态“{r['status']}”不能提交")
     conn.execute("UPDATE economic_rule SET status='待确认', submitted_by=?, submitted_at=? WHERE rule_id=?",
                  (user['who'], now(), rule_id))
-    log(conn, '规则', rule_id, '提交', user['who'], '提交费用管理部室确认')
+    log(conn, '规则', rule_id, '提交', user['who'], '提交归口部室确认')
     return detail(conn, user, rule_id)
 
 
 def confirm(conn, user: dict, rule_id: int) -> dict:
-    """费用管理部室确认 → 自动检查 → 回算；达标或豁免进入待发布，超阈值留在待确认。"""
+    """归口部室确认本部室规则 → 冲突检查 → 回算；达标或豁免进入待发布，超阈值留在待确认。"""
     r = _need_reviewer(conn, user, rule_id)
     if r['status'] != '待确认':
         raise HTTPException(409, f"当前状态“{r['status']}”不能确认，须由普通账户先提交")
@@ -419,7 +437,7 @@ def confirm(conn, user: dict, rule_id: int) -> dict:
 
 
 def reject(conn, user: dict, rule_id: int, comment: str | None) -> dict:
-    """费用管理部室退回：回到草稿，普通账户按原因修改后重新提交。"""
+    """归口部室退回本部室规则：回到草稿，普通账户按原因修改后重新提交。"""
     r = _need_reviewer(conn, user, rule_id)
     if r['status'] not in ('待确认', '回算中', '待发布'):
         raise HTTPException(409, f"当前状态“{r['status']}”不能退回")

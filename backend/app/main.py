@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import accounts, ai, aiparse, allocation, analysis, auth, costdetail, engine, excel, fillparse, filltrace, master, reports, results_import, rules, wellinfo
+from . import accounts, ai, aiparse, allocation, analysis, auth, costdetail, depts, engine, excel, fillparse, filltrace, master, reports, results_import, rules, wellinfo
 from .db import init_db, log, rows, transaction
 
 def docs_kwargs() -> dict:
@@ -159,18 +159,21 @@ def periods(user=User):
 @app.get('/api/overview')
 def overview(period: str, user=User):
     """period 为 YYYY-MM（单月）或 YYYY（全年累计）。"""
+    auth.deny_company_money(user)
     with transaction() as c:
         return analysis.overview(c, user, period)
 
 
 @app.get('/api/overview/trend')
 def overview_trend(user=User):
+    auth.deny_company_money(user)
     with transaction() as c:
         return analysis.trend(c, user)
 
 
 @app.get('/api/wells/{well_id}/result')
 def well_result(well_id: str, period: str, user=User):
+    auth.deny_company_money(user)
     with transaction() as c:
         return analysis.well_result(c, user, well_id, period)
 
@@ -549,14 +552,14 @@ def rule_create(body: RuleCreate, user=User):
 
 @app.get('/api/rules')
 def rule_list(user=User):
-    auth.require(user, *auth.RULE_ACTORS)
+    auth.require(user, *auth.RULE_READERS)
     with transaction() as c:
         return rules.list_rules(c, user)
 
 
 @app.get('/api/rules/{rid:int}')
 def rule_detail(rid: int, user=User):
-    auth.require(user, *auth.RULE_ACTORS)
+    auth.require(user, *auth.RULE_READERS)
     with transaction() as c:
         return rules.detail(c, user, rid)
 
@@ -678,6 +681,32 @@ def fill_ai_traces(user=User):
     auth.require(user, 'finance')
     with transaction() as c:
         return filltrace.recent(c)
+
+
+# ---------- 归口部室：变化依据与本部室已入账结果 ----------
+
+class BasisBody(BaseModel):
+    title: str = ''
+    note: str = ''
+
+
+@app.get('/api/basis')
+def basis_list(user=User):
+    with transaction() as c:
+        return depts.list_basis(c, user)
+
+
+@app.post('/api/basis')
+def basis_submit(body: BasisBody, user=User):
+    with transaction() as c:
+        return depts.submit_basis(c, user, body.title, body.note)
+
+
+@app.get('/api/dept/results')
+def dept_result_list(user=User):
+    """本部室末级科目的已入账金额。不重算。"""
+    with transaction() as c:
+        return depts.dept_results(c, user)
 
 
 # ---------- AI 规则解析（第一期，管理端）：依据文件 → 规则草稿 ----------
@@ -956,7 +985,12 @@ def master_list(kind: str, user=User):
     if not q:
         raise HTTPException(404, '未知主数据类别')
     with transaction() as c:
-        return rows(c.execute(q))
+        data = rows(c.execute(q))
+        if user['role'] == 'dept':
+            if kind != 'items':
+                raise HTTPException(403, '归口部室只查看本部室费用科目')
+            data = depts.scoped_item_rows(data, user.get('dept') or '')
+        return data
 
 
 class TeamBody(BaseModel):
@@ -1058,7 +1092,8 @@ def admin_users(user=User):
     auth.require(user, 'finance', 'admin')
     with transaction() as c:
         return {'users': [{**u, 'role_name': auth.ROLE_NAMES[u['role']]} for u in accounts.list_users(c)],
-                'teams': rows(c.execute('SELECT team_no, name FROM team ORDER BY team_no'))}
+                'teams': rows(c.execute('SELECT team_no, name FROM team ORDER BY team_no')),
+                'depts': depts.distinct_departments(c)}
 
 
 @app.post('/api/admin/users')

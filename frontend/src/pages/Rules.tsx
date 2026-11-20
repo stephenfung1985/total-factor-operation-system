@@ -10,7 +10,7 @@ const TODO = ['草稿', '待确认', '回算中', '待发布'];
 
 export default function Rules({ me }: PageProps) {
   const toast = useToast();
-  const [filter, setFilter] = useState<Filter>('todo');
+  const [filter, setFilter] = useState<Filter>(me.role === 'dept' ? 'all' : 'todo');
   const [publishing, setPublishing] = useState(false);
   const [rolling, setRolling] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -78,7 +78,10 @@ export default function Rules({ me }: PageProps) {
   const cur = d ? STEPS.indexOf(d.rule.status) : -1;
   return (
     <>
-      <PageHead title="规则库" sub="三级入库：普通账户起草或修改草稿并提交 → 费用管理部室确认或退回（冲突检查 + 回算）→ 系统管理员登记依据并发布；发布后有误由系统管理员回滚"
+      <PageHead title={me.role === 'dept' ? '归口规则' : '规则库'}
+        sub={me.role === 'dept'
+          ? '只显示本部室归口规则，只读。确认、发布和金额计算不在部室；变化依据请到「变化依据」提交。日报不经部室审核。'
+          : '三级入库：普通账户起草或修改草稿并提交 → 费用管理部室确认或退回（冲突检查 + 回算）→ 系统管理员登记依据并发布；发布后有误由系统管理员回滚'}
         right={me.role === 'finance' ? (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" className="btn sm" onClick={() => { setCreating(null); setCreateOpen(true); }}>手工新建</button>
@@ -200,12 +203,15 @@ function PublishModal({ open, ruleId, busy, onClose, onPublish }: { open: boolea
   const [imp, setImp] = useState<RuleImpact | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [basis, setBasis] = useState('');
+  const [tips, setTips] = useState<{ basis_id: number; dept: string; title: string }[]>([]);
   useEffect(() => {
     if (!open) return;
     setImp(null);
     setErr(null);
     setBasis('');
+    setTips([]);
     api.post<RuleImpact>(`/api/rules/${ruleId}/impact`).then(setImp).catch((e: Error) => setErr(e.message));
+    api.get<{ basis_id: number; dept: string; title: string }[]>('/api/basis').then(setTips).catch(() => setTips([]));
   }, [open, ruleId]);
   return (
     <Modal open={open} onClose={onClose} title="影响预览并发布" wide>
@@ -232,6 +238,16 @@ function PublishModal({ open, ruleId, busy, onClose, onPublish }: { open: boolea
             )}
             <div className="hint" style={{ whiteSpace: 'normal' }}>以上为试算结果，尚未写入；发布后按此冲销重算，发现有误可在规则上“回滚”。</div>
           </>
+        )}
+        {tips.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div className="sec-label">部室已提交的变化依据（点选填入；发布仍由系统管理员确认）</div>
+            <div className="btn-row">
+              {tips.slice(0, 12).map((b) => (
+                <button key={b.basis_id} type="button" className="btn sm" onClick={() => setBasis(b.title)}>{b.dept} · {b.title}</button>
+              ))}
+            </div>
+          </div>
         )}
         <label className="field">变化依据 *（部室提供的文件、通知或会议纪要：文号 + 名称）
           <input className="input" value={basis} onChange={(e) => setBasis(e.target.value)} placeholder="如：工程技术部〔2026〕12 号 定向服务价格调整通知" />

@@ -8,6 +8,7 @@
 普通账户也可手工新建草稿（AI 未配置时同样可以）。新建必须挂到已有依据文件上的条款，
 含 AI 标为「需人工计价」的条款，避免事后金额对不上原文。
 已发布规则只增不改：调价时由普通账户复制为新版本草稿，再走三级流程；旧版本失效日由新版本推导。
+归口部室只能查看本归口规则，不能提交、确认、发布或触发回算。
 """
 import re
 from datetime import date, timedelta
@@ -36,7 +37,12 @@ def _row(conn, rule_id: int) -> dict:
 
 
 def _visible(user: dict, r: dict) -> bool:
-    return user['role'] in ('finance', 'cost', 'admin')
+    if user['role'] in ('finance', 'cost', 'admin'):
+        return True
+    if user['role'] == 'dept':
+        from .depts import covers
+        return covers(user.get('dept'), r.get('owner_dept'), r.get('item_name'))
+    return False
 
 
 def _submitter(user: dict) -> bool:

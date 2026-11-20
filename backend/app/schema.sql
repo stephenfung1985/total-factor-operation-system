@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS app_user (
   role        TEXT NOT NULL CHECK (role IN ('finance', 'team', 'dept', 'cost', 'admin')),
   who         TEXT NOT NULL,          -- 界面左下角的身份说明
   team_id     TEXT,                   -- 基层队账号：按队伍过滤
-  dept        TEXT,                   -- 专业部室账号：按归口部室过滤（市场/技术/物资/装备/安全/人事）
+  dept        TEXT,                   -- 归口部室账号：按部室全称过滤（市场部/工程技术部/物资装备部/安全环保部/人力资源部/企划财务部）
   scope_label TEXT NOT NULL
 );
 -- 登录名、密码散列、加密后的当前密码等列由 db._add_columns 补齐（兼容旧库）
@@ -143,6 +143,16 @@ CREATE TABLE IF NOT EXISTS source_doc (
   counterparty_type TEXT,
   file_hash         TEXT,
   parse_status      TEXT NOT NULL DEFAULT '已解析'
+);
+
+-- 归口部室提交的变化依据（文号 + 名称）。不生成规则、不触发计算；发布时由系统管理员引用。
+CREATE TABLE IF NOT EXISTS dept_change_basis (
+  basis_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+  dept         TEXT NOT NULL,
+  title        TEXT NOT NULL,
+  note         TEXT,
+  submitted_by TEXT NOT NULL,
+  submitted_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS clause (

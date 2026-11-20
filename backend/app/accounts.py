@@ -28,7 +28,7 @@ ROLE_WHO = {'finance': '企划财务部', 'cost': '费用管理部室', 'admin':
 
 # 初始账号：(登录名, 角色, 队号)。
 # 规则入库三级：管理端（普通账户）提交，费用管理部室确认或退回，系统管理员发布。
-# 专业部室角色已取消，不在此列。
+# 归口部室不在此列：按费用科目的归口全称各建一个全拼账号，见 _ensure_dept_accounts。
 INITIAL_ACCOUNTS = [
     ('fengxuecheng', 'finance', None),
     ('jinliuchao', 'finance', None),
@@ -242,6 +242,12 @@ def _profile(conn, role: str, username: str, scope: str | None) -> dict:
         return {'who': f'费用管理部室 · {username}', 'team_id': None, 'dept': '费用管理部室', 'scope_label': '全部'}
     if role == 'admin':
         return {'who': f'系统管理员 · {username}', 'team_id': None, 'dept': None, 'scope_label': '全部'}
+    if role == 'dept':
+        from .depts import distinct_departments
+        name = (scope or '').strip()
+        if name not in distinct_departments(conn):
+            raise AuthError('请选择系统中已有的归口部室全称')
+        return {'who': f'{name} · {username}', 'team_id': None, 'dept': name, 'scope_label': name}
     raise AuthError('角色不正确')
 
 
@@ -279,22 +285,23 @@ def production_check() -> str:
     return pwd
 
 
-def _drop_dept_role(conn) -> None:
-    """专业部室角色已取消（规则与日报不再经部室审核）：清除旧库里的部室账号、演示身份及其会话；历史留痕在操作日志里不受影响。"""
-    ids = [r['user_id'] for r in conn.execute("SELECT user_id FROM app_user WHERE role='dept'")]
-    for uid in ids:
-        conn.execute('DELETE FROM app_session WHERE user_id=? OR acting_user_id=?', (uid, uid))
-        conn.execute('DELETE FROM app_user WHERE user_id=?', (uid,))
+def _ensure_dept_accounts(conn, password: str) -> None:
+    """每个归口部室一个账号，登录名是部室全称的全拼。已有同名账号不覆盖、不删除，升级也不清空部室账号。"""
+    from .depts import department_accounts
+    for username, full_name in department_accounts(conn):
+        if conn.execute('SELECT 1 FROM app_user WHERE username=? OR user_id=?', (username, username)).fetchone():
+            continue
+        create_user(conn, username, 'dept', full_name, password, name=full_name)
 
 
 def ensure_initial_accounts(conn) -> None:
-    """建立初始账号、演示身份和调试账号（已存在的不动）。"""
+    """建立初始账号、归口部室账号、演示身份和调试账号（已存在的不动）。"""
     prod = is_production()
-    _drop_dept_role(conn)
     initial = production_check() if prod else INITIAL_PASSWORD
     for username, role, scope in INITIAL_ACCOUNTS:
         if not conn.execute('SELECT 1 FROM app_user WHERE username=?', (username,)).fetchone():
             create_user(conn, username, role, scope, initial)
+    _ensure_dept_accounts(conn, initial)
     for uid, name, role, who, team_id, dept, scope in DEMO_USERS:
         if not conn.execute('SELECT 1 FROM app_user WHERE user_id=?', (uid,)).fetchone():
             if team_id and not conn.execute('SELECT 1 FROM team WHERE team_id=?', (team_id,)).fetchone():

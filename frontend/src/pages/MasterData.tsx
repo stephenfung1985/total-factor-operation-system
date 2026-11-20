@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { api } from '../api';
 import type { PageProps } from '../App';
-import { Combo, Modal, PageHead, Seg, useLoad, useToast } from '../ui';
+import { Combo, Modal, PageHead, Seg, useLoad, useToast, yuan } from '../ui';
 
 type Tab = 'items' | 'report_lines' | 'teams' | 'materials' | 'units';
 const SEC: Record<string, string> = { energy: '能耗与材料', equip: '设备与工具在用', service: '外包技术服务', logistics: '运输与环保' };
@@ -15,12 +15,18 @@ interface Edit { title: string; method: 'post' | 'put'; url: string; fields: Fie
 const enc = encodeURIComponent;
 const uniq = (xs: (string | number | null | undefined)[]) => [...new Set(xs.filter((x): x is string => typeof x === 'string' && x !== ''))].sort();
 
-export default function MasterData(_: PageProps) {
+export default function MasterData({ me }: PageProps) {
+  const deptMode = me.role === 'dept';
   const toast = useToast();
   const [tab, setTab] = useState<Tab>('items');
   const [edit, setEdit] = useState<Edit | null>(null);
-  const { data, reload } = useLoad(() => api.get<Row[]>(`/api/master/${tab}`), [tab]);
-  const refs = useLoad(() => Promise.all([api.get<Row[]>('/api/master/units'), api.get<Row[]>('/api/master/items')]), []);
+  const { data, reload } = useLoad(() => api.get<Row[]>(`/api/master/${deptMode ? 'items' : tab}`), [tab, deptMode]);
+  const refs = useLoad(
+    () => (deptMode ? Promise.resolve([[] as Row[], [] as Row[]] as const) : Promise.all([api.get<Row[]>('/api/master/units'), api.get<Row[]>('/api/master/items')])),
+    [deptMode]);
+  const results = useLoad(
+    () => (deptMode ? api.get<{ items: { item_code: string; item_name: string; amount: number }[] }>('/api/dept/results') : Promise.resolve(null)),
+    [deptMode]);
   const unitRows = refs.data?.[0] ?? [];
   const units = unitRows.map((u) => String(u.unit));
   const items = (refs.data?.[1] ?? []).filter((i) => i.is_leaf);
@@ -85,11 +91,14 @@ export default function MasterData(_: PageProps) {
 
   return (
     <>
-      <PageHead title="主数据维护" sub="费用科目树、队伍、物资、计量单位；点击行编辑，每次修改留痕" />
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <Seg value={tab} onChange={setTab} label="主数据类别" options={[{ id: 'items', label: '费用科目树' }, { id: 'report_lines', label: '日报报量项目' }, { id: 'teams', label: '队伍' }, { id: 'materials', label: '物资' }, { id: 'units', label: '计量单位' }]} />
-        {addBtn}
-      </div>
+      <PageHead title={deptMode ? '归口科目' : '主数据维护'}
+        sub={deptMode ? `只显示${me.scope_label}的费用科目。金额是已经入账的结果，部室不能修改科目，也不能重算。` : '费用科目树、队伍、物资、计量单位；点击行编辑，每次修改留痕'} />
+      {!deptMode && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <Seg value={tab} onChange={setTab} label="主数据类别" options={[{ id: 'items', label: '费用科目树' }, { id: 'report_lines', label: '日报报量项目' }, { id: 'teams', label: '队伍' }, { id: 'materials', label: '物资' }, { id: 'units', label: '计量单位' }]} />
+          {addBtn}
+        </div>
+      )}
       <section className="card list">
         {tab === 'items' && (
           <div className="scroll-x">
@@ -100,7 +109,7 @@ export default function MasterData(_: PageProps) {
               {data?.map((r) => {
                 const group = !r.is_leaf;
                 return (
-                  <div key={r.item_code as string} className={'grid-row' + (group ? '' : ' line')} {...(group ? {} : {
+                  <div key={r.item_code as string} className={'grid-row' + (group || deptMode ? '' : ' line')} {...(group || deptMode ? {} : {
                     role: 'button', tabIndex: 0, title: '编辑说明字段', onClick: () => editItem(r), onKeyDown: (e: { key: string }) => e.key === 'Enter' && editItem(r) })}
                     style={{ gridTemplateColumns: ITEM_COLS, minHeight: group ? 44 : 40, background: group && Number(r.level) <= 2 ? 'var(--fill)' : undefined, fontWeight: group ? 600 : 400 }}>
                     <span className="muted num" style={{ fontWeight: 400 }}>{r.item_code}</span>
@@ -143,6 +152,7 @@ export default function MasterData(_: PageProps) {
         )}
         {tab === 'units' && <Simple cols={['计量单位', '用于']} keys={['unit', 'usage']} data={data} onEdit={editUnit} />}
       </section>
+      {deptMode && <DeptResults items={results.data?.items ?? null} error={results.error} />}
       <EditModal edit={edit} onClose={() => setEdit(null)} onDone={() => { setEdit(null); reload(); refs.reload(); }} />
     </>
   );
@@ -153,6 +163,24 @@ const ELLIPSIS = { overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 } a
 /** 说明行单行显示，宽度不够时省略，悬停看全文。 */
 function Hint({ text }: { text: string }) {
   return <div className="hint" style={{ padding: '14px 24px', ...ELLIPSIS }} title={text}>{text}</div>;
+}
+
+function DeptResults({ items, error }: { items: { item_code: string; item_name: string; amount: number }[] | null; error: string | null }) {
+  const shown = (items || []).filter((i) => i.amount !== 0);
+  const rest = (items || []).length - shown.length;
+  return (
+    <section className="card list">
+      <div className="card-head"><h2>已入账结果</h2><div className="hint">全部期间合计，只读，不重算</div></div>
+      {error && <div className="notice">{error}</div>}
+      {shown.map((i) => (
+        <div key={i.item_code} className="grid-row" style={{ gridTemplateColumns: '8rem 1fr 8rem', minHeight: 44, borderBottom: '1px solid var(--sep2)' }}>
+          <span className="muted num">{i.item_code}</span><span>{i.item_name}</span><span className="num r">{yuan(i.amount)} 元</span>
+        </div>
+      ))}
+      {items && shown.length === 0 && <div className="empty">本部室暂无已入账金额</div>}
+      {rest > 0 && <div className="hint" style={{ padding: '12px 24px' }}>另有 {rest} 个科目金额为 0</div>}
+    </section>
+  );
 }
 
 function Simple({ cols, keys, data, onEdit, actions, off, minWidth }: {

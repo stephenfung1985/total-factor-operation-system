@@ -41,22 +41,13 @@ def test_team_70152_scope(client):
     assert client.get('/api/reports/wells', headers=bearer(tok)).json() == []      # 新队伍，暂无井
 
 
-def test_dept_role_removed(client):
-    """专业部室角色已取消：没有部室初始账号，不能新建部室账号，旧库里的部室账号启动时清除。"""
+def test_short_dept_label_is_not_a_login(client):
+    """归口账号用部室全称，不用短标记，也不能拿短标记新建。"""
     assert login(client, 'gcjsb').status_code == 400
+    assert login(client, 'jishu').status_code == 400
     adm = bearer(login(client, 'jinliuchao').json()['token'])
     r = client.post('/api/admin/users', json={'username': 'aqhbb', 'role': 'dept', 'scope': '安全', 'password': 'Init8888'}, headers=adm)
     assert r.status_code == 400
-    from app.db import connect, init_db
-    c = connect()
-    c.execute("INSERT INTO app_user (user_id, name, role, who, dept, scope_label, username) VALUES "
-              "('old_dept', '旧部室', 'dept', '工程技术部', '技术', '归口', 'old_dept')")
-    c.commit()
-    c.close()
-    init_db()
-    c = connect()
-    assert not c.execute("SELECT 1 FROM app_user WHERE role='dept'").fetchone()
-    c.close()
 
 
 def test_login_required_and_demo_header_off(client, monkeypatch):

@@ -95,8 +95,8 @@ def test_permissions_page_is_management_only(client):
     nav = client.get('/api/me', headers=H('u_fin')).json()['nav']
     assert {'perm', 'review', 'rules'} <= {i['id'] for g in nav for i in g['items']}
     m = client.get('/api/admin/permissions', headers=H('u_fin')).json()
-    assert [r['id'] for r in m['roles']] == ['finance', 'team', 'cost', 'admin']
-    assert set(m['matrix'][0]['cells']) == {'team', 'finance', 'cost', 'admin'}
+    assert [r['id'] for r in m['roles']] == ['finance', 'team', 'cost', 'admin', 'dept']
+    assert set(m['matrix'][0]['cells']) == {'team', 'finance', 'cost', 'admin', 'dept'}
 
 
 # ---------- 成本日报 → 提交即生效 → 规则引擎 ----------

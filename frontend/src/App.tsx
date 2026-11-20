@@ -13,6 +13,7 @@ import Batches from './pages/Batches';
 import BenchmarkPage from './pages/Benchmark';
 import CostDetail from './pages/CostDetail';
 import Allocation from './pages/Allocation';
+import Basis from './pages/Basis';
 
 /** 服务器状态灯：定时探测 /api/health，请求失败或超时即判为离线 */
 function ServerLight() {
@@ -149,6 +150,7 @@ export default function App() {
     page = {
       overview: <Overview {...p} />, report: <DailyReport {...p} />, review: <Review {...p} />, rules: <Rules {...p} />,
       wellreg: <WellReg {...p} />, masterdata: <MasterData {...p} />, perm: <Perm {...p} />, batches: <Batches {...p} />, benchmark: <BenchmarkPage {...p} />, costdetail: <CostDetail {...p} />, allocation: <Allocation {...p} />,
+      basis: <Basis {...p} />,
     }[route.screen] ?? null;
   }
 

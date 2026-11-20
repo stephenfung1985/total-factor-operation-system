@@ -1,7 +1,7 @@
-"""归口部室：短名对照、全拼登录名、行级范围、变化依据。
+"""归口部室：短标记范围、登录名、变化依据。
 
-费用科目 `owner_dept` 多用短标记（市场、技术、物资、装备……）。物资和装备是同一个部室。
-`市场/安全`、`各部室` 不是独立部室：末级科目按名称后缀（如“水费（市场）”）归到对应部室，组节点按斜杠拆开的短名共享，不另建账号。
+账号按费用科目上的短标记分开，不用部室全称，也不再把物资和装备、企划和财务并成一个账号。
+`市场/安全`、`各部室` 不是独立部室：末级科目按名称后缀归入对应短标记，组节点按斜杠拆开后共享。
 """
 import re
 
@@ -9,40 +9,62 @@ from fastapi import HTTPException
 
 from .db import log, money, now
 
-# 汉语拼音全拼只保留字母数字，避免声调、分隔符进入登录名。
-_PINYIN_OK = re.compile(r'^[a-z0-9]{2,32}$')
+# 登录名 → 费用科目 owner_dept 短标记。显示名只在和短标记不同时另写。
+ACCOUNTS = (
+    ('shichang', '市场'),
+    ('gongcheng', '技术'),
+    ('wuzi', '物资'),
+    ('zhuangbei', '装备'),
+    ('anquan', '安全'),
+    ('renli', '人事'),
+    ('qihua', '企划'),
+    ('caiwu', '财务'),
+)
+# 界面上的叫法。过滤仍用短标记，所以工程看的是“技术”，人力看的是“人事”。
+SCOPE_NAME = {
+    '市场': '市场', '技术': '工程', '物资': '物资', '装备': '装备',
+    '安全': '安全', '人事': '人力', '财务': '财务', '企划': '企划',
+}
+DEPT_SCOPES = tuple(SCOPE_NAME)
+# 旧的全称登录名 → 现登录名。物资装备部、企划财务部是拆开的，不在这里改名。
+RENAMES = {
+    'shichangbu': 'shichang',
+    'gongchengjishubu': 'gongcheng',
+    'anquanhuanbaobu': 'anquan',
+    'renliziyuanbu': 'renli',
+}
+# 升级时删掉的旧登录名，避免和短名并存。
+RETIRED_USERNAMES = (
+    'shichangbu', 'gongchengjishubu', 'wuzizhuangbeibu', 'anquanhuanbaobu',
+    'renliziyuanbu', 'qihuacaiwubu', 'feiyong', 'feiyongguanlibushi',
+)
+# 库里偶尔写成全称。物资装备部不回写成一个标记，避免物资和装备又看同一批科目。
+_FULL_TO_SHORT = {
+    '市场部': '市场', '工程技术部': '技术', '安全环保部': '安全',
+    '人力资源部': '人事', '企划财务部': '财务',
+}
 _SPLIT = re.compile(r'[/／]')
 _SUFFIX = re.compile(r'[（(]([^）)]+)[）)]\s*$')
 
 
-def name_map() -> dict[str, str]:
-    """短标记 → 部室全称。定义在 seed.DEPT_FULL，账号和过滤共用这一份。"""
-    from .seed import DEPT_FULL
-    return DEPT_FULL
-
-
-def quanpin(text: str) -> str:
-    """汉语拼音全拼：小写、无声调、无分隔。同一字符串的结果稳定。"""
-    from pypinyin import Style, lazy_pinyin
-    parts = lazy_pinyin(text or '', style=Style.NORMAL, errors='ignore')
-    return re.sub(r'[^a-z0-9]', '', ''.join(parts).lower())
+def scope_name(scope: str) -> str:
+    return SCOPE_NAME.get(scope, scope)
 
 
 def _one(label: str) -> str | None:
-    """单个标记变成部室全称。斜杠和“各部室”不是一个部室。未知的单一名称原样保留，避免漏建账号。"""
+    """单个标记收成短标记。斜杠和“各部室”不是一个部室。"""
     label = (label or '').strip()
     if not label or label == '各部室' or _SPLIT.search(label):
         return None
-    mapping = name_map()
-    if label in mapping:
-        return mapping[label]
-    if label in set(mapping.values()):
+    if label in SCOPE_NAME:
         return label
+    if label in _FULL_TO_SHORT:
+        return _FULL_TO_SHORT[label]
     return label
 
 
 def departments_for_item(owner: str | None, name: str | None = None) -> set[str]:
-    """这条费用科目属于哪些部室全称。空集表示不单独归属（共享组节点、或没有归口）。"""
+    """这条费用科目属于哪些短标记。空集表示不单独归属。"""
     raw = (owner or '').strip()
     if not raw:
         return set()
@@ -65,33 +87,9 @@ def covers(dept: str | None, owner: str | None, name: str | None = None) -> bool
 
 
 def distinct_departments(conn) -> list[str]:
-    """库里实际出现的归口部室全称。已知部室按对照表顺序，其余按全拼排序。"""
-    found: set[str] = set()
-    for row in conn.execute('SELECT owner_dept, item_name FROM cost_item'):
-        found |= departments_for_item(row['owner_dept'], row['item_name'])
-    ordered: list[str] = []
-    seen: set[str] = set()
-    for full in dict.fromkeys(name_map().values()):
-        if full in found:
-            ordered.append(full)
-            seen.add(full)
-    extras = sorted((n for n in found if n not in seen), key=lambda n: (quanpin(n), n))
-    return ordered + extras
-
-
-def department_accounts(conn) -> list[tuple[str, str]]:
-    """(登录名, 部室全称)。一个部室一个登录名；全拼相撞时拒绝启动，避免静默丢掉一个部室。"""
-    out: list[tuple[str, str]] = []
-    taken: dict[str, str] = {}
-    for name in distinct_departments(conn):
-        username = quanpin(name)
-        if not _PINYIN_OK.fullmatch(username):
-            raise RuntimeError(f'归口部室“{name}”的全拼登录名“{username}”不合法')
-        if username in taken:
-            raise RuntimeError(f'归口部室“{name}”与“{taken[username]}”的全拼登录名相同（{username}）')
-        taken[username] = name
-        out.append((username, name))
-    return out
+    """新建部室账号时可选的短标记。conn 保留给调用方，名单不随库里的科目增减。"""
+    del conn
+    return list(DEPT_SCOPES)
 
 
 def scoped_item_rows(rows: list[dict], dept: str) -> list[dict]:

@@ -136,9 +136,9 @@ def test_parse_creates_checked_drafts(client, monkeypatch):
     task = client.get('/api/ai/tasks', headers=FIN).json()[0]
     assert task['status'] == '完成' and task['model'] == 'fake-model' and task['draft_count'] == 1
     assert task['adoption'] == {'pending': 1, 'published': 0, 'modified': 0, 'rejected': 0}
-    # 草稿先由普通账户核对修改再提交；费用管理部室在提交前不能确认，AI 不能写成已发布
+    # 草稿先由普通账户核对修改再提交；归口部室在提交前不能确认，AI 不能写成已发布
     assert client.post(f"/api/rules/{d['rule_id']}/confirm", headers=FIN).status_code == 403
-    blocked = client.post(f"/api/rules/{d['rule_id']}/confirm", headers={'X-User-Id': 'u_cost'})
+    blocked = client.post(f"/api/rules/{d['rule_id']}/confirm", headers={'X-User-Id': 'gongcheng'})
     assert blocked.status_code == 409 and '提交' in blocked.json()['detail']
     edited = client.put(f"/api/rules/{d['rule_id']}", json={
         'unit_price': 37000, 'name': '定向井服务日费（已核对）', 'item_code': 'C2-1-04',
@@ -150,7 +150,8 @@ def test_parse_creates_checked_drafts(client, monkeypatch):
     submitted = client.post(f"/api/rules/{d['rule_id']}/submit", headers=FIN).json()
     assert submitted['rule']['status'] == '待确认' and not submitted['can_edit']
     assert client.put(f"/api/rules/{d['rule_id']}", json={'unit_price': 1}, headers=FIN).status_code == 409
-    c = client.post(f"/api/rules/{d['rule_id']}/confirm", headers={'X-User-Id': 'u_cost'}).json()
+    assert client.post(f"/api/rules/{d['rule_id']}/confirm", headers={'X-User-Id': 'gongcheng'}).status_code == 403
+    c = client.post(f"/api/rules/{d['rule_id']}/confirm", headers={'X-User-Id': 'wuzi'}).json()
     assert c['rule']['status'] in ('待发布', '待确认')
     docs = client.get('/api/ai/docs', headers=FIN).json()
     assert docs[0]['parse_status'] == '已解析' and docs[0]['last_task']['draft_count'] == 1
@@ -169,7 +170,7 @@ def test_manual_create_is_draft_without_ai(client):
     assert client.get('/api/ai/status', headers=FIN).json()['enabled'] is False
     doc = upload(client).json()
     body = _manual_body(doc['doc_id'])
-    assert client.post('/api/rules', json=body, headers={'X-User-Id': 'u_cost'}).status_code == 403
+    assert client.post('/api/rules', json=body, headers={'X-User-Id': 'gongcheng'}).status_code == 403
     assert client.post('/api/rules', json=body, headers={'X-User-Id': 'u_admin'}).status_code == 403
     assert client.post('/api/rules', json=body, headers=TEAM).status_code == 403
     assert client.post('/api/rules', json={**body, 'doc_id': None}, headers=FIN).status_code == 422
@@ -186,11 +187,11 @@ def test_manual_create_is_draft_without_ai(client):
     assert row['status'] == '草稿' and row['submitted_by'] is None
     db.close()
     rid = d['rule']['rule_id']
-    assert client.post(f'/api/rules/{rid}/confirm', headers={'X-User-Id': 'u_cost'}).status_code == 409
+    assert client.post(f'/api/rules/{rid}/confirm', headers={'X-User-Id': 'gongcheng'}).status_code == 409
     submitted = client.post(f'/api/rules/{rid}/submit', headers=FIN).json()
     assert submitted['rule']['status'] == '待确认'
     assert client.post(f'/api/rules/{rid}/confirm', headers=FIN).status_code == 403
-    confirmed = client.post(f'/api/rules/{rid}/confirm', headers={'X-User-Id': 'u_cost'}).json()
+    confirmed = client.post(f'/api/rules/{rid}/confirm', headers={'X-User-Id': 'gongcheng'}).json()
     assert confirmed['rule']['status'] in ('待发布', '待确认')
 
 

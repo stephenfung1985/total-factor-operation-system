@@ -27,12 +27,11 @@ INITIAL_PASSWORD = '123456'
 ROLE_WHO = {'finance': '企划财务部', 'cost': '费用管理部室', 'admin': '系统管理员'}
 
 # 初始账号：(登录名, 角色, 队号)。
-# 规则入库三级：管理端（普通账户）提交，费用管理部室确认或退回，系统管理员发布。
-# 归口部室不在此列：按费用科目的归口全称各建一个全拼账号，见 _ensure_dept_accounts。
+# 规则入库三级：管理端（普通账户）提交，归口部室确认或退回本部室规则，系统管理员发布。
+# 归口部室见 _ensure_dept_accounts。不再建立费用管理部室登录账号。
 INITIAL_ACCOUNTS = [
     ('fengxuecheng', 'finance', None),
     ('jinliuchao', 'finance', None),
-    ('feiyong', 'cost', None),
     ('admin', 'admin', None),
     ('70152', 'team', '70152'),
 ]
@@ -238,16 +237,16 @@ def _profile(conn, role: str, username: str, scope: str | None) -> dict:
         return {'who': f"{team['name']} · {username}", 'team_id': team['team_id'], 'dept': None, 'scope_label': team['name']}
     if role == 'finance':
         return {'who': f'企划财务部 · {username}', 'team_id': None, 'dept': None, 'scope_label': '全部'}
-    if role == 'cost':
-        return {'who': f'费用管理部室 · {username}', 'team_id': None, 'dept': '费用管理部室', 'scope_label': '全部'}
     if role == 'admin':
         return {'who': f'系统管理员 · {username}', 'team_id': None, 'dept': None, 'scope_label': '全部'}
     if role == 'dept':
-        from .depts import distinct_departments
-        name = (scope or '').strip()
-        if name not in distinct_departments(conn):
-            raise AuthError('请选择系统中已有的归口部室全称')
-        return {'who': f'{name} · {username}', 'team_id': None, 'dept': name, 'scope_label': name}
+        from .depts import SCOPE_NAME, scope_name
+        key = (scope or '').strip()
+        if key not in SCOPE_NAME:
+            raise AuthError('请选择归口：市场、技术、物资、装备、安全、人事、财务、企划')
+        return {'who': f'{scope_name(key)} · {username}', 'team_id': None, 'dept': key, 'scope_label': key}
+    if role == 'cost':
+        raise AuthError('不再单独建立费用管理部室账号，由各归口部室确认本部室规则')
     raise AuthError('角色不正确')
 
 
@@ -285,13 +284,55 @@ def production_check() -> str:
     return pwd
 
 
+def _drop_login(conn, username: str) -> None:
+    """删掉登录账号及其会话。演示身份没有登录名，不从这里走。"""
+    rows = list(conn.execute('SELECT user_id FROM app_user WHERE username=? OR user_id=?', (username, username)))
+    for row in rows:
+        uid = row['user_id']
+        conn.execute('DELETE FROM app_session WHERE user_id=? OR acting_user_id=?', (uid, uid))
+        conn.execute('DELETE FROM app_user WHERE user_id=?', (uid,))
+
+
+def _rename_dept(conn, old: str, username: str, scope: str) -> None:
+    """把旧的全称全拼账号改成短登录名，密码和“须改密”标志保留。目标已存在时只删旧账号。"""
+    from .depts import scope_name
+    row = conn.execute('SELECT * FROM app_user WHERE username=? OR user_id=?', (old, old)).fetchone()
+    if not row:
+        return
+    taken = conn.execute(
+        'SELECT user_id FROM app_user WHERE (username=? OR user_id=?) AND user_id!=?',
+        (username, username, row['user_id'])).fetchone()
+    if taken:
+        _drop_login(conn, old)
+        return
+    uid = row['user_id']
+    conn.execute('DELETE FROM app_session WHERE user_id=? OR acting_user_id=?', (uid, uid))
+    conn.execute(
+        'UPDATE app_user SET user_id=?, username=?, name=?, role=?, who=?, team_id=NULL, dept=?, scope_label=? WHERE user_id=?',
+        (username, username, scope_name(scope), 'dept', f'{scope_name(scope)} · {username}', scope, scope, uid))
+
+
+def _drop_cost_logins(conn) -> None:
+    """去掉能登录的费用管理部室账号。没有登录名的演示身份保留，调试账号切换不受影响。"""
+    rows = list(conn.execute(
+        "SELECT username FROM app_user WHERE role='cost' AND username IS NOT NULL AND COALESCE(is_debug, 0)=0"))
+    for row in rows:
+        _drop_login(conn, row['username'])
+
+
 def _ensure_dept_accounts(conn, password: str) -> None:
-    """每个归口部室一个账号，登录名是部室全称的全拼。已有同名账号不覆盖、不删除，升级也不清空部室账号。"""
-    from .depts import department_accounts
-    for username, full_name in department_accounts(conn):
+    """短登录名的归口部室账号。旧的全拼账号改名或删除，已有短名不重置密码。"""
+    from .depts import ACCOUNTS, RENAMES, RETIRED_USERNAMES, scope_name
+    scopes = {username: scope for username, scope in ACCOUNTS}
+    for old, new in RENAMES.items():
+        _rename_dept(conn, old, new, scopes[new])
+    for username in RETIRED_USERNAMES:
+        _drop_login(conn, username)
+    _drop_cost_logins(conn)
+    for username, scope in ACCOUNTS:
         if conn.execute('SELECT 1 FROM app_user WHERE username=? OR user_id=?', (username, username)).fetchone():
             continue
-        create_user(conn, username, 'dept', full_name, password, name=full_name)
+        create_user(conn, username, 'dept', scope, password, name=scope_name(scope))
 
 
 def ensure_initial_accounts(conn) -> None:
@@ -415,7 +456,7 @@ def set_enabled(conn, user_id: str, enabled: bool, operator_id: str) -> None:
         raise AuthError('不能停用自己的账号')
     if not enabled:
         target = conn.execute('SELECT role FROM app_user WHERE user_id=?', (user_id,)).fetchone()
-        guard = {'finance': '管理端', 'cost': '费用管理部室', 'admin': '系统管理员'}
+        guard = {'finance': '管理端', 'admin': '系统管理员'}
         if target and target['role'] in guard:
             others = conn.execute('SELECT COUNT(*) n FROM app_user WHERE role=? AND enabled=1 AND username IS NOT NULL '
                                   'AND is_debug=0 AND user_id!=?', (target['role'], user_id)).fetchone()['n']

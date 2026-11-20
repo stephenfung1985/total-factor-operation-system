@@ -10,7 +10,7 @@ const TODO = ['草稿', '待确认', '回算中', '待发布'];
 
 export default function Rules({ me }: PageProps) {
   const toast = useToast();
-  const [filter, setFilter] = useState<Filter>(me.role === 'dept' ? 'all' : 'todo');
+  const [filter, setFilter] = useState<Filter>('todo');
   const [publishing, setPublishing] = useState(false);
   const [rolling, setRolling] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -80,8 +80,8 @@ export default function Rules({ me }: PageProps) {
     <>
       <PageHead title={me.role === 'dept' ? '归口规则' : '规则库'}
         sub={me.role === 'dept'
-          ? '只显示本部室归口规则，只读。确认、发布和金额计算不在部室；变化依据请到「变化依据」提交。日报不经部室审核。'
-          : '三级入库：普通账户起草或修改草稿并提交 → 费用管理部室确认或退回（冲突检查 + 回算）→ 系统管理员登记依据并发布；发布后有误由系统管理员回滚'}
+          ? '只显示本部室规则。可以确认或退回已提交的规则，不能发布，也不能看其他部室。日报不经部室审核。'
+          : '三级入库：普通账户起草或修改草稿并提交 → 归口部室确认或退回（仅本部室，冲突检查 + 回算）→ 系统管理员登记依据并发布；发布后有误由系统管理员回滚'}
         right={me.role === 'finance' ? (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" className="btn sm" onClick={() => { setCreating(null); setCreateOpen(true); }}>手工新建</button>

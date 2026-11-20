@@ -1,4 +1,4 @@
-"""费用规则入库三级流程：普通账户提交 → 费用管理部室确认/退回 → 系统管理员发布。
+"""费用规则入库三级流程：普通账户提交 → 归口部室确认/退回本部室规则 → 系统管理员发布。
 
 后端按角色拒绝越权。升级前已在库里的规则视为已发布，不重走这三级。
 """
@@ -22,6 +22,7 @@ def H(user):
 
 
 FIN, COST, ADMIN, TEAM = H('u_fin'), H('u_cost'), H('u_admin'), H('u_team')
+DEPT = H('gongcheng')   # 泥浆、定向的归口是技术
 
 
 def _draft(client):
@@ -34,7 +35,7 @@ def test_three_roles_cannot_skip_steps(client):
     rid = d['rule']['rule_id']
     assert d['can_submit'] and not d['can_confirm'] and not d['can_publish']
     # 草稿未提交：部室不能确认，管理员不能发布，填报端不能提交
-    assert client.post(f'/api/rules/{rid}/confirm', headers=COST).status_code == 409
+    assert client.post(f'/api/rules/{rid}/confirm', headers=DEPT).status_code == 409
     assert client.post(f'/api/rules/{rid}/publish', json={'change_basis': '调价通知 2026'}, headers=ADMIN).status_code == 409
     assert client.post(f'/api/rules/{rid}/submit', headers=TEAM).status_code == 403
     assert client.post(f'/api/rules/{rid}/submit', headers=COST).status_code == 403
@@ -43,12 +44,13 @@ def test_three_roles_cannot_skip_steps(client):
     submitted = client.post(f'/api/rules/{rid}/submit', headers=FIN).json()
     assert submitted['rule']['status'] == '待确认' and submitted['can_confirm'] is False
     assert client.put(f'/api/rules/{rid}', json={'unit_price': 1}, headers=FIN).status_code == 409   # 提交后锁定
-    # 确认只属于费用管理部室；填报端在入口即被拒绝
+    # 确认只属于归口部室，而且只限本部室；填报端在入口即被拒绝
     assert client.post(f'/api/rules/{rid}/confirm', headers=TEAM).status_code == 403
-    for who in (FIN, ADMIN):
+    for who in (FIN, ADMIN, COST):
         r = client.post(f'/api/rules/{rid}/confirm', headers=who)
-        assert r.status_code == 403 and '费用管理部室' in r.json()['detail']
-    confirmed = client.post(f'/api/rules/{rid}/confirm', headers=COST).json()
+        assert r.status_code == 403
+    assert client.post(f'/api/rules/{rid}/confirm', headers=H('shichang')).status_code == 403
+    confirmed = client.post(f'/api/rules/{rid}/confirm', headers=DEPT).json()
     assert confirmed['rule']['status'] == '待发布' and confirmed['backtest']['result'] in ('通过', '豁免')
     # 发布只属于系统管理员；填报端在入口即被拒绝
     assert client.post(f'/api/rules/{rid}/publish', json={'change_basis': '泥浆服务调价通知 2026-09'}, headers=TEAM).status_code == 403
@@ -67,9 +69,9 @@ def test_department_return_then_resubmit(client):
     d = _draft(client)
     rid = d['rule']['rule_id']
     client.post(f'/api/rules/{rid}/submit', headers=FIN)
-    assert client.post(f'/api/rules/{rid}/reject', json={'comment': '  '}, headers=COST).status_code == 422
+    assert client.post(f'/api/rules/{rid}/reject', json={'comment': '  '}, headers=DEPT).status_code == 422
     assert client.post(f'/api/rules/{rid}/reject', json={'comment': '单价与合同不符'}, headers=FIN).status_code == 403
-    back = client.post(f'/api/rules/{rid}/reject', json={'comment': '单价与合同不符'}, headers=COST).json()
+    back = client.post(f'/api/rules/{rid}/reject', json={'comment': '单价与合同不符'}, headers=DEPT).json()
     assert back['rule']['status'] == '草稿' and not back['can_edit']   # 退回人不是提交人，不能改
     seen = client.get(f'/api/rules/{rid}', headers=FIN).json()
     assert seen['can_edit'] and seen['can_submit']
@@ -78,9 +80,9 @@ def test_department_return_then_resubmit(client):
     again = client.post(f'/api/rules/{rid}/submit', headers=FIN).json()
     assert again['rule']['status'] == '待确认'
     # 部室确认后、管理员发布前，部室仍可退回
-    ready = client.post(f'/api/rules/{rid}/confirm', headers=COST).json()
+    ready = client.post(f'/api/rules/{rid}/confirm', headers=DEPT).json()
     assert ready['rule']['status'] == '待发布'
-    returned = client.post(f'/api/rules/{rid}/reject', json={'comment': '生效日有误'}, headers=COST).json()
+    returned = client.post(f'/api/rules/{rid}/reject', json={'comment': '生效日有误'}, headers=DEPT).json()
     assert returned['rule']['status'] == '草稿'
     assert client.post(f'/api/rules/{rid}/publish', json={'change_basis': '不应发布'}, headers=ADMIN).status_code == 409
 
@@ -139,7 +141,8 @@ def test_old_role_check_accepts_cost_and_admin(tmp_path, monkeypatch):
     init_db()
     c = connect()
     assert c.execute("SELECT role FROM app_user WHERE user_id='keep'").fetchone()['role'] == 'finance'
-    assert c.execute("SELECT role FROM app_user WHERE username='feiyong'").fetchone()['role'] == 'cost'
+    assert c.execute("SELECT 1 FROM app_user WHERE username='feiyong'").fetchone() is None
+    assert c.execute("SELECT role FROM app_user WHERE username='caiwu'").fetchone()['role'] == 'dept'
     assert c.execute("SELECT role FROM app_user WHERE username='admin'").fetchone()['role'] == 'admin'
     sql = c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='app_user'").fetchone()['sql']
     assert 'cost' in sql and 'admin' in sql

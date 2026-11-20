@@ -577,7 +577,7 @@ def rule_update(rid: int, body: RuleEdit, user=User):
 
 @app.post('/api/rules/{rid:int}/submit')
 def rule_submit(rid: int, user=User):
-    """普通账户提交草稿，进入费用管理部室确认。"""
+    """普通账户提交草稿，进入归口部室确认。"""
     auth.require(user, *auth.RULE_ACTORS)
     with transaction() as c:
         return rules.submit(c, user, rid)
@@ -585,14 +585,14 @@ def rule_submit(rid: int, user=User):
 
 @app.post('/api/rules/{rid:int}/confirm')
 def rule_confirm(rid: int, user=User):
-    auth.require(user, *auth.RULE_ACTORS)
+    auth.require(user, 'dept')
     with transaction() as c:
         return rules.confirm(c, user, rid)
 
 
 @app.post('/api/rules/{rid:int}/reject')
 def rule_reject(rid: int, body: Comment, user=User):
-    auth.require(user, *auth.RULE_ACTORS)
+    auth.require(user, 'dept')
     with transaction() as c:
         return rules.reject(c, user, rid, body.comment)
 

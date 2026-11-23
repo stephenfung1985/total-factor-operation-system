@@ -580,6 +580,23 @@ body { overflow-x: hidden; }
   .wtable-wrap { max-height: 70vh; }
   .xtip { max-width: 70vw; }
 }
+.quad-plot { width: 100%; height: auto; display: block; }
+.quad-dot { cursor: pointer; }
+.quad-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--text2); }
+.quad-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 4px; margin-right: 6px; }
+.quad-scroll { overflow-x: auto; }
+.quad-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.quad-table th, .quad-table td { padding: 10px 12px; border-bottom: 1px solid var(--sep2); text-align: left; white-space: nowrap; }
+.quad-table th { color: var(--text2); font-weight: 500; font-size: 12px; }
+.quad-table tbody tr.pick { cursor: pointer; }
+.quad-table tbody tr.pick:hover, .quad-table tbody tr.on:hover { background: var(--fill); }
+.quad-table tr.on { background: var(--sel); }
+.quad-formula { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.5; color: var(--text3); }
+.quad-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.quad-detail { display: flex; flex-direction: column; gap: 12px; }
+.quad-detail h3 { margin: 8px 0 0; font-size: 16px; }
+textarea.input { height: auto; padding: 10px 12px; resize: vertical; }
+
 @media (max-width: 400px) {
   .user-box .btn.sm { padding: 0 10px; }
 }

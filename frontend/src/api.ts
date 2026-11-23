@@ -317,6 +317,37 @@ export interface ResultImport { count: Record<string, number>; committed: boolea
 
 export interface CostItemNode { code: string; name: string; level: number; is_leaf: boolean; parent: string | null; dept: string; behavior: string }
 export interface CostOptions { items: CostItemNode[]; periods: string[]; market: string[]; block: string[]; team: string[]; scope: string }
+// ---------- 区块四维经营地图 ----------
+
+export interface QuadThresholds {
+  profit_net_min: number | null; profit_gm_min: number | null; thin_net_min: number | null; thin_gm_min: number | null;
+  confirmed: boolean; state: 'unset' | 'reference' | 'draft' | 'confirmed'; state_label: string; official: boolean; reference: boolean;
+  note: string; updated_by: string | null; updated_at: string | null; confirmed_by: string | null; confirmed_at: string | null;
+}
+export interface QuadStrategy {
+  block: string; active: boolean; rationale: string; review_due: string; risk_limit: string; overdue: boolean;
+  marked_by: string; marked_at: string;
+}
+export interface QuadAdvice { code: string; title: string; text: string; disclaimer: string }
+export interface QuadWell {
+  well_id: string; team: string; rig_type: string | null; status: string; revenue: number; gross_margin: number; net_profit: number;
+  gm_rate: number | null; net_rate: number | null; quality: string;
+}
+export interface QuadBlock {
+  block: string; revenue: number; fixed: number; variable: number; total_cost: number; gross_margin: number; net_profit: number;
+  gm_rate: number | null; net_rate: number | null; footage: number | null; footage_note: string;
+  quality: string; quality_label: string; financial_class: string; financial_label: string; quadrant: string; quadrant_label: string;
+  loss_visible: boolean; strategy: QuadStrategy | null; well_count: number; wells: QuadWell[];
+  idle_wells: { well_id: string; team: string; rig_type: string | null }[];
+  budget: null; budget_note: string; team_count: number | null; teams: string[]; rig_types: string[];
+  rig_months: number | null; rig_months_note: string; rig_count: null; rig_count_note: string; advice: QuadAdvice;
+}
+export interface QuadMap {
+  period: string; months: string[]; scope: string; role: string; can_maintain: boolean; scope_note: string;
+  thresholds: QuadThresholds; formula: Record<string, string>; classes: { id: string; rule: string }[];
+  blocks: QuadBlock[]; counts: Record<string, number>; disclaimer: string;
+}
+
 export interface CostMatrix {
   by: string; label: string; start: string | null; end: string | null; scope: string; grand_total: number; event_count: number;
   footage: number; rig_months: number; per_meter: number | null; per_rig: number | null;

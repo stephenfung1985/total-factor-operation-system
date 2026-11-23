@@ -62,6 +62,8 @@ def init_db(reset: bool = False) -> None:
         elif not conn.execute('SELECT 1 FROM well_info_report LIMIT 1').fetchone():
             seed.seed_well_info(conn)
         accounts.ensure_initial_accounts(conn)
+        from . import quadmap
+        quadmap.ensure_defaults(conn)
 
 
 # 旧库补列：(表, 列, 定义)

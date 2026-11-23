@@ -329,6 +329,35 @@ CREATE TABLE IF NOT EXISTS approval_log (
   comment     TEXT
 );
 
+-- 区块四维经营地图的阈值和战略标记。不存收入、成本或比率结果，金额仍只在经济事项里汇总。
+-- 阈值未确认前只是初始参考，不能当成已经批准的考核标准。
+CREATE TABLE IF NOT EXISTS block_quad_threshold (
+  id             INTEGER PRIMARY KEY CHECK (id = 1),
+  profit_net_min REAL,                -- 盈利线：利润率下限（小数，0.05 = 5%）
+  profit_gm_min  REAL,                -- 盈利线：毛益率下限
+  thin_net_min   REAL,                -- 微利线：利润率下限；空表示不设下限
+  thin_gm_min    REAL,                -- 微利线：毛益率下限
+  confirmed      INTEGER NOT NULL DEFAULT 0,
+  updated_by     TEXT,
+  updated_at     TEXT,
+  confirmed_by   TEXT,
+  confirmed_at   TEXT
+);
+
+-- 战略不是由利润率推导的。有权人员按区块显式标记；取消后保留本行，active=0。
+CREATE TABLE IF NOT EXISTS block_strategy_mark (
+  block        TEXT PRIMARY KEY,      -- 与 well.block 相同
+  active       INTEGER NOT NULL CHECK (active IN (0, 1)),
+  rationale    TEXT,
+  review_due   TEXT,                  -- YYYY-MM-DD
+  risk_limit   TEXT,                  -- 风险约束，不能写成无限投入
+  marked_by    TEXT,
+  marked_at    TEXT,
+  cleared_by   TEXT,
+  cleared_at   TEXT,
+  clear_reason TEXT
+);
+
 -- ---------- 四、计算层 ----------
 
 -- 费用池：企划财务部录入上年发生总额与上年实际钻机台月，本年度按元/台月分到队、到井；分摊结果以“分摊”类事项写入经济事项

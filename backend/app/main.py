@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import accounts, ai, aiparse, allocation, analysis, auth, costdetail, depts, engine, excel, fillparse, filltrace, master, reports, results_import, rules, wellinfo
+from . import accounts, ai, aiparse, allocation, analysis, auth, costdetail, depts, engine, excel, fillparse, filltrace, master, quadmap, reports, results_import, rules, wellinfo
 from .db import init_db, log, rows, transaction
 
 def docs_kwargs() -> dict:
@@ -188,6 +188,61 @@ def item_events(well_id: str, code: str, period: str, user=User):
 def trace(event_id: int, user=User):
     with transaction() as c:
         return analysis.trace(c, user, event_id)
+
+
+class QuadThresholdBody(BaseModel):
+    profit_net_min: float | None = None
+    profit_gm_min: float | None = None
+    thin_net_min: float | None = None
+    thin_gm_min: float | None = None
+    confirm: bool = False
+
+
+class QuadStrategyBody(BaseModel):
+    block: str = ''
+    rationale: str = ''
+    review_due: str = ''
+    risk_limit: str = ''
+
+
+class QuadStrategyClearBody(BaseModel):
+    block: str = ''
+    reason: str = ''
+
+
+@app.get('/api/quad-map')
+def quad_map(period: str, user=User):
+    """区块四维经营地图。period 为 YYYY-MM 或 YYYY。金额口径同经营总览，按可见井汇总。"""
+    with transaction() as c:
+        return quadmap.build_map(c, user, period)
+
+
+@app.put('/api/quad-map/thresholds')
+def quad_thresholds_save(body: QuadThresholdBody, user=User):
+    """保存分类阈值。confirm=true 时同时记为经营管理已确认；否则保存后仍是待确认。"""
+    with transaction() as c:
+        return quadmap.save_thresholds(c, user, body.model_dump(), body.confirm)
+
+
+@app.post('/api/quad-map/thresholds/withdraw')
+def quad_thresholds_withdraw(user=User):
+    """撤回确认。数值保留，页面回到待确认，不把旧的确认继续当成正式标准。"""
+    with transaction() as c:
+        return quadmap.withdraw_thresholds(c, user)
+
+
+@app.post('/api/quad-map/strategy')
+def quad_strategy_mark(body: QuadStrategyBody, user=User):
+    """按区块显式标记战略。必须填写依据、复评期和风险约束。"""
+    with transaction() as c:
+        return quadmap.mark_strategy(c, user, body.model_dump())
+
+
+@app.post('/api/quad-map/strategy/clear')
+def quad_strategy_clear(body: QuadStrategyClearBody, user=User):
+    """取消战略标记。区块回到基础财务分类。"""
+    with transaction() as c:
+        return quadmap.clear_strategy(c, user, body.model_dump())
 
 
 @app.get('/api/benchmark')

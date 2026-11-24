@@ -329,7 +329,7 @@ CREATE TABLE IF NOT EXISTS approval_log (
   comment     TEXT
 );
 
--- 区块四维经营地图的阈值和战略标记。不存收入、成本或比率结果，金额仍只在经济事项里汇总。
+-- 四维地图的阈值和战略标记。不存收入、成本或比率结果，金额仍只在经济事项里汇总。
 -- 阈值未确认前只是初始参考，不能当成已经批准的考核标准。
 CREATE TABLE IF NOT EXISTS block_quad_threshold (
   id             INTEGER PRIMARY KEY CHECK (id = 1),

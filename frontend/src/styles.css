@@ -580,21 +580,49 @@ body { overflow-x: hidden; }
   .wtable-wrap { max-height: 70vh; }
   .xtip { max-width: 70vw; }
 }
-.quad-plot { width: 100%; height: auto; display: block; }
-.quad-dot { cursor: pointer; }
-.quad-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--text2); }
-.quad-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 4px; margin-right: 6px; }
+.quad-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
+.quad-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 1100px) { .quad-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .quad-cards { grid-template-columns: 1fr; } }
+.quad-card { display: flex; flex-direction: column; gap: 10px; text-align: left; padding: 16px 18px; border-radius: 16px; border: 1.5px solid transparent; border-top-width: 3px; background: var(--card); color: var(--text); min-width: 0; transition: border-color .15s ease, box-shadow .15s ease, transform .12s ease, background-color .15s ease; }
+.quad-card:hover { box-shadow: 0 3px 16px rgba(0,0,0,.07); }
+.quad-card:active { transform: scale(.99); }
+.quad-card.tone-good { border-top-color: var(--good); }
+.quad-card.tone-warn { border-top-color: var(--warn); }
+.quad-card.tone-bad { border-top-color: var(--bad); }
+.quad-card.tone-info { border-top-color: var(--accent); }
+.quad-card.on { border-color: var(--accent); background: var(--sel); }
+.quad-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.quad-card-count { display: flex; align-items: baseline; gap: 6px; }
+.quad-card-count b { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
+.quad-card-count span { font-size: 13px; color: var(--text2); }
+.quad-card-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding-top: 8px; border-top: 1px solid var(--sep2); }
+.quad-metric { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.quad-metric span { font-size: 11px; color: var(--text2); }
+.quad-metric b { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.quad-card-foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 10px; font-size: 12px; color: var(--text2); }
+.quad-card-alert { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--bad); font-weight: 500; }
+.quad-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 14px; padding: 14px 18px; border-bottom: 1px solid var(--sep2); }
+.quad-toolbar-left, .quad-toolbar-right { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.quad-pill-btn { height: 32px; padding: 0 12px; border: 1px solid var(--border); border-radius: 980px; background: var(--card); color: var(--text2); font-size: 13px; }
+.quad-pill-btn:hover { background: var(--fill); color: var(--text); }
+.quad-pill-btn.on { border-color: var(--accent); background: var(--sel); color: var(--accent); font-weight: 500; }
+.quad-block-cell { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .quad-scroll { overflow-x: auto; }
 .quad-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.quad-table th, .quad-table td { padding: 10px 12px; border-bottom: 1px solid var(--sep2); text-align: left; white-space: nowrap; }
+.quad-table th, .quad-table td { padding: 11px 14px; border-bottom: 1px solid var(--sep2); text-align: left; white-space: nowrap; }
 .quad-table th { color: var(--text2); font-weight: 500; font-size: 12px; }
 .quad-table tbody tr.pick { cursor: pointer; }
 .quad-table tbody tr.pick:hover, .quad-table tbody tr.on:hover { background: var(--fill); }
 .quad-table tr.on { background: var(--sel); }
+.quad-table-foot { padding: 10px 18px 14px; }
+.quad-advice-box { padding: 12px 14px; border-radius: 12px; background: var(--fill); font-size: 13px; }
+.quad-strategy-box { padding-top: 12px; border-top: 1px solid var(--sep); }
+.quad-clear-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
 .quad-formula { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.5; color: var(--text3); }
 .quad-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
-.quad-detail { display: flex; flex-direction: column; gap: 12px; }
-.quad-detail h3 { margin: 8px 0 0; font-size: 16px; }
+.quad-detail { display: flex; flex-direction: column; gap: 14px; }
+.quad-detail h3 { margin: 4px 0 0; font-size: 16px; }
 textarea.input { height: auto; padding: 10px 12px; resize: vertical; }
 
 @media (max-width: 400px) {

@@ -317,7 +317,7 @@ export interface ResultImport { count: Record<string, number>; committed: boolea
 
 export interface CostItemNode { code: string; name: string; level: number; is_leaf: boolean; parent: string | null; dept: string; behavior: string }
 export interface CostOptions { items: CostItemNode[]; periods: string[]; market: string[]; block: string[]; team: string[]; scope: string }
-// ---------- 区块四维经营地图 ----------
+// ---------- 四维地图 ----------
 
 export interface QuadThresholds {
   profit_net_min: number | null; profit_gm_min: number | null; thin_net_min: number | null; thin_gm_min: number | null;

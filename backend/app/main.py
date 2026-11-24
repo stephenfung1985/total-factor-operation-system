@@ -212,7 +212,7 @@ class QuadStrategyClearBody(BaseModel):
 
 @app.get('/api/quad-map')
 def quad_map(period: str, user=User):
-    """区块四维经营地图。period 为 YYYY-MM 或 YYYY。金额口径同经营总览，按可见井汇总。"""
+    """四维地图。period 为 YYYY-MM 或 YYYY。金额口径同经营总览，按可见井汇总。"""
     with transaction() as c:
         return quadmap.build_map(c, user, period)
 

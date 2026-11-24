@@ -1,4 +1,4 @@
-"""区块四维经营地图：分类边界、两率同时参与、加权汇总、零/负收入、战略标记、越权、迁移幂等。"""
+"""四维地图：分类边界、两率同时参与、加权汇总、零/负收入、战略标记、越权、迁移幂等。"""
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
